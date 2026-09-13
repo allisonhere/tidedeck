@@ -134,3 +134,44 @@ func TestMixColorsAndSurface(t *testing.T) {
 		t.Fatal("surface did not reach its ratio")
 	}
 }
+
+func TestHueAndShiftHue(t *testing.T) {
+	red := lipgloss.Color("#ff0000")
+	h, s, ok := Hue(red)
+	if !ok || s == 0 || (h > 1 && h < 359) {
+		t.Fatalf("Hue(red) = %.1f, %.2f, %v", h, s, ok)
+	}
+	// Rotating a third of the way round takes red to green, then to blue.
+	green := ShiftHue(red, 120)
+	blue := ShiftHue(red, 240)
+	if green == red || blue == red || green == blue {
+		t.Fatalf("hue rotation collapsed: %s %s %s", red, green, blue)
+	}
+	gr, gg, gb, _ := hexToRGB(green)
+	if !(gg > gr && gg > gb) {
+		t.Fatalf("red + 120 is not green: %s", green)
+	}
+	// A whole number of turns is exactly the identity, with no round-trip drift.
+	for _, turn := range []float64{0, 360, -360, 720} {
+		if got := ShiftHue(red, turn); got != red {
+			t.Fatalf("rotating by %.0f changed the colour: %s", turn, got)
+		}
+	}
+	if ShiftHue(red, -120) != ShiftHue(red, 240) {
+		t.Fatal("negative rotation does not wrap")
+	}
+	// Greyscale has no hue to rotate, so a monochrome palette stays monochrome.
+	grey := lipgloss.Color("#808080")
+	if got := ShiftHue(grey, 90); got != grey {
+		t.Fatalf("greyscale was tinted: %s", got)
+	}
+	if _, s, _ := Hue(grey); s != 0 {
+		t.Fatalf("greyscale reported saturation %.2f", s)
+	}
+	if _, _, ok := Hue(lipgloss.Color("5")); ok {
+		t.Fatal("a non-hex colour reported a hue")
+	}
+	if got := ShiftHue(lipgloss.Color("5"), 90); got != lipgloss.Color("5") {
+		t.Fatal("a non-hex colour was rotated")
+	}
+}

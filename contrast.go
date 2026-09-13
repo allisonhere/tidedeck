@@ -130,3 +130,43 @@ func CorrectThemeContrast(t Theme) Theme {
 	out.StatusFg = readableText(t.StatusFg, out.StatusBar, contrastText)
 	return out
 }
+
+// Hue returns a colour's hue in degrees (0-360) and its saturation (0-1).
+// ok is false for a colour that is not a parseable hex value. A greyscale
+// colour reports a hue of 0 with a saturation of 0, which is what callers need
+// to recognise a palette that has no colour to vary.
+func Hue(c lipgloss.Color) (degrees, saturation float64, ok bool) {
+	r, g, b, ok := hexToRGB(c)
+	if !ok {
+		return 0, 0, false
+	}
+	h, s, _ := rgbToHSL(r, g, b)
+	return h * 360, s, true
+}
+
+// ShiftHue rotates a colour around the colour wheel by degrees, keeping its
+// saturation and lightness. It is the companion to AdjustLightness for building
+// a set of related colours — a graph's lanes, a chart's series — that belong to
+// the same palette instead of being picked arbitrarily.
+//
+// A greyscale colour has no hue to rotate and is returned unchanged, so a
+// monochrome theme cannot be turned into a colourful one by accident.
+func ShiftHue(c lipgloss.Color, degrees float64) lipgloss.Color {
+	r, g, b, ok := hexToRGB(c)
+	if !ok {
+		return c
+	}
+	h, s, l := rgbToHSL(r, g, b)
+	if s == 0 {
+		return c
+	}
+	// A whole number of turns is the identity. Returning the input avoids the
+	// one-bit drift an RGB -> HSL -> RGB round trip would otherwise introduce.
+	if math.Mod(degrees, 360) == 0 {
+		return c
+	}
+	h = math.Mod(math.Mod(h+degrees/360, 1)+1, 1)
+	nr, ng, nb := hslToRGB(h, s, l)
+	return lipgloss.Color(fmt.Sprintf("#%02x%02x%02x",
+		uint8(math.Round(nr*255)), uint8(math.Round(ng*255)), uint8(math.Round(nb*255))))
+}
