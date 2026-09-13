@@ -125,7 +125,11 @@ func (r Renderer) Render(layout Layout) string {
 // system, so they can still get the same contrast-aware shadow rather than
 // reimplementing it as a flat overlay.
 func (r Renderer) OverlayModal(base, overlayContent string, width, height int) string {
-	return overlayOnBase(base, overlayContent, width, height, r.Styles.Theme.Bg, r.Styles.ModalShadow, r.Styles.ModalShadowColor)
+	view := overlayOnBase(base, overlayContent, width, height, r.Styles.Theme.Bg, r.Styles.ModalShadow, r.Styles.ModalShadowColor)
+	// Render finishes with the same clamp, which is also where a composited
+	// line gets its background made continuous. Skipping it here would leave
+	// this path one step short of the one it exists to mirror.
+	return clampView(view, width, height, r.Styles.Theme.Bg)
 }
 
 // Row is a generic themed list row with optional left and right content.
@@ -146,7 +150,7 @@ func (r Renderer) RenderRow(row Row, width int) string {
 	if row.Selected {
 		style = r.Styles.ItemSelected
 	}
-	return style.Width(width).Render(alignRow(row.Prefix, row.Text, row.Suffix, width))
+	return StyleOver(style.Width(width), alignRow(row.Prefix, row.Text, row.Suffix, width))
 }
 
 // Block is a multi-line themed item with an optional body below the header line.
@@ -176,13 +180,12 @@ func (r Renderer) RenderBlock(block Block, width int) string {
 		style = r.Styles.ItemSelected
 	}
 	if block.Body == "" {
-		return style.Width(width).Render(alignRow(block.Prefix, block.Header, block.Meta, width))
+		return StyleOver(style.Width(width), alignRow(block.Prefix, block.Header, block.Meta, width))
 	}
-	headerLine := style.Copy().UnsetPaddingBottom().Width(width).
-		Render(alignRow(block.Prefix, block.Header, block.Meta, width))
+	headerLine := StyleOver(style.Copy().UnsetPaddingBottom().Width(width),
+		alignRow(block.Prefix, block.Header, block.Meta, width))
 	prefixWidth := lipgloss.Width(block.Prefix)
-	bodyContent := r.Styles.DetailBody.Copy().PaddingLeft(prefixWidth).
-		Width(width).Render(block.Body)
+	bodyContent := StyleOver(r.Styles.DetailBody.Copy().PaddingLeft(prefixWidth).Width(width), block.Body)
 	return headerLine + "\n" + bodyContent
 }
 
@@ -305,7 +308,7 @@ func (r Renderer) renderPane(pane Pane, width, height int) string {
 
 	contentHeight := max(0, innerHeight-1)
 	header := r.renderHeader(pane, innerWidth)
-	bodyContent := r.Styles.DetailBody.Width(innerWidth).Render(pane.Content)
+	bodyContent := StyleOver(r.Styles.DetailBody.Width(innerWidth), pane.Content)
 	bodyContent = applyScrollOffset(bodyContent, pane.ScrollOffset)
 	body := clampView(bodyContent, innerWidth, contentHeight, r.Styles.Theme.Bg)
 	content := header
@@ -325,7 +328,7 @@ func (r Renderer) renderHeader(pane Pane, width int) string {
 	if pane.Focused {
 		prefix = "> "
 	}
-	return r.paneHeaderStyle(pane).Width(width).Render(alignRow(prefix, pane.Title, pane.Hint, width))
+	return StyleOver(r.paneHeaderStyle(pane).Width(width), alignRow(prefix, pane.Title, pane.Hint, width))
 }
 
 func (r Renderer) paneHeaderStyle(pane Pane) lipgloss.Style {
@@ -357,18 +360,18 @@ func (r Renderer) renderStatus(status StatusBar, width int) string {
 	right = ansi.Truncate(right, max(0, rightWidth), "")
 	gap := max(0, innerWidth-lipgloss.Width(left)-lipgloss.Width(right))
 
-	// Left may carry its own embedded styling (a host-composed, multi-
-	// segment status message, e.g. a colored label next to a differently
-	// colored indicator) — once any of its embedded spans resets, plain
-	// text concatenated after it no longer inherits an outer style's
-	// background/foreground, since ANSI resets aren't stack-scoped to
-	// "this wrapping style" versus "the one before it." Rendering the gap,
-	// Right, and the leading/trailing single spaces through this style
-	// individually, rather than wrapping the whole concatenated line in one
-	// outer Render call, keeps them themed regardless of what Left did
-	// internally.
+	// Left may carry its own embedded styling (a host-composed, multi-segment
+	// status message, e.g. a colored label next to a differently colored
+	// indicator). Once any of its embedded spans resets, anything after it —
+	// including Left's own plain text and separators — stops inheriting this
+	// style, because ANSI resets are not stack-scoped to "this wrapping style"
+	// versus "the one before it". StyleOver re-opens the bar after each of
+	// those resets, and the gap and the edge spaces are rendered through the
+	// style individually, so the whole bar stays one solid surface whatever
+	// the host composed into it.
 	bar := r.Styles.StatusBar.Copy().UnsetPadding()
-	return bar.Render(" ") + left + bar.Render(strings.Repeat(" ", gap)) + bar.Render(right) + bar.Render(" ")
+	return bar.Render(" ") + StyleOver(bar, left) + bar.Render(strings.Repeat(" ", gap)) +
+		StyleOver(bar, right) + bar.Render(" ")
 }
 
 func (r Renderer) renderOverlay(overlay Overlay, windowWidth int) string {
@@ -469,6 +472,7 @@ func clampView(view string, width, height int, background lipgloss.Color) string
 	}
 	for i, line := range lines {
 		line = ansi.Truncate(line, width, "")
+		line = ContinuousBackground(line, background)
 		padding := width - lipgloss.Width(line)
 		if padding > 0 {
 			line += fill.Render(strings.Repeat(" ", padding))

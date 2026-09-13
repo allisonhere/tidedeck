@@ -162,6 +162,8 @@ func (r Renderer) RenderSoftBody(width int, content string) string {
 					Background(chrome.baseBg).
 					Foreground(chrome.text).
 					Render(ansi.Truncate(line, innerWidth, ""))
+			} else {
+				line = ContinuousBackground(ansi.Truncate(line, innerWidth, ""), chrome.baseBg)
 			}
 			lines = append(lines, pad+padStyled(line, innerWidth, chrome.baseBg)+pad)
 		}
@@ -186,7 +188,7 @@ func (r Renderer) RenderSoftRow(row SoftRow, width int) string {
 	rail := r.SoftRail(row.Selected, bg)
 	contentW := max(1, width-lipgloss.Width(rail))
 	content := alignRow(row.Prefix, row.Text, row.Suffix, contentW)
-	content = lipgloss.NewStyle().Background(bg).Foreground(fg).Bold(row.Selected).Render(content)
+	content = StyleOver(lipgloss.NewStyle().Background(bg).Foreground(fg).Bold(row.Selected), content)
 	return rail + padStyled(content, contentW, bg)
 }
 
@@ -210,7 +212,7 @@ func (r Renderer) SoftRail(active bool, bg lipgloss.Color) string {
 
 func padStyled(value string, width int, bg lipgloss.Color) string {
 	width = max(0, width)
-	value = ansi.Truncate(value, width, "")
+	value = ContinuousBackground(ansi.Truncate(value, width, ""), bg)
 	padding := max(0, width-lipgloss.Width(value))
 	if padding == 0 {
 		return value
