@@ -283,26 +283,43 @@ func (r Renderer) RenderClock(c ClockData, width int) string {
 		glyphColor = ws.SubtitleFg
 	}
 	timeStyle := lipgloss.NewStyle().Background(bg).Foreground(ws.FrameActive).Bold(true)
+	center := lipgloss.NewStyle().Background(bg).Width(width).Align(lipgloss.Center)
 	var lines []string
+	bigShown := false
 	if big := bigTime(clockDigits(c.Local)); lipgloss.Width(big[0]) <= width {
+		bigShown = true
+		bigStyle := timeStyle.Width(width).Align(lipgloss.Center)
 		for _, line := range big {
-			lines = append(lines, timeStyle.Render(line))
+			lines = append(lines, bigStyle.Render(strings.TrimRight(line, " ")))
 		}
 	} else {
 		lines = append(lines, timeStyle.Render(clockTime(c.Local, c.Hour24)))
 	}
-	lines = append(lines, lipgloss.NewStyle().Background(bg).Foreground(ws.SubtitleFg).
-		Render(c.Local.Format("Mon Jan 2")+" · "+period)+
-		lipgloss.NewStyle().Background(bg).Foreground(glyphColor).Render(" "+glyph))
+	dateLine := lipgloss.NewStyle().Background(bg).Foreground(ws.SubtitleFg).
+		Render(c.Local.Format("Mon Jan 2")+" · "+period) +
+		lipgloss.NewStyle().Background(bg).Foreground(glyphColor).Render(" "+glyph)
+	if bigShown {
+		lines = append(lines, center.Render(dateLine))
+	} else {
+		lines = append(lines, dateLine)
+	}
 	if barWidth := min(width-2, 18); barWidth >= 6 {
 		fraction := dayFraction(c.Local)
 		bar := r.RenderProgressBar(ProgressBar{Fraction: fraction, Width: barWidth, Tone: ToneAccent}, bg)
 		pct := lipgloss.NewStyle().Background(bg).Foreground(ws.BodyMutedFg).
 			Render(fmt.Sprintf("  %d%%", int(math.Round(fraction*100))))
-		lines = append(lines, bar+pct)
+		if bigShown {
+			lines = append(lines, center.Render(bar+pct))
+		} else {
+			lines = append(lines, bar+pct)
+		}
 	}
 	if c.Location != "" {
-		lines = append(lines, lipgloss.NewStyle().Background(bg).Foreground(ws.HintFg).Render(c.Location))
+		loc := lipgloss.NewStyle().Background(bg).Foreground(ws.HintFg).Render(c.Location)
+		if bigShown {
+			loc = center.Render(loc)
+		}
+		lines = append(lines, loc)
 	}
 	if len(c.Zones) > 0 {
 		lines = append(lines, "")
