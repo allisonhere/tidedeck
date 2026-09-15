@@ -223,6 +223,10 @@ func TestClockLook(t *testing.T) {
 	if len(big) != 3 || lipgloss.Width(big[0]) != 19 {
 		t.Fatalf("dash bigTime = %#v", big)
 	}
+	// The dash "4" carries both top verticals, so it reads as a seven-segment 4.
+	if four := bigClockDash['4']; len(four) != 3 || four[0] != "| |" || four[2] != "  |" {
+		t.Fatalf("dash 4 = %#v", four)
+	}
 	block := NewRenderer(CatppuccinMocha, StyleOptions{ClockFont: ClockFontBlock}).bigTime("14:42")
 	if len(block) != 5 || lipgloss.Width(block[0]) != 19 {
 		t.Fatalf("block bigTime = %#v", block)
