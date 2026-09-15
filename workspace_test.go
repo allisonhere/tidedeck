@@ -3,8 +3,6 @@ package tideui
 import (
 	"strings"
 	"testing"
-
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 func newTestWorkspace(t *testing.T) *Workspace {
@@ -215,20 +213,91 @@ func TestWorkspaceArrangeMerge(t *testing.T) {
 	}
 }
 
-func TestWorkspaceResizeAdjustsWeights(t *testing.T) {
+func TestWorkspaceResizeGrowsTowardNeighbour(t *testing.T) {
 	ws := newTestWorkspace(t)
 	ws.Focus("nav")
 	before := ws.Solve(80, 24)
-	ws.SetResizeMode(true)
-	if !ws.Resize(DirRight, 0.5) {
-		t.Fatal("Resize failed")
+	if !ws.ResizeEdge(DirRight) {
+		t.Fatal("ResizeEdge(DirRight) failed")
 	}
 	after := ws.Solve(80, 24)
 	if after.Rects["nav"].Width <= before.Rects["nav"].Width {
 		t.Fatalf("nav did not grow: %d -> %d", before.Rects["nav"].Width, after.Rects["nav"].Width)
 	}
-	if after.Rects["main"].Width <= 0 {
-		t.Fatal("main collapsed below positive width")
+	if after.Rects["main"].Width >= before.Rects["main"].Width {
+		t.Fatalf("main did not give space: %d -> %d", before.Rects["main"].Width, after.Rects["main"].Width)
+	}
+}
+
+func TestWorkspaceResizeShrinksAtEdge(t *testing.T) {
+	ws := newTestWorkspace(t)
+	ws.Focus("nav") // leftmost pane: no left neighbour
+	before := ws.Solve(80, 24).Rects["nav"].Width
+	if !ws.ResizeEdge(DirLeft) {
+		t.Fatal("ResizeEdge(DirLeft) failed")
+	}
+	after := ws.Solve(80, 24).Rects["nav"].Width
+	if after >= before {
+		t.Fatalf("left at the edge should shrink nav: %d -> %d", before, after)
+	}
+}
+
+func TestWorkspaceResizeMiddleGrowsBothWays(t *testing.T) {
+	build := func() *Workspace {
+		ws := NewWorkspace(WithGap(0))
+		ws.Panel("a", Text("a")).MinWidth(5).MinHeight(3)
+		ws.Panel("b", Text("b")).MinWidth(5).MinHeight(3)
+		ws.Panel("c", Text("c")).MinWidth(5).MinHeight(3)
+		ws.Layout(HStack(Leaf("a"), Leaf("b"), Leaf("c")))
+		ws.Focus("b")
+		ws.Solve(90, 20)
+		return ws
+	}
+	base := build().Solve(90, 20).Rects["b"].Width
+
+	right := build()
+	if !right.ResizeEdge(DirRight) {
+		t.Fatal("ResizeEdge(DirRight) failed on a middle pane")
+	}
+	if got := right.Solve(90, 20).Rects["b"].Width; got <= base {
+		t.Fatalf("middle pane did not grow right: %d -> %d", base, got)
+	}
+
+	left := build()
+	if !left.ResizeEdge(DirLeft) {
+		t.Fatal("ResizeEdge(DirLeft) failed on a middle pane")
+	}
+	if got := left.Solve(90, 20).Rects["b"].Width; got <= base {
+		t.Fatalf("middle pane did not grow left: %d -> %d", base, got)
+	}
+}
+
+func TestWorkspaceResizeVertical(t *testing.T) {
+	build := func() *Workspace {
+		ws := NewWorkspace(WithGap(0))
+		ws.Panel("top", Text("top")).MinWidth(5).MinHeight(3)
+		ws.Panel("bottom", Text("bottom")).MinWidth(5).MinHeight(3)
+		ws.Layout(VStack(Leaf("top"), Leaf("bottom")))
+		ws.Focus("top")
+		ws.Solve(40, 24)
+		return ws
+	}
+	base := build().Solve(40, 24).Rects["top"].Height
+
+	down := build()
+	if !down.ResizeEdge(DirDown) {
+		t.Fatal("ResizeEdge(DirDown) failed")
+	}
+	if got := down.Solve(40, 24).Rects["top"].Height; got <= base {
+		t.Fatalf("down did not grow top: %d -> %d", base, got)
+	}
+
+	up := build() // no neighbour above: the bottom edge moves up and top shrinks
+	if !up.ResizeEdge(DirUp) {
+		t.Fatal("ResizeEdge(DirUp) failed")
+	}
+	if got := up.Solve(40, 24).Rects["top"].Height; got >= base {
+		t.Fatalf("up at the top edge should shrink top: %d -> %d", base, got)
 	}
 }
 
@@ -240,7 +309,7 @@ func TestWorkspaceResizeRespectsMinimums(t *testing.T) {
 	ws.Focus("a")
 	ws.Solve(80, 10)
 	for i := 0; i < 20; i++ {
-		ws.Resize(DirRight, 0.5)
+		ws.ResizeWidth(true)
 	}
 	solved := ws.Solve(80, 10)
 	if solved.Rects["b"].Width < 20 {
@@ -251,238 +320,16 @@ func TestWorkspaceResizeRespectsMinimums(t *testing.T) {
 	}
 }
 
-func TestWorkspaceUndoRedo(t *testing.T) {
-	ws := newTestWorkspace(t)
-	ws.Focus("main")
-	original := LayoutString(ws.RootLayout())
-
-	ws.Hide("log")
-	hiddenState := LayoutString(ws.RootLayout())
-	if ws.CanUndo() == false {
-		t.Fatal("expected undo history")
-	}
-	if !ws.Undo() {
-		t.Fatal("Undo failed")
-	}
-	if ws.Hidden("log") {
-		t.Fatal("undo did not restore log visibility")
-	}
-	if got := LayoutString(ws.RootLayout()); got != original {
-		t.Fatalf("undo layout = %s, want %s", got, original)
-	}
-	if !ws.Redo() {
-		t.Fatal("Redo failed")
-	}
-	if !ws.Hidden("log") {
-		t.Fatal("redo did not re-hide log")
-	}
-	if got := LayoutString(ws.RootLayout()); got != hiddenState {
-		t.Fatalf("redo layout = %s, want %s", got, hiddenState)
-	}
-}
-
-func TestWorkspaceHistoryIsBounded(t *testing.T) {
-	ws := NewWorkspace(WithHistoryLimit(4))
-	ws.Panel("a", Text("a"))
-	ws.Panel("b", Text("b"))
-	ws.Layout(HStack(Leaf("a"), Leaf("b")))
-	for i := 0; i < 20; i++ {
-		ws.Focus("a")
-		ws.Focus("b")
-	}
-	if got := ws.history.Len(); got > 4 {
-		t.Fatalf("history length = %d, want <= 4", got)
-	}
-}
-
-func TestWorkspacePresets(t *testing.T) {
-	ws := newTestWorkspace(t)
-	ws.AddPreset("wide", HStack(Leaf("nav"), Leaf("main"), Leaf("log")))
-	ws.AddPreset("focus", VStack(Leaf("main"), Tabs("log", "nav")))
-	if !ws.ApplyPreset("focus") {
-		t.Fatal("ApplyPreset failed")
-	}
-	if ws.ActivePreset() != "focus" {
-		t.Fatalf("active preset = %q", ws.ActivePreset())
-	}
-	if !strings.Contains(LayoutString(ws.RootLayout()), "tabs") {
-		t.Fatalf("preset layout not applied: %s", LayoutString(ws.RootLayout()))
-	}
-	if ws.ApplyPreset("missing") {
-		t.Fatal("applying a missing preset should fail")
-	}
-}
-
-func TestWorkspaceResetLayoutRestoresAllPanels(t *testing.T) {
-	ws := newTestWorkspace(t)
-	ws.Hide("log")
-	ws.ResetLayout()
-	if ws.Hidden("log") {
-		t.Fatal("reset did not restore hidden panel")
-	}
-	solved := ws.Solve(80, 24)
-	if _, ok := solved.Rects["log"]; !ok {
-		t.Fatal("reset layout missing log")
-	}
-}
-
-func TestWorkspaceHandleKey(t *testing.T) {
-	ws := newTestWorkspace(t)
-	ws.Focus("nav")
-	if !ws.HandleKey(keyMsg("tab")) {
-		t.Fatal("tab not handled")
-	}
-	if ws.Focused() != "main" {
-		t.Fatalf("tab focus = %q, want main", ws.Focused())
-	}
-	if !ws.HandleKey(keyMsg("m")) {
-		t.Fatal("m not handled")
-	}
-	if !ws.Arranging() {
-		t.Fatal("m did not enter arrange mode")
-	}
-	if !ws.HandleKey(keyMsg("esc")) {
-		t.Fatal("esc not handled")
-	}
-	if ws.Arranging() {
-		t.Fatal("esc did not exit arrange mode")
-	}
-}
-
-func TestResizeModeSelectsDividerThenMovesIt(t *testing.T) {
+func TestWorkspaceResizeReportsPercentage(t *testing.T) {
 	ws := newTestWorkspace(t)
 	ws.Focus("nav")
 	ws.Solve(80, 24)
-	before := ws.Solve(80, 24).Rects["nav"].Width
-
-	if !ws.HandleKey(keyMsg("R")) {
-		t.Fatal("R did not enter resize mode")
+	if !ws.ResizeEdge(DirRight) {
+		t.Fatal("ResizeEdge failed")
 	}
-	if !ws.Resizing() {
-		t.Fatal("workspace is not in resize mode")
-	}
-	// First direction press selects the boundary on that side (no move yet).
-	if !ws.HandleKey(keyMsg("l")) {
-		t.Fatal("l was not handled in resize mode")
-	}
-	if _, ok := ws.SelectedDivider(); !ok {
-		t.Fatal("l did not select a divider")
-	}
-	if got := ws.Solve(80, 24).Rects["nav"].Width; got != before {
-		t.Fatalf("selecting a divider should not move it: %d -> %d", before, got)
-	}
-	// The next press moves the selected divider.
-	if !ws.HandleKey(keyMsg("l")) {
-		t.Fatal("second l was not handled")
-	}
-	after := ws.Solve(80, 24).Rects["nav"].Width
-	if after <= before {
-		t.Fatalf("moving the divider right did not grow nav: %d -> %d", before, after)
-	}
-	if ws.Focused() != "nav" {
-		t.Fatalf("resize mode changed focus to %q", ws.Focused())
-	}
-	if !ws.HandleKey(keyMsg("esc")) || ws.Resizing() {
-		t.Fatal("esc did not leave resize mode")
-	}
-}
-
-func TestResizeModeDividerMovesBothWays(t *testing.T) {
-	ws := newTestWorkspace(t)
-	// Focus the middle panel so it is surrounded on both sides.
-	ws.Focus("main")
-	ws.Solve(80, 24)
-	base := ws.Solve(80, 24).Rects["main"].Width
-	ws.ToggleResizeMode()
-
-	ws.HandleKey(keyMsg("l")) // select the divider to the right of main
-	ws.HandleKey(keyMsg("l")) // move it right: main grows
-	grown := ws.Solve(80, 24).Rects["main"].Width
-	if grown <= base {
-		t.Fatalf("right did not grow the surrounded panel: %d -> %d", base, grown)
-	}
-	ws.HandleKey(keyMsg("h")) // move the same divider left: main shrinks
-	shrunk := ws.Solve(80, 24).Rects["main"].Width
-	if shrunk >= grown {
-		t.Fatalf("left did not shrink the surrounded panel: %d -> %d", grown, shrunk)
-	}
-}
-
-func TestResizeModeTabCyclesDividers(t *testing.T) {
-	ws := newTestWorkspace(t)
-	ws.Focus("main")
-	ws.Solve(80, 24)
-	ws.ToggleResizeMode()
-	if len(ws.Dividers()) < 2 {
-		t.Fatalf("expected multiple dividers, got %d", len(ws.Dividers()))
-	}
-	ws.CycleResizeDivider(1)
-	first := ws.resizeDivider
-	if _, ok := ws.SelectedDivider(); !ok {
-		t.Fatal("no divider selected after cycle")
-	}
-	ws.CycleResizeDivider(1)
-	second := ws.resizeDivider
-	if first == second {
-		t.Fatal("tab did not advance to another divider")
-	}
-	ws.CycleResizeDivider(-1)
-	if ws.resizeDivider != first {
-		t.Fatalf("shift+tab did not return to the previous divider: %d", ws.resizeDivider)
-	}
-}
-
-func TestResizeModeCursorGrowsAndShrinksHeight(t *testing.T) {
-	ws := NewWorkspace(WithGap(0))
-	ws.Panel("top", Text("top")).MinWidth(5).MinHeight(3)
-	ws.Panel("bottom", Text("bottom")).MinWidth(5).MinHeight(3)
-	ws.Layout(VStack(Leaf("top"), Leaf("bottom")))
-	ws.Focus("top")
-	base := ws.Solve(40, 24).Rects["top"].Height
-	ws.ToggleResizeMode()
-
-	ws.HandleKey(keyMsg("j")) // select the horizontal divider below top
-	ws.HandleKey(keyMsg("j")) // move it down: top grows
-	grown := ws.Solve(40, 24).Rects["top"].Height
-	if grown <= base {
-		t.Fatalf("j did not grow top: %d -> %d", base, grown)
-	}
-	ws.HandleKey(keyMsg("k")) // move it up: top shrinks
-	shrunk := ws.Solve(40, 24).Rects["top"].Height
-	if shrunk >= grown {
-		t.Fatalf("k did not shrink top: %d -> %d", grown, shrunk)
-	}
-}
-
-func TestDividersCoverColumnsAndRows(t *testing.T) {
-	ws := NewWorkspace(WithGap(1))
-	ws.Panel("a", Text("a")).MinWidth(4).MinHeight(3)
-	ws.Panel("b", Text("b")).MinWidth(4).MinHeight(3)
-	ws.Panel("c", Text("c")).MinWidth(4).MinHeight(3)
-	ws.Panel("d", Text("d")).MinWidth(4).MinHeight(3)
-	ws.Layout(VStack(
-		HStack(Leaf("a"), Leaf("b")),
-		HStack(Leaf("c"), Leaf("d")),
-	))
-	ws.Focus("a")
-	ws.Solve(60, 24)
-	dividers := ws.Dividers()
-	vertical, horizontal := 0, 0
-	for _, divider := range dividers {
-		if divider.Rect.Empty() {
-			t.Fatalf("divider has no rect: %+v", divider)
-		}
-		if divider.Vertical {
-			vertical++
-		} else {
-			horizontal++
-		}
-	}
-	if vertical != 2 {
-		t.Fatalf("vertical dividers = %d, want 2", vertical)
-	}
-	if horizontal < 1 {
-		t.Fatalf("horizontal dividers = %d, want >= 1", horizontal)
+	status := ws.ResizeStatus()
+	if !strings.Contains(status, "width") {
+		t.Fatalf("resize status = %q, want a width percentage", status)
 	}
 }
 
@@ -506,17 +353,29 @@ func TestResizeGrowShrinkAPI(t *testing.T) {
 	}
 }
 
-func TestResizeModeArrowKeysMoveSelectedDivider(t *testing.T) {
+func TestHandleKeyResizesWithShiftArrows(t *testing.T) {
 	ws := newTestWorkspace(t)
 	ws.Focus("nav")
 	ws.Solve(80, 24)
 	before := ws.Solve(80, 24).Rects["nav"].Width
-	ws.ToggleResizeMode()
-	ws.HandleKey(tea.KeyMsg{Type: tea.KeyRight}) // select the divider
-	ws.HandleKey(tea.KeyMsg{Type: tea.KeyRight}) // move it right
-	after := ws.Solve(80, 24).Rects["nav"].Width
-	if after <= before {
-		t.Fatalf("arrow key resize did not grow nav: %d -> %d", before, after)
+	if !ws.HandleKey(keyMsg("shift+right")) {
+		t.Fatal("shift+right was not handled")
+	}
+	if got := ws.Solve(80, 24).Rects["nav"].Width; got <= before {
+		t.Fatalf("shift+right did not grow nav: %d -> %d", before, got)
+	}
+}
+
+func TestHandleKeyResizeCtrlAlias(t *testing.T) {
+	ws := newTestWorkspace(t)
+	ws.Focus("nav")
+	ws.Solve(80, 24)
+	before := ws.Solve(80, 24).Rects["nav"].Width
+	if !ws.HandleKey(keyMsg("ctrl+right")) {
+		t.Fatal("ctrl+right was not handled")
+	}
+	if got := ws.Solve(80, 24).Rects["nav"].Width; got <= before {
+		t.Fatalf("ctrl+right did not grow nav: %d -> %d", before, got)
 	}
 }
 

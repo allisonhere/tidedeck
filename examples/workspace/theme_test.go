@@ -130,33 +130,24 @@ func TestClearFocusedPanelTheme(t *testing.T) {
 	}
 }
 
-// TestResizeModeFromFocusedPanel checks the R mode: a direction key selects the
-// boundary beside the focused panel, the next press moves it, focus stays put,
-// and Esc leaves the mode.
-func TestResizeModeFromFocusedPanel(t *testing.T) {
+// TestShiftArrowResizesFocusedPanel checks that shift+arrow resizes the
+// focused pane directly, with no mode to enter or leave.
+func TestShiftArrowResizesFocusedPanel(t *testing.T) {
 	m := newModel()
 	m.width, m.height = 120, 40
 	m.ws.Focus("weather")
+	m.ws.Solve(120, 39)
 	before := m.ws.Solve(120, 39).Rects["weather"].Width
 
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("R")})
-	if !m.ws.Resizing() {
-		t.Fatal("R did not enter resize mode")
-	}
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // select the divider
-	if _, ok := m.ws.SelectedDivider(); !ok {
-		t.Fatal("right did not select a divider")
-	}
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyRight}) // move it
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("shift+right")})
 	after := m.ws.Solve(120, 39).Rects["weather"].Width
 	if after <= before {
-		t.Fatalf("resize did not grow the focused panel: %d -> %d", before, after)
+		t.Fatalf("shift+right did not grow the focused pane: %d -> %d", before, after)
 	}
 	if m.ws.Focused() != "weather" {
-		t.Fatalf("resize mode changed focus to %q", m.ws.Focused())
+		t.Fatalf("resize changed focus to %q", m.ws.Focused())
 	}
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyEsc})
-	if m.ws.Resizing() {
-		t.Fatal("esc did not leave resize mode")
+	if status := m.ws.ResizeStatus(); status == "" {
+		t.Fatal("expected a resize status percentage")
 	}
 }

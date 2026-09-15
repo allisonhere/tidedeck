@@ -70,9 +70,6 @@ func (wr WorkspaceRenderer) Render(ws *Workspace, width, height int) string {
 		canvas = placeBoxAt(canvas, box, region.Rect.X, region.Rect.Y, width, contentHeight, styles.Workspace.Bg)
 	}
 
-	if ws.Resizing() {
-		canvas = wr.renderResizeDivider(ws, canvas, width, contentHeight)
-	}
 	if peek := ws.Peeked(); peek != "" {
 		canvas = wr.renderPeek(ws, canvas, width, contentHeight, peek)
 	}
@@ -366,36 +363,6 @@ func (d DockSide) String() string {
 	}
 }
 
-// renderResizeDivider highlights the boundary selected in resize mode so it is
-// obvious which gap the direction keys will move.
-func (wr WorkspaceRenderer) renderResizeDivider(ws *Workspace, canvas string, width, height int) string {
-	divider, ok := ws.SelectedDivider()
-	if !ok || divider.Rect.Empty() {
-		return canvas
-	}
-	styles := wr.Renderer.Styles
-	bg := styles.Workspace.Bg
-	glyph := "┃"
-	if !divider.Vertical {
-		glyph = "━"
-	}
-	if styles.PlainUI {
-		if divider.Vertical {
-			glyph = "|"
-		} else {
-			glyph = "-"
-		}
-	}
-	style := lipgloss.NewStyle().Background(bg).Foreground(styles.Workspace.DockColor).Bold(true)
-	line := style.Render(strings.Repeat(glyph, max(1, divider.Rect.Width)))
-	lines := make([]string, max(1, divider.Rect.Height))
-	for i := range lines {
-		lines[i] = line
-	}
-	return placeBoxAt(canvas, strings.Join(lines, "\n"),
-		divider.Rect.X, divider.Rect.Y, width, height, bg)
-}
-
 func (wr WorkspaceRenderer) renderArrangeCard(ws *Workspace, canvas string, width, height int) string {
 	rows := [][2]string{
 		{"h j k l", "move"},
@@ -470,10 +437,11 @@ func (wr WorkspaceRenderer) renderStrip(ws *Workspace, width int) string {
 	switch {
 	case ws.Arranging():
 		mode = "ARRANGE"
-	case ws.Resizing():
-		mode = "RESIZE"
 	case ws.Zoomed() != "":
 		mode = "ZOOM"
+	}
+	if mode == "" {
+		mode = ws.ResizeStatus()
 	}
 	if mode == "" {
 		mode = wr.Options.StatusNotice
@@ -484,7 +452,7 @@ func (wr WorkspaceRenderer) renderStrip(ws *Workspace, width int) string {
 		return wr.Renderer.RenderStatusRegions(primary, mode, wr.Options.StatusRight, width)
 	}
 	hints := wr.statusHints(ws)
-	if !ws.Arranging() && !ws.Resizing() && len(wr.Options.StatusHints) > 0 {
+	if !ws.Arranging() && len(wr.Options.StatusHints) > 0 {
 		// Application hints lead, so a shortcut like "settings" stays
 		// discoverable when the strip is narrow.
 		hints = append(append([]KeyHint{}, wr.Options.StatusHints...), hints...)
@@ -500,17 +468,13 @@ func (wr WorkspaceRenderer) statusHints(ws *Workspace) []KeyHint {
 		return []KeyHint{
 			Hint("h/j/k/l", "move"), Hint("t", "stack"), Hint("esc", "done"),
 		}
-	case ws.Resizing():
-		return []KeyHint{
-			Hint("tab", "divider"), Hint("h/j/k/l", "move"), Hint("esc", "done"),
-		}
 	default:
 		zoomKey := "⇧space"
 		if wr.Renderer.Styles.PlainUI {
 			zoomKey = "shift+space"
 		}
 		return []KeyHint{
-			Hint("tab", "focus"), Hint("m", "arrange"),
+			Hint("⇧arrows", "resize"), Hint("tab", "focus"), Hint("m", "arrange"),
 			Hint(zoomKey, "zoom"), Hint("w", "panels"), Hint("ctrl+p", "commands"),
 		}
 	}

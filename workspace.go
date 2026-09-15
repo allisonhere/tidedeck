@@ -2,15 +2,16 @@ package tideui
 
 import (
 	"errors"
-	"math"
+	"fmt"
 	"sort"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 // Workspace owns a set of registered panels, a layout tree, and all the
 // interaction state around them: focus, visibility, zoom, peek, arrange mode,
-// resize mode, presets, and undo/redo. It never talks to the terminal and
+// pane resizing, presets, and undo/redo. It never talks to the terminal and
 // never renders; applications drive it and hand the resolved view to a
 // WorkspaceRenderer.
 type Workspace struct {
@@ -30,10 +31,10 @@ type Workspace struct {
 	zoomed string
 	peeked string
 
-	arrange       bool
-	arrangeCursor string
-	resizeMode    bool
-	resizeDivider int // index into Dividers(); -1 when none selected
+	arrange        bool
+	arrangeCursor  string
+	resizeNotice   string
+	resizeNoticeAt time.Time
 
 	drag    *mouseDrag
 	tabHits []tabHit
@@ -719,7 +720,6 @@ func (ws *Workspace) EnterArrange() bool {
 	}
 	ws.arrange = true
 	ws.arrangeCursor = ws.focus.Current()
-	ws.resizeMode = false
 	return true
 }
 
@@ -813,110 +813,177 @@ func (ws *Workspace) ArrangeMerge() bool {
 
 // --- Resize ---------------------------------------------------------------
 
-// Resizing reports whether resize mode is active.
-func (ws *Workspace) Resizing() bool { return ws.resizeMode }
+// resizeStepPercent is the share of a split's extent one resize key adjusts,
+// matching Tide's 5% pane-resize step.
+const resizeStepPercent = 5
 
-// SetResizeMode enables or disables resize mode. Entering resize mode clears
-// any selected divider, so the first direction key chooses the boundary to
-// work on.
-func (ws *Workspace) SetResizeMode(enabled bool) {
-	ws.resizeMode = enabled
-	ws.resizeDivider = -1
-	if enabled {
-		ws.arrange = false
-	}
+// resizeNoticeLifetime bounds how long the size percentage lingers.
+const resizeNoticeLifetime = 3 * time.Second
+
+// ResizeEdge moves the focused pane's shared edge in a direction, Tide-style.
+// The edge on the arrow's side moves that way: when a neighbour sits there the
+// pane grows into it, and when it does not the opposite edge moves inward and
+// the pane shrinks. The step is a share of the split's extent, clamped so
+// neither side crosses its minimum size.
+func (ws *Workspace) ResizeEdge(dir Direction) bool {
+	horizontal := dir.Horizontal()
+	return ws.resizeFocused(horizontal, func(index, count int) (int, bool) {
+		forward, backward := index+1, index-1
+		if forward >= count {
+			forward = -1
+		}
+		if backward < 0 {
+			backward = -1
+		}
+		if dir.Forward() {
+			if forward >= 0 {
+				return forward, true
+			}
+			return backward, false
+		}
+		if backward >= 0 {
+			return backward, true
+		}
+		return forward, false
+	}, 0, true)
 }
 
-// ResizeMode toggles resize mode.
-func (ws *Workspace) ToggleResizeMode() { ws.SetResizeMode(!ws.resizeMode) }
-
-// Resize adjusts the split around the focused panel in a direction. delta is a
-// relative weight step; zero uses 0.5. Each call records one history entry.
-func (ws *Workspace) Resize(dir Direction, delta float64) bool {
-	if !ws.resizeInternal(dir, delta) {
+// ResizeEdgePixels moves the focused pane's shared edge by a pixel amount in a
+// direction; a negative amount moves it the other way. It is used by mouse
+// separator dragging, which batches history until the drag ends.
+func (ws *Workspace) ResizeEdgePixels(dir Direction, pixels int, record bool) bool {
+	if pixels == 0 {
 		return false
 	}
-	ws.commit()
-	return true
-}
-
-// ResizeGrow increases the focused panel's share along its nearest split axis.
-// delta is a relative weight step; zero uses 0.5.
-func (ws *Workspace) ResizeGrow(delta float64) bool {
-	if delta <= 0 {
-		delta = 0.5
+	grow := pixels > 0
+	move := pixels
+	if move < 0 {
+		move = -move
 	}
-	return ws.resizeApply(true, false, delta)
+	return ws.resizeFocused(dir.Horizontal(), func(index, count int) (int, bool) {
+		if index+1 < count {
+			return index + 1, grow
+		}
+		return -1, false
+	}, move, record)
 }
 
-// ResizeShrink decreases the focused panel's share along its nearest split
-// axis, handing the space to its neighbour. delta is a relative weight step;
-// zero uses 0.5.
-func (ws *Workspace) ResizeShrink(delta float64) bool {
-	if delta <= 0 {
-		delta = 0.5
-	}
-	return ws.resizeApply(true, false, -delta)
-}
-
-// ResizeWidth grows (grow=true) or shrinks the focused panel's width, choosing
-// the nearest horizontal split.
+// ResizeWidth grows (grow=true) or shrinks the focused pane's width, trading
+// with the nearest neighbour along the width axis.
 func (ws *Workspace) ResizeWidth(grow bool) bool {
-	delta := 0.5
-	if !grow {
-		delta = -delta
-	}
-	return ws.resizeApply(false, true, delta)
+	return ws.resizeFocused(true, forwardNeighbour(grow), 0, true)
 }
 
-// ResizeHeight grows (grow=true) or shrinks the focused panel's height,
-// choosing the nearest vertical split.
+// ResizeHeight grows (grow=true) or shrinks the focused pane's height.
 func (ws *Workspace) ResizeHeight(grow bool) bool {
-	delta := 0.5
-	if !grow {
-		delta = -delta
-	}
-	return ws.resizeApply(false, false, delta)
+	return ws.resizeFocused(false, forwardNeighbour(grow), 0, true)
 }
 
-// resizeApply commits a signed axis adjustment. anyAxis considers both split
-// orientations (nearest wins); otherwise only horizontal (width) or vertical
-// (height) splits are matched.
-func (ws *Workspace) resizeApply(anyAxis, horizontal bool, delta float64) bool {
+// ResizeGrow increases the focused pane along whichever axis it can resize.
+// The delta argument is retained for API compatibility; the step is a share of
+// the split extent.
+func (ws *Workspace) ResizeGrow(delta float64) bool {
+	return ws.ResizeWidth(true) || ws.ResizeHeight(true)
+}
+
+// ResizeShrink decreases the focused pane along whichever axis it can resize.
+func (ws *Workspace) ResizeShrink(delta float64) bool {
+	return ws.ResizeWidth(false) || ws.ResizeHeight(false)
+}
+
+// forwardNeighbour picks the next sibling, falling back to the previous one.
+func forwardNeighbour(grow bool) func(index, count int) (int, bool) {
+	return func(index, count int) (int, bool) {
+		if index+1 < count {
+			return index + 1, grow
+		}
+		if index-1 >= 0 {
+			return index - 1, grow
+		}
+		return -1, false
+	}
+}
+
+// resizeFocused finds the split that governs the focused pane on an axis and
+// trades pixels with the chosen sibling. move is a pixel amount, or zero to use
+// the default step; record controls whether the change joins layout history.
+func (ws *Workspace) resizeFocused(horizontal bool, pick func(index, count int) (int, bool), move int, record bool) bool {
 	focus := ws.focus.Current()
-	if focus == "" || delta == 0 {
+	if focus == "" || ws.width <= 0 {
 		return false
 	}
-	next, changed := resizeAxis(ws.ensureRoot(), focus, anyAxis, horizontal, delta)
-	if !changed {
-		return false
-	}
-	ws.root = next
-	ws.explicitRoot = true
-	ws.commit()
-	return true
-}
-
-// resizeAxis adjusts the focused panel along the nearest split that contains
-// it, trading weight with the sibling on the far side. A positive delta grows
-// the focused panel; a negative delta shrinks it. When anyAxis is false only
-// splits on the requested orientation are considered, which lets direction
-// keys address width and height independently.
-func resizeAxis(root LayoutNode, focus string, anyAxis bool, horizontal bool, delta float64) (LayoutNode, bool) {
-	if root == nil {
-		return root, false
-	}
-	clone := root.cloneNode()
-	if !resizeAxisWalk(clone, focus, anyAxis, horizontal, delta) {
-		return root, false
-	}
-	return NormalizeLayout(clone), true
-}
-
-func resizeAxisWalk(node LayoutNode, focus string, anyAxis, horizontal bool, delta float64) bool {
-	split, ok := node.(*SplitNode)
+	clone := ws.ensureRoot().cloneNode()
+	split, index, ok := findResizeSplit(clone, focus, horizontal)
 	if !ok {
 		return false
+	}
+	neighbor, grow := pick(index, len(split.Children))
+	if neighbor < 0 || neighbor == index {
+		return false
+	}
+	if !ws.applyResize(split, index, neighbor, horizontal, grow, move) {
+		return false
+	}
+	ws.root = NormalizeLayout(clone)
+	ws.explicitRoot = true
+	if record {
+		ws.commit()
+	}
+	if ws.width > 0 && ws.height > 0 {
+		ws.Solve(ws.width, ws.height)
+	}
+	ws.setResizeNotice(split, index, horizontal)
+	return true
+}
+
+// applyResize moves the shared edge between two children of split, scaling
+// their weights so the solver lands on the new pixel sizes.
+func (ws *Workspace) applyResize(split *SplitNode, index, neighbor int, horizontal, grow bool, move int) bool {
+	if index < 0 || neighbor < 0 || index >= len(split.Children) || neighbor >= len(split.Children) {
+		return false
+	}
+	extent, ok := ws.splitExtent(split, horizontal)
+	if !ok || extent <= 0 {
+		return false
+	}
+	focusRect, focusOK := solvedNodeBounds(split.Children[index], ws.solved.Rects)
+	neighborRect, neighborOK := solvedNodeBounds(split.Children[neighbor], ws.solved.Rects)
+	if !focusOK || !neighborOK {
+		return false
+	}
+	focusPixels := rectExtent(focusRect, horizontal)
+	neighborPixels := rectExtent(neighborRect, horizontal)
+	if move <= 0 {
+		move = max(1, extent*resizeStepPercent/100)
+	}
+
+	if grow {
+		move = min(move, max(0, neighborPixels-ws.minExtent(split.Children[neighbor], horizontal)))
+	} else {
+		move = min(move, max(0, focusPixels-ws.minExtent(split.Children[index], horizontal)))
+	}
+	if move <= 0 {
+		return false
+	}
+	newFocus, newNeighbor := focusPixels, neighborPixels
+	if grow {
+		newFocus += move
+		newNeighbor -= move
+	} else {
+		newFocus -= move
+		newNeighbor += move
+	}
+	setChildWeight(split.Children[index], scaleWeight(childWeight(split.Children[index]), focusPixels, newFocus))
+	setChildWeight(split.Children[neighbor], scaleWeight(childWeight(split.Children[neighbor]), neighborPixels, newNeighbor))
+	return true
+}
+
+// findResizeSplit returns the deepest split of the requested orientation that
+// contains the focused pane, and the pane's child index within it.
+func findResizeSplit(node LayoutNode, focus string, horizontal bool) (*SplitNode, int, bool) {
+	split, ok := node.(*SplitNode)
+	if !ok {
+		return nil, 0, false
 	}
 	index := -1
 	for i, child := range split.Children {
@@ -926,103 +993,108 @@ func resizeAxisWalk(node LayoutNode, focus string, anyAxis, horizontal bool, del
 		}
 	}
 	if index < 0 {
-		return false
+		return nil, 0, false
 	}
-	// Prefer the deepest split that contains the focused panel.
-	if resizeAxisWalk(split.Children[index], focus, anyAxis, horizontal, delta) {
-		return true
+	if deeper, childIndex, ok := findResizeSplit(split.Children[index], focus, horizontal); ok {
+		return deeper, childIndex, true
 	}
-	if len(split.Children) < 2 {
-		return false
+	if split.Orientation != orientationFor(horizontal) || len(split.Children) < 2 {
+		return nil, 0, false
 	}
-	if !anyAxis && split.Orientation != orientationFor(horizontal) {
-		return false
-	}
-	neighbor := index + 1
-	if neighbor >= len(split.Children) {
-		neighbor = index - 1
-	}
-	if neighbor < 0 {
-		return false
-	}
-	a := childWeight(split.Children[index]) + delta
-	b := childWeight(split.Children[neighbor]) - delta
-	if a < 0.1 {
-		a = 0.1
-	}
-	if b < 0.1 {
-		b = 0.1
-	}
-	setChildWeight(split.Children[index], a)
-	setChildWeight(split.Children[neighbor], b)
-	return true
+	return split, index, true
 }
 
-// A Divider is the boundary between two adjacent regions of the layout. Resize
-// mode works on dividers rather than panels, so a panel surrounded on every
-// side can still be resized by choosing the boundary you care about and moving
-// it in either direction.
-type Divider struct {
-	// Rect is the gap between the two regions (at least one cell in the
-	// cross-axis so it can be highlighted even at zero gap).
-	Rect Rect
-	// Vertical is true when the divider separates columns and is moved
-	// left/right; false when it separates rows and is moved up/down.
-	Vertical bool
-	Path     []int // child indices from the root to the owning split
-	Index    int   // boundary between children Index and Index+1
-}
-
-// Dividers returns the boundaries of the current layout, in tree order.
-func (ws *Workspace) Dividers() []Divider {
-	if ws.solvedTree == nil || len(ws.solved.Rects) == 0 || ws.zoomCandidate() != "" {
-		return nil
+// splitExtent returns a split's pixel size along an axis from the solved
+// rectangles.
+func (ws *Workspace) splitExtent(split *SplitNode, horizontal bool) (int, bool) {
+	bounds, ok := solvedNodeBounds(split, ws.solved.Rects)
+	if !ok {
+		return 0, false
 	}
-	var out []Divider
-	collectDividers(ws.solvedTree, nil, ws.solved.Rects, &out)
-	return out
+	return rectExtent(bounds, horizontal), true
 }
 
-func collectDividers(node LayoutNode, path []int, rects map[string]Rect, out *[]Divider) {
-	split, ok := node.(*SplitNode)
+// minExtent returns the smallest pixel size a subtree needs along an axis:
+// panel minimums summed along the split axis and maxed across perpendicular
+// nested groups, plus the configured gaps. It mirrors the solver's minAlong.
+func (ws *Workspace) minExtent(node LayoutNode, horizontal bool) int {
+	switch n := node.(type) {
+	case *LeafNode:
+		if horizontal {
+			return ws.minWidthFor(n.ID)
+		}
+		return ws.minHeightFor(n.ID)
+	case *TabStackNode:
+		best := 1
+		for _, id := range n.Panels {
+			best = max(best, ws.minExtent(Leaf(id), horizontal))
+		}
+		return best
+	case *SplitNode:
+		if (n.Orientation == SplitHorizontal) == horizontal {
+			gap := ws.hGap
+			if !horizontal {
+				gap = ws.vGap
+			}
+			total := max(0, gap) * (len(n.Children) - 1)
+			for _, child := range n.Children {
+				total += ws.minExtent(child, horizontal)
+			}
+			return total
+		}
+		best := 1
+		for _, child := range n.Children {
+			best = max(best, ws.minExtent(child, horizontal))
+		}
+		return best
+	}
+	return 1
+}
+
+// setResizeNotice records the focused pane's new percentage for status
+// feedback.
+func (ws *Workspace) setResizeNotice(split *SplitNode, index int, horizontal bool) {
+	extent, ok := ws.splitExtent(split, horizontal)
+	if !ok || extent <= 0 {
+		return
+	}
+	rect, ok := solvedNodeBounds(split.Children[index], ws.solved.Rects)
 	if !ok {
 		return
 	}
-	for i := 0; i+1 < len(split.Children); i++ {
-		a, aok := solvedNodeBounds(split.Children[i], rects)
-		b, bok := solvedNodeBounds(split.Children[i+1], rects)
-		if !aok || !bok {
-			continue
-		}
-		if split.Orientation == SplitHorizontal {
-			x := a.X + a.Width
-			top := max(a.Y, b.Y)
-			bottom := min(a.Y+a.Height, b.Y+b.Height)
-			*out = append(*out, Divider{
-				Rect:     Rect{X: x, Y: top, Width: max(1, b.X-x), Height: max(1, bottom-top)},
-				Vertical: true,
-				Path:     copyPath(path),
-				Index:    i,
-			})
-		} else {
-			y := a.Y + a.Height
-			left := max(a.X, b.X)
-			right := min(a.X+a.Width, b.X+b.Width)
-			*out = append(*out, Divider{
-				Rect:     Rect{X: left, Y: y, Width: max(1, right-left), Height: max(1, b.Y-y)},
-				Vertical: false,
-				Path:     copyPath(path),
-				Index:    i,
-			})
-		}
+	axis := "width"
+	if !horizontal {
+		axis = "height"
 	}
-	for i, child := range split.Children {
-		collectDividers(child, append(copyPath(path), i), rects, out)
-	}
+	ws.resizeNotice = fmt.Sprintf("%s %d%%", axis, rectExtent(rect, horizontal)*100/extent)
+	ws.resizeNoticeAt = time.Now()
 }
 
-func copyPath(path []int) []int {
-	return append([]int(nil), path...)
+// ResizeStatus returns the transient size feedback ("width 37%") while it is
+// fresh, or "".
+func (ws *Workspace) ResizeStatus() string {
+	if ws.resizeNotice == "" || time.Since(ws.resizeNoticeAt) > resizeNoticeLifetime {
+		return ""
+	}
+	return ws.resizeNotice
+}
+
+func rectExtent(r Rect, horizontal bool) int {
+	if horizontal {
+		return r.Width
+	}
+	return r.Height
+}
+
+func scaleWeight(weight float64, oldPixels, newPixels int) float64 {
+	if oldPixels <= 0 || newPixels <= 0 {
+		return weight
+	}
+	scaled := weight * float64(newPixels) / float64(oldPixels)
+	if scaled <= 0 {
+		return 0.01
+	}
+	return scaled
 }
 
 // solvedNodeBounds returns the bounding rectangle of a subtree from the solved
@@ -1063,217 +1135,6 @@ func unionRects(a, b Rect, haveA bool) (Rect, bool) {
 	right := max(a.X+a.Width, b.X+b.Width)
 	bottom := max(a.Y+a.Height, b.Y+b.Height)
 	return Rect{X: x, Y: y, Width: right - x, Height: bottom - y}, true
-}
-
-// SelectedDivider returns the divider currently targeted in resize mode.
-func (ws *Workspace) SelectedDivider() (Divider, bool) {
-	if !ws.resizeMode {
-		return Divider{}, false
-	}
-	dividers := ws.Dividers()
-	if ws.resizeDivider < 0 || ws.resizeDivider >= len(dividers) {
-		return Divider{}, false
-	}
-	return dividers[ws.resizeDivider], true
-}
-
-// CycleResizeDivider selects the next (delta +1) or previous (-1) divider.
-func (ws *Workspace) CycleResizeDivider(delta int) bool {
-	dividers := ws.Dividers()
-	if len(dividers) == 0 {
-		return false
-	}
-	index := ws.resizeDivider
-	if index < 0 {
-		index = 0
-	} else {
-		index = (index + delta + len(dividers)) % len(dividers)
-	}
-	ws.resizeDivider = index
-	return true
-}
-
-// ResizeDivider moves the selected divider along its axis. Direction keys that
-// do not match the selected divider's axis instead select a divider on that
-// side, so any boundary is reachable.
-func (ws *Workspace) ResizeDivider(dir Direction) bool {
-	dividers := ws.Dividers()
-	if len(dividers) == 0 {
-		return false
-	}
-	if ws.resizeDivider < 0 || ws.resizeDivider >= len(dividers) {
-		return ws.selectDividerToward(dividers, dir)
-	}
-	selected := dividers[ws.resizeDivider]
-	if dir.Horizontal() != selected.Vertical {
-		return ws.selectDividerToward(dividers, dir)
-	}
-	delta := 0.5
-	if dir == DirLeft || dir == DirUp {
-		delta = -delta
-	}
-	next, changed := adjustBoundary(ws.ensureRoot(), selected.Path, selected.Index, delta)
-	if !changed {
-		return false
-	}
-	ws.root = next
-	ws.explicitRoot = true
-	ws.commit()
-	return true
-}
-
-// selectDividerToward picks the nearest divider that lies on the requested side
-// of the focused panel (or the current selection), preferring dividers on the
-// matching axis.
-func (ws *Workspace) selectDividerToward(dividers []Divider, dir Direction) bool {
-	origin, ok := ws.solved.Rects[ws.focus.Current()]
-	if !ok {
-		if len(dividers) == 0 {
-			return false
-		}
-		origin = dividers[0].Rect
-	}
-	originCenter := rectCenter(origin)
-	best, bestScore := -1, math.MaxFloat64
-	for i, divider := range dividers {
-		// Measure to the nearest point on the divider rather than its centre,
-		// so a full-width horizontal rule reads as "below" even though its
-		// centre is far to one side.
-		nearestX := min(max(originCenter.X, divider.Rect.X), divider.Rect.X+divider.Rect.Width)
-		nearestY := min(max(originCenter.Y, divider.Rect.Y), divider.Rect.Y+divider.Rect.Height)
-		dx := float64(nearestX - originCenter.X)
-		dy := float64(nearestY - originCenter.Y)
-		inDirection := false
-		switch dir {
-		case DirLeft:
-			inDirection = dx < 0 && math.Abs(dx) >= math.Abs(dy)
-		case DirRight:
-			inDirection = dx > 0 && math.Abs(dx) >= math.Abs(dy)
-		case DirUp:
-			inDirection = dy < 0 && math.Abs(dy) >= math.Abs(dx)
-		case DirDown:
-			inDirection = dy > 0 && math.Abs(dy) >= math.Abs(dx)
-		}
-		if !inDirection {
-			continue
-		}
-		score := math.Abs(dx) + math.Abs(dy)
-		if dir.Horizontal() == divider.Vertical {
-			score -= 1e6 // prefer a divider we can immediately move
-		}
-		if score < bestScore {
-			bestScore = score
-			best = i
-		}
-	}
-	if best < 0 {
-		return false
-	}
-	ws.resizeDivider = best
-	return true
-}
-
-func rectCenter(r Rect) Rect {
-	return Rect{X: r.X + r.Width/2, Y: r.Y + r.Height/2}
-}
-
-// adjustBoundary shifts weight between two adjacent children of the split at
-// path. Positive delta grows the earlier child.
-func adjustBoundary(root LayoutNode, path []int, boundary int, delta float64) (LayoutNode, bool) {
-	if root == nil {
-		return root, false
-	}
-	clone := root.cloneNode()
-	node := clone
-	for _, index := range path {
-		split, ok := node.(*SplitNode)
-		if !ok || index < 0 || index >= len(split.Children) {
-			return root, false
-		}
-		node = split.Children[index]
-	}
-	split, ok := node.(*SplitNode)
-	if !ok || boundary < 0 || boundary+1 >= len(split.Children) {
-		return root, false
-	}
-	a := childWeight(split.Children[boundary]) + delta
-	b := childWeight(split.Children[boundary+1]) - delta
-	if a < 0.1 {
-		a = 0.1
-	}
-	if b < 0.1 {
-		b = 0.1
-	}
-	setChildWeight(split.Children[boundary], a)
-	setChildWeight(split.Children[boundary+1], b)
-	return NormalizeLayout(clone), true
-}
-
-// resizeInternal applies a resize without recording history, so drag gestures
-// can batch many small steps into a single undo entry.
-func (ws *Workspace) resizeInternal(dir Direction, delta float64) bool {
-	focus := ws.focus.Current()
-	if focus == "" {
-		return false
-	}
-	if delta <= 0 {
-		delta = 0.5
-	}
-	next, changed := resizeLayout(ws.ensureRoot(), focus, dir, delta)
-	if !changed {
-		return false
-	}
-	ws.root = next
-	ws.explicitRoot = true
-	return true
-}
-
-// resizeLayout walks to the split nearest the focused panel that has a sibling
-// on the requested side, and shifts weight between them.
-func resizeLayout(root LayoutNode, focus string, dir Direction, delta float64) (LayoutNode, bool) {
-	if root == nil {
-		return root, false
-	}
-	clone := root.cloneNode()
-	changed := resizeWalk(clone, focus, dir, delta)
-	return NormalizeLayout(clone), changed
-}
-
-func resizeWalk(node LayoutNode, focus string, dir Direction, delta float64) bool {
-	split, ok := node.(*SplitNode)
-	if !ok {
-		return false
-	}
-	index := -1
-	for i, child := range split.Children {
-		if LayoutContainsPanel(child, focus) {
-			index = i
-			break
-		}
-	}
-	if index < 0 {
-		return false
-	}
-	if split.Orientation == orientationFor(dir.Horizontal()) {
-		neighbor := index - 1
-		if dir.Forward() {
-			neighbor = index + 1
-		}
-		if neighbor >= 0 && neighbor < len(split.Children) {
-			a := childWeight(split.Children[index]) + delta
-			b := childWeight(split.Children[neighbor]) - delta
-			if a < 0.1 {
-				a = 0.1
-			}
-			if b < 0.1 {
-				b = 0.1
-			}
-			setChildWeight(split.Children[index], a)
-			setChildWeight(split.Children[neighbor], b)
-			return true
-		}
-	}
-	return resizeWalk(split.Children[index], focus, dir, delta)
 }
 
 func childWeight(node LayoutNode) float64 {
@@ -1337,7 +1198,6 @@ func (ws *Workspace) restoreState(state workspaceSnapshot) {
 	ws.zoomed = ""
 	ws.peeked = ""
 	ws.arrange = false
-	ws.resizeMode = false
 	ws.focus.Set(state.focus)
 	ws.ensureFocus()
 }
@@ -1382,7 +1242,6 @@ func (ws *Workspace) ResetLayout() {
 	ws.zoomed = ""
 	ws.peeked = ""
 	ws.arrange = false
-	ws.resizeMode = false
 	ws.activePreset = ""
 	ws.ensureFocus()
 	ws.commit()
@@ -1572,30 +1431,6 @@ func (ws *Workspace) HandleKey(msg tea.KeyMsg) bool {
 		}
 		return true
 	}
-	// Resize mode is a transient keyboard mode: while active, direction keys
-	// adjust the focused panel's split instead of moving focus.
-	if ws.resizeMode {
-		switch key {
-		case "h", "left":
-			ws.ResizeDivider(DirLeft)
-			return true
-		case "l", "right":
-			ws.ResizeDivider(DirRight)
-			return true
-		case "k", "up":
-			ws.ResizeDivider(DirUp)
-			return true
-		case "j", "down":
-			ws.ResizeDivider(DirDown)
-			return true
-		case "tab":
-			ws.CycleResizeDivider(1)
-			return true
-		case "shift+tab":
-			ws.CycleResizeDivider(-1)
-			return true
-		}
-	}
 	switch key {
 	case "tab":
 		return ws.FocusNext()
@@ -1603,9 +1438,6 @@ func (ws *Workspace) HandleKey(msg tea.KeyMsg) bool {
 		return ws.FocusPrev()
 	case "m":
 		return ws.ToggleArrange()
-	case "R":
-		ws.ToggleResizeMode()
-		return true
 	case "w":
 		ws.OpenPanelPicker()
 		return true
@@ -1614,23 +1446,17 @@ func (ws *Workspace) HandleKey(msg tea.KeyMsg) bool {
 		return true
 	case "shift+space", "ctrl+space":
 		return ws.ToggleZoom()
-	case "ctrl+left":
-		ws.SetResizeMode(true)
-		return ws.Resize(DirLeft, 0)
-	case "ctrl+right":
-		ws.SetResizeMode(true)
-		return ws.Resize(DirRight, 0)
-	case "ctrl+up":
-		ws.SetResizeMode(true)
-		return ws.Resize(DirUp, 0)
-	case "ctrl+down":
-		ws.SetResizeMode(true)
-		return ws.Resize(DirDown, 0)
+	// Shift+arrows resize the focused pane directly, Tide-style. ctrl+arrows
+	// are a silent alias for terminals that swallow shifted arrows.
+	case "shift+left", "ctrl+left":
+		return ws.ResizeEdge(DirLeft)
+	case "shift+right", "ctrl+right":
+		return ws.ResizeEdge(DirRight)
+	case "shift+up", "ctrl+up":
+		return ws.ResizeEdge(DirUp)
+	case "shift+down", "ctrl+down":
+		return ws.ResizeEdge(DirDown)
 	case "esc":
-		if ws.resizeMode {
-			ws.SetResizeMode(false)
-			return true
-		}
 		if ws.peeked != "" {
 			ws.Unpeek()
 			return true

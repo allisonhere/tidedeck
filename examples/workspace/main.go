@@ -490,7 +490,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if !m.ws.Arranging() && !m.ws.Resizing() {
+	if !m.ws.Arranging() {
 		switch msg.String() {
 		case "q", "ctrl+c":
 			_ = m.ws.Persist()

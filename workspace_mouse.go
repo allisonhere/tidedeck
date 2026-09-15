@@ -76,18 +76,18 @@ func (ws *Workspace) mouseMotion(x, y int) bool {
 	if drag == nil {
 		return false
 	}
-	delta := 0.0
+	delta := 0
 	if drag.dir.Horizontal() {
-		delta = float64(x-drag.lastX) * 0.12
+		delta = x - drag.lastX
 		drag.lastX = x
 	} else {
-		delta = float64(y-drag.lastY) * 0.12
+		delta = y - drag.lastY
 		drag.lastY = y
 	}
 	if delta == 0 {
 		return true
 	}
-	if ws.resizeInternal(drag.dir, delta) {
+	if ws.ResizeEdgePixels(drag.dir, delta, false) {
 		drag.moved = true
 	}
 	return true

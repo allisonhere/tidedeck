@@ -28,7 +28,7 @@ go get github.com/allisonhere/tideui
 - **Nineteen built-in palettes** (Catppuccin, Nord, Dracula, Gruvbox, and more) with per-field background/foreground/accent overrides.
 - **Themed chrome** — pane headers, status bars, centered modal overlays, and a ready-made theme picker.
 - **Soft modal panels** — Tide-family modal chrome with embedded border titles, quiet hint footers, and rail-focused rows.
-- **Workspace system** — a tiny tiling window manager for TUIs: declarative panels, a layout tree, semantic adaptive reflow, live arrange/resize modes, tab stacks, zoom, peek, contextual actions, a panel picker, command palette, presets, undo/redo, mouse support, and versioned persistence.
+- **Workspace system** — a tiny tiling window manager for TUIs: declarative panels, a layout tree, semantic adaptive reflow, live arrange mode, shift+arrow pane resizing, tab stacks, zoom, peek, contextual actions, a panel picker, command palette, presets, undo/redo, mouse support, and versioned persistence.
 - **Visual language** — semantic workspace tokens, reusable chrome primitives (headers, footers, tabs, badges, key capsules, metrics, sparklines, list rows), `Comfortable`/`Compact`/`Dense` density modes, and a configurable focus presentation.
 - **Dashboard widgets** — weather, agenda, clock, system, network, storage, services, news, tasks, notes, git activity, and markets, each driven by a plain data model and backed by a `Renderer` method, with a shared Enter-to-drill-down pattern.
 - **Real data sources** — a standard-library `provider` package: background collectors with per-source intervals and graceful degradation, plus providers for Open-Meteo weather, RSS/Atom, Linux system/network/storage, systemd and Docker, git activity, todo.txt, notes, iCalendar, and markets.
@@ -377,7 +377,7 @@ ws.SetFocusPresentation(tideui.FocusPresentation{
 })
 ```
 
-### Arrange and resize modes
+### Arrange mode
 
 Arrange mode moves the real panel: each direction key immediately repositions
 the focused panel against its neighbour, so the layout itself is the preview.
@@ -389,13 +389,22 @@ target's row** as another column, so moving a pane onto a row with one pane
 gives that row two panes instead of stacking a new row. (The responsive
 `MoveBelow` fallback still stacks vertically — that is a different operation.)
 
-Resize mode works on **dividers** — the boundary between two adjacent regions —
-rather than on a panel. Select a divider, then move it in either direction
-(`h`/`l` for a column boundary, `k`/`j` for a row boundary). This means a panel
-surrounded on every side is resized by choosing the boundary you care about,
-not by guessing which edge a direction maps to. The selected divider is
-highlighted while the mode is active, and weights are shifted rather than
-absolute coordinates, so minimum sizes are always honored.
+### Resizing panes
+
+`shift+arrows` resizes the focused pane directly — no mode to enter, no divider
+to pick. The arrow names the **edge** you push:
+
+- If a neighbour sits on that side, the shared edge moves toward it and the
+  focused pane **grows**.
+- If there is no neighbour on that side, the opposite edge moves inward and the
+  focused pane **shrinks**.
+- A pane in the middle therefore grows from whichever side you press.
+
+Each press moves the edge by 5% of the split's extent (at least one cell), and
+weights are rescaled rather than rewritten, so `MinWidth`/`MinHeight` are always
+honored and the move no-ops when there is no headroom. The status strip briefly
+shows the resulting size (`width 37%` / `height 42%`), each step is one undo
+entry, and `ctrl+arrows` works as an alias.
 
 ```go
 ws.ToggleArrange()                    // m
@@ -404,16 +413,11 @@ ws.ArrangeMerge()                     // t: fold into the neighbour's tab stack
 ws.ExitArrange()                      // esc: leave the mode
 ws.Undo()                             // each live move is one history entry
 
-ws.SetResizeMode(true)   // R; direction key selects a divider, then moves it
-ws.Dividers()            // boundaries of the current layout
-ws.CycleResizeDivider(1) // tab: cycle dividers (so you can pick any boundary)
-ws.ResizeDivider(tideui.DirRight) // move the selected divider
-ws.SetResizeMode(false)  // esc
-
-// Panel-relative resize remains available programmatically:
-ws.Resize(tideui.DirRight, 0)         // ctrl+right
+ws.ResizeEdge(tideui.DirRight)        // shift+right (ctrl+right)
+ws.ResizeEdgePixels(tideui.DirLeft, 3, true) // drag-sized step in cells
 ws.ResizeGrow(0) / ws.ResizeShrink(0) // nearest split axis
 ws.ResizeWidth(true) / ws.ResizeHeight(true)
+ws.ResizeStatus()                     // transient "width 37%" feedback
 ```
 
 While arranging, the moving panel keeps the spotlight and a `MOVING` badge,
@@ -518,8 +522,7 @@ contrasting theme.
 |---|---|
 | `tab` / `shift+tab` | focus next / previous panel |
 | `m` | toggle arrange mode (`h/j/k/l` move the focused panel live, `t` stack, `esc` done) |
-| `R` | toggle resize mode (direction key selects a divider, then moves it; `tab` cycles dividers; `esc` done) |
-| `ctrl+arrows` | one-step resize of the focused split |
+| `shift+arrows` | resize the focused pane (grows toward a neighbour, shrinks at an edge; `ctrl+arrows` alias) |
 | `shift+space` | zoom / restore the focused panel |
 | `w` | panel picker |
 | `s` | settings panel (edit all provider config) |
@@ -527,7 +530,7 @@ contrasting theme.
 | `esc` | dismiss peek / zoom / picker / mode |
 
 Mouse support is additive: clicking focuses a panel, clicking a tab selects it,
-and dragging a separator resizes the adjacent split. `Workspace.HandleMouse`
+and dragging a panel border resizes the adjacent split. `Workspace.HandleMouse`
 consumes events; keyboard remains complete without a mouse.
 
 ## Visual language
@@ -633,7 +636,7 @@ application, rendering stays in TideUI, so a real provider can be added later
 without touching a renderer.
 
 ```go
-type WeatherData struct{ /* temperature, condition, H/L, rain, wind, hourly, daily */ }
+type WeatherData struct{ /* temperature, feels-like, condition/kind, H/L, rain, wind, hourly, daily */ }
 type AgendaItem   struct{ /* title, start/end, location, category, tone */ }
 type SystemMetrics struct{ /* cpu, memory, temp, load, uptime, cores */ }
 type NetworkMetrics struct{ /* down/up, unit, sparklines, LAN/WAN */ }

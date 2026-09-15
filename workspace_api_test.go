@@ -61,7 +61,7 @@ func TestDefaultLayoutPrioritizesHighPriorityPanel(t *testing.T) {
 	}
 }
 
-func TestWorkspaceZoomAndResizeToggles(t *testing.T) {
+func TestWorkspaceZoomToggle(t *testing.T) {
 	ws := newTestWorkspace(t)
 	ws.Focus("main")
 	if !ws.ToggleZoom() || ws.Zoomed() != "main" {
@@ -69,14 +69,6 @@ func TestWorkspaceZoomAndResizeToggles(t *testing.T) {
 	}
 	if !ws.ToggleZoom() || ws.Zoomed() != "" {
 		t.Fatal("second ToggleZoom did not restore")
-	}
-	ws.ToggleResizeMode()
-	if !ws.Resizing() {
-		t.Fatal("resize mode not toggled on")
-	}
-	ws.ToggleResizeMode()
-	if ws.Resizing() {
-		t.Fatal("resize mode not toggled off")
 	}
 }
 

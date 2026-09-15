@@ -32,8 +32,6 @@ func (ws *Workspace) buildCommands() []Command {
 
 	add(Command{ID: "workspace.arrange", Label: "Arrange Panels", Category: "Workspace", Key: "m",
 		Run: func() { ws.ToggleArrange() }})
-	add(Command{ID: "workspace.resize", Label: "Resize Panels", Category: "Workspace", Key: "ctrl+arrows",
-		Run: func() { ws.ToggleResizeMode() }})
 	add(Command{ID: "workspace.picker", Label: "Panels", Category: "Workspace", Key: "w",
 		Run: func() { ws.OpenPanelPicker() }})
 	add(Command{ID: "workspace.reset", Label: "Reset Layout", Category: "Workspace",
