@@ -23,8 +23,8 @@ func (r Renderer) RenderWeather(w WeatherData, width int) string {
 		r.weatherHeadline(w, bg),
 		lipgloss.NewStyle().Background(bg).Foreground(ws.BodyFg).
 			Render(r.weatherRangeText(w)),
-		r.dashPair(r.rainGlyph()+" Rain", fmt.Sprintf("%d%%", w.RainChance), 7, bg),
-		r.dashPair(r.windGlyph()+" Wind", fmt.Sprintf("%d %s", w.WindSpeed, w.WindUnit), 7, bg),
+		r.dashPair(r.rainGlyph()+" Rain", fmt.Sprintf("%d%%", w.RainChance), 6, bg),
+		r.dashPair(r.windGlyph()+" Wind", fmt.Sprintf("%d %s", w.WindSpeed, w.WindUnit), 6, bg),
 	}
 	if len(w.Hourly) > 0 {
 		lines = append(lines, "", r.renderHourly(w.Hourly, bg))
@@ -61,29 +61,28 @@ func (r Renderer) weatherRangeText(w WeatherData) string {
 	return text
 }
 
-// hotGlyph marks a hot feels-like temperature. The emoji is two cells wide and
-// the width table agrees, so it does not shift the rest of the line.
+// hotGlyph marks a hot feels-like temperature. These are Nerd Font icons: one
+// cell wide and monochrome, so they take the line colour and stay aligned.
 func (r Renderer) hotGlyph() string {
 	if r.Styles.PlainUI {
 		return "!"
 	}
-	return "\U0001F525"
+	return "\U000F0238" // md-fire
 }
 
-// rainGlyph and windGlyph label the rain and wind lines. Both emoji are two
-// cells wide and the width table agrees, so label padding stays aligned.
+// rainGlyph and windGlyph label the rain and wind lines.
 func (r Renderer) rainGlyph() string {
 	if r.Styles.PlainUI {
 		return "*"
 	}
-	return "\U0001F4A7"
+	return "\U000F0597" // md-weather_rainy
 }
 
 func (r Renderer) windGlyph() string {
 	if r.Styles.PlainUI {
 		return "~"
 	}
-	return "\U0001F4A8"
+	return "\U000F059D" // md-weather_windy
 }
 
 // forecastCondition prefixes a condition with its glyph when one is known.
@@ -384,14 +383,14 @@ func clockDigits(t time.Time) string {
 // dayPeriod returns a short label and a sun/moon glyph for a time of day.
 func (r Renderer) dayPeriod(t time.Time) (string, string) {
 	label := "night"
-	glyph := "\U0001F319" // crescent moon
+	glyph := "\U000F0594" // weather-night
 	switch h := t.Hour(); {
 	case h >= 5 && h < 12:
-		label, glyph = "morning", "\u2600\uFE0F"
+		label, glyph = "morning", "\U000F0599" // weather-sunny
 	case h >= 12 && h < 17:
-		label, glyph = "afternoon", "\u2600\uFE0F"
+		label, glyph = "afternoon", "\U000F0599"
 	case h >= 17 && h < 21:
-		label, glyph = "evening", "\u2600\uFE0F"
+		label, glyph = "evening", "\U000F0599"
 	}
 	if r.Styles.PlainUI {
 		if label == "night" {

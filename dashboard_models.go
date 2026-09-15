@@ -56,10 +56,10 @@ func WeatherKindFromCondition(condition string) WeatherKind {
 	}
 }
 
-// Glyph returns a weather symbol for the kind. The non-plain glyphs are emoji
-// followed by U+FE0F (emoji presentation); that makes the width table and the
-// terminal agree the glyph is two cells wide, so it no longer overflows the
-// line. Plain UI falls back to single-cell ASCII.
+// Glyph returns a single-cell weather symbol for the kind. The non-plain glyphs
+// are Nerd Font weather icons (Private Use Area), which monospace Nerd Fonts
+// render one cell wide and monochrome, so they take the themed colour and stay
+// aligned. Plain UI falls back to ASCII.
 func (k WeatherKind) Glyph(plain bool) string {
 	if plain {
 		switch k {
@@ -83,19 +83,19 @@ func (k WeatherKind) Glyph(plain bool) string {
 	}
 	switch k {
 	case WeatherClear:
-		return "\u2600\uFE0F"
+		return "\U000F0599" // weather-sunny
 	case WeatherPartly:
-		return "\u26C5\uFE0F"
+		return "\U000F0595" // weather-partly-cloudy
 	case WeatherCloudy:
-		return "\u2601\uFE0F"
+		return "\U000F0590" // weather-cloudy
 	case WeatherFog:
-		return "\U0001F32B\uFE0F"
+		return "\U000F0591" // weather-fog
 	case WeatherRain:
-		return "\U0001F327\uFE0F"
+		return "\U000F0597" // weather-rainy
 	case WeatherSnow:
-		return "\u2744\uFE0F"
+		return "\U000F0598" // weather-snowy
 	case WeatherStorm:
-		return "\u26A1\uFE0F"
+		return "\U000F0593" // weather-lightning
 	default:
 		return "·"
 	}
