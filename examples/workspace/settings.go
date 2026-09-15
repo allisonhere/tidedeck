@@ -84,6 +84,7 @@ type formState struct {
 	clock24        bool
 	gauge          string
 	spark          string
+	clockFont      string
 	panelGauges    map[string]string
 	panelSparks    map[string]string
 	feeds          string
@@ -111,6 +112,7 @@ func formFromConfig(cfg config) formState {
 		clock24:        cfg.Clock24,
 		gauge:          gaugeOrDefault(cfg.GaugeStyle),
 		spark:          sparkOrDefault(cfg.SparkStyle),
+		clockFont:      clockFontOrDefault(cfg.ClockFont),
 		panelGauges:    copyStringMap(cfg.PanelGauges),
 		panelSparks:    copyStringMap(cfg.PanelSparks),
 		feeds:          cfg.Feeds,
@@ -148,6 +150,7 @@ func (s formState) toConfig() (config, error) {
 		Clock24:     s.clock24,
 		GaugeStyle:  gaugeOrDefault(s.gauge),
 		SparkStyle:  sparkOrDefault(s.spark),
+		ClockFont:   clockFontOrDefault(s.clockFont),
 		PanelGauges: panelOverrides(s.panelGauges),
 		PanelSparks: panelOverrides(s.panelSparks),
 		Feeds:       s.feeds,
@@ -224,6 +227,26 @@ func sparkOrDefault(style string) string {
 		}
 	}
 	return string(tideui.SparkBlocks)
+}
+
+// clockFontNames lists the selectable large-clock fonts as strings.
+func clockFontNames() []string {
+	fonts := tideui.ClockFonts()
+	names := make([]string, len(fonts))
+	for i, font := range fonts {
+		names[i] = string(font)
+	}
+	return names
+}
+
+// clockFontOrDefault falls back to the dash font when none is set.
+func clockFontOrDefault(font string) string {
+	for _, known := range tideui.ClockFonts() {
+		if font == string(known) {
+			return font
+		}
+	}
+	return string(tideui.ClockFontDash)
 }
 
 func parseOptionalFloat(value string) (float64, error) {
@@ -315,6 +338,14 @@ func (s settingsForm) PanelSparkStyle(id string) string {
 	return s.state.panelSparks[id]
 }
 
+// ClockFont returns the large-clock font currently selected in the form.
+func (s settingsForm) ClockFont() string {
+	if s.state == nil {
+		return string(tideui.ClockFontDash)
+	}
+	return clockFontOrDefault(s.state.clockFont)
+}
+
 func newSettingsForm() *settingsForm { return &settingsForm{} }
 
 // SetWorkspace attaches the workspace whose panels the Panels category toggles.
@@ -344,6 +375,7 @@ func (s *settingsForm) buildCategories() []settingsCategory {
 			{label: "Live data", kind: fieldBool, flag: &s.state.live},
 			{label: "gauge style", kind: fieldChoice, choice: &s.state.gauge, options: gaugeStyleNames(), gaugePreview: true},
 			{label: "spark style", kind: fieldChoice, choice: &s.state.spark, options: sparkStyleNames(), sparkPreview: true},
+			{label: "clock font", kind: fieldChoice, choice: &s.state.clockFont, options: clockFontNames()},
 		}},
 		{name: "Weather", panelID: "weather", fields: []formField{
 			{label: "live weather", kind: fieldBool, flag: &s.state.weatherEnabled},

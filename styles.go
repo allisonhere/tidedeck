@@ -81,12 +81,26 @@ func SparklineStyles() []SparklineStyle {
 	return []SparklineStyle{SparkBlocks, SparkDots, SparkBraille, SparkBullets, SparkTicks, SparkShades}
 }
 
+// ClockFont selects the glyph set used for the large digital clock.
+type ClockFont string
+
+const (
+	ClockFontDash  ClockFont = "dash"  // light segments (─ │)
+	ClockFontBlock ClockFont = "block" // solid blocks (█)
+)
+
+// ClockFonts lists the available clock fonts in display order.
+func ClockFonts() []ClockFont {
+	return []ClockFont{ClockFontDash, ClockFontBlock}
+}
+
 // StyleOptions controls density, pane corner style, and optional theme color replacements.
 type StyleOptions struct {
 	Density     Density
 	PaneCorners PaneCorners
 	Gauge       GaugeStyle
 	Sparkline   SparklineStyle
+	ClockFont   ClockFont
 	Overrides   ThemeOverrides
 	// ModalShadow draws a small drop shadow behind every modal overlay when
 	// true. Off by default so existing consumers are unaffected unless they
@@ -104,6 +118,7 @@ type Styles struct {
 	PaneCorners PaneCorners    // normalized; square unless RoundCorners was requested
 	Gauge       GaugeStyle     // normalized; solid unless another style was requested
 	Sparkline   SparklineStyle // normalized; blocks unless another style was requested
+	ClockFont   ClockFont      // normalized; dash unless another font was requested
 
 	// ModalShadow and ModalShadowColor control the modal drop shadow drawn
 	// by Renderer.Render. ModalShadowColor is resolved once here (from the
@@ -417,6 +432,15 @@ func normalizeSparklineStyle(s SparklineStyle) SparklineStyle {
 	return SparkBlocks
 }
 
+func normalizeClockFont(f ClockFont) ClockFont {
+	for _, known := range ClockFonts() {
+		if f == known {
+			return f
+		}
+	}
+	return ClockFontDash
+}
+
 // ListItemLineStride returns the terminal-line height expected per rendered row.
 func (s Styles) ListItemLineStride() int {
 	return s.Density.RowStride()
@@ -476,6 +500,7 @@ func BuildStyles(base Theme, options StyleOptions) Styles {
 	paneCorners := normalizePaneCorners(options.PaneCorners)
 	gauge := normalizeGaugeStyle(options.Gauge)
 	sparkline := normalizeSparklineStyle(options.Sparkline)
+	clockFont := normalizeClockFont(options.ClockFont)
 	plain := t.UsesASCII()
 	itemPadding := func(style lipgloss.Style) lipgloss.Style {
 		if density == Comfortable {
@@ -507,7 +532,8 @@ func BuildStyles(base Theme, options StyleOptions) Styles {
 	modalMuted := mutedText(modalFG, modalBG)
 
 	return Styles{
-		Theme: t, PlainUI: plain, Density: density, PaneCorners: paneCorners, Gauge: gauge, Sparkline: sparkline,
+		Theme: t, PlainUI: plain, Density: density, PaneCorners: paneCorners,
+		Gauge: gauge, Sparkline: sparkline, ClockFont: clockFont,
 		ModalShadow: options.ModalShadow, ModalShadowColor: shadowBG,
 		Pane: lipgloss.NewStyle().Background(t.Bg).BorderBackground(t.Bg),
 		PaneHeaderActive: lipgloss.NewStyle().Background(t.BorderFocus).

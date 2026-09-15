@@ -219,7 +219,7 @@ func TestClockLook(t *testing.T) {
 	if f := dayFraction(morning); f <= 0 || f >= 1 {
 		t.Fatalf("dayFraction = %v, want between 0 and 1", f)
 	}
-	big := bigTime("14:42")
+	big := r.bigTime("14:42")
 	if len(big) != 5 || lipgloss.Width(big[0]) != 19 {
 		t.Fatalf("bigTime = %#v", big)
 	}
@@ -232,6 +232,20 @@ func TestClockLook(t *testing.T) {
 			t.Fatalf("analog face width = %d, want 13 (%q)", lipgloss.Width(line), line)
 		}
 	}
+	for _, font := range ClockFonts() {
+		fr := NewRenderer(CatppuccinMocha, StyleOptions{ClockFont: font})
+		if fr.Styles.ClockFont != font {
+			t.Fatalf("resolved clock font = %q, want %q", fr.Styles.ClockFont, font)
+		}
+		rows := fr.bigTime("14:42")
+		if len(rows) != 5 || lipgloss.Width(rows[0]) != 19 {
+			t.Fatalf("%s bigTime = %#v", font, rows)
+		}
+	}
+	if NewRenderer(CatppuccinMocha, StyleOptions{ClockFont: ClockFont("x")}).Styles.ClockFont != ClockFontDash {
+		t.Fatal("unknown clock font should fall back to dash")
+	}
+
 	_, glyph := r.dayPeriod(morning)
 	compact := ansi.Strip(r.RenderClock(ClockData{Local: morning, Location: "Local"}, 30))
 	if !strings.Contains(compact, "morning") || !strings.Contains(compact, glyph) {

@@ -18,6 +18,7 @@ type config struct {
 	Clock24     bool              `json:"clock_24"`
 	GaugeStyle  string            `json:"gauge_style"`
 	SparkStyle  string            `json:"spark_style"`
+	ClockFont   string            `json:"clock_font"`
 	PanelGauges map[string]string `json:"panel_gauges,omitempty"`
 	// PanelSparks overrides the sparkline style per panel id. "default" or a
 	// missing entry follows the workspace SparkStyle.
@@ -60,6 +61,7 @@ func defaultConfig() config {
 		Clock24:    true,
 		GaugeStyle: "solid",
 		SparkStyle: "blocks",
+		ClockFont:  "dash",
 	}
 }
 

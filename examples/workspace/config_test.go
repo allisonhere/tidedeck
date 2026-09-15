@@ -28,6 +28,7 @@ func TestConfigRoundTrip(t *testing.T) {
 		Clock24:     false,
 		GaugeStyle:  "circles",
 		SparkStyle:  "braille",
+		ClockFont:   "block",
 		PanelGauges: map[string]string{"system": "blocks"},
 		PanelSparks: map[string]string{"network": "dots"},
 		Feeds:       "https://a,https://b",
@@ -57,6 +58,9 @@ func TestConfigRoundTrip(t *testing.T) {
 	}
 	if got.PanelSparks["network"] != "dots" {
 		t.Fatalf("panel_sparks = %+v, want network:dots", got.PanelSparks)
+	}
+	if got.ClockFont != "block" {
+		t.Fatalf("clock_font = %q, want block", got.ClockFont)
 	}
 	if got.Feeds != "https://a,https://b" || got.Symbols != "AMD,NVDA" {
 		t.Fatalf("lists did not round trip: %+v", got)

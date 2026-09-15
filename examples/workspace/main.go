@@ -71,6 +71,7 @@ type demoState struct {
 	clock24      bool
 	gauge        tideui.GaugeStyle
 	spark        tideui.SparklineStyle
+	clockFont    tideui.ClockFont
 
 	lastStatus string
 	statusAge  int
@@ -117,6 +118,7 @@ func newModel() model {
 		weatherUnit: "F", clock24: cfg.Clock24,
 		gauge:     tideui.GaugeStyle(gaugeOrDefault(cfg.GaugeStyle)),
 		spark:     tideui.SparklineStyle(sparkOrDefault(cfg.SparkStyle)),
+		clockFont: tideui.ClockFont(clockFontOrDefault(cfg.ClockFont)),
 		tasks:     feed.Tasks(),
 		headlines: feed.Headlines(),
 		services:  feed.Services(),
@@ -180,6 +182,7 @@ func (m *model) applyConfig() {
 	m.state.clock24 = m.cfg.Clock24
 	m.state.gauge = tideui.GaugeStyle(gaugeOrDefault(m.cfg.GaugeStyle))
 	m.state.spark = tideui.SparklineStyle(sparkOrDefault(m.cfg.SparkStyle))
+	m.state.clockFont = tideui.ClockFont(clockFontOrDefault(m.cfg.ClockFont))
 	applyPanelGauges(m.ws, m.cfg)
 	applyPanelSparks(m.ws, m.cfg)
 	if m.cfg.Live {
@@ -204,6 +207,7 @@ func (m *model) applyConfig() {
 func (m *model) applyStylePreview() {
 	m.state.gauge = tideui.GaugeStyle(m.settings.GaugeStyle())
 	m.state.spark = tideui.SparklineStyle(m.settings.SparkStyle())
+	m.state.clockFont = tideui.ClockFont(m.settings.ClockFont())
 	for _, panel := range m.ws.Panels() {
 		id := panel.ID()
 		switch style := m.settings.PanelGaugeStyle(id); style {
@@ -704,7 +708,8 @@ func (m model) View() string {
 	}
 	renderer := tideui.NewRenderer(m.state.theme, tideui.StyleOptions{
 		Density: m.state.density, PaneCorners: tideui.RoundCorners,
-		Gauge: m.state.gauge, Sparkline: m.state.spark, ModalShadow: true,
+		Gauge: m.state.gauge, Sparkline: m.state.spark, ClockFont: m.state.clockFont,
+		ModalShadow: true,
 	})
 	wr := tideui.NewWorkspaceRenderer(renderer)
 

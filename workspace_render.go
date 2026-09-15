@@ -222,6 +222,7 @@ func (wr WorkspaceRenderer) panelRenderer(panel *Panel) Renderer {
 		PaneCorners: base.PaneCorners,
 		Gauge:       gauge,
 		Sparkline:   sparkline,
+		ClockFont:   base.ClockFont,
 		ModalShadow: base.ModalShadow,
 	})}
 }

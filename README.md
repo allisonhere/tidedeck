@@ -780,9 +780,11 @@ growing configuration stays readable instead of becoming one long scroll:
   **gauge style** cycles the glyph set used by every progress bar and metric
   gauge (`solid`, `blocks`, `circles`, `fisheye`, `marker`, `bars`) and
   **spark style** the ramp used by sparklines (`blocks`, `dots`, `braille`,
-  `bullets`, `ticks`, `shades`) — set them via `StyleOptions.Gauge`/
-  `StyleOptions.Sparkline`, `tideui.GaugeStyles()`/`tideui.SparklineStyles()`.
-  The picker shows the actual glyphs as its value.
+  `bullets`, `ticks`, `shades`), and **clock font** the large-clock glyphs
+  (`dash`, `block`) — set them via `StyleOptions.Gauge`/`StyleOptions.Sparkline`/
+  `StyleOptions.ClockFont`, `tideui.GaugeStyles()`/`tideui.SparklineStyles()`/
+  `tideui.ClockFonts()`. The gauge and sparkline pickers show the actual glyphs
+  as their value.
 - **Weather**: enable, city or ZIP, look up coordinates, latitude, longitude,
   location label, Fahrenheit, wind mph.
   Type a **city name or US ZIP** into "city or ZIP" and activate the

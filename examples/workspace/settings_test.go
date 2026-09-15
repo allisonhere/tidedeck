@@ -351,6 +351,32 @@ func TestSettingsPanelSparkChoice(t *testing.T) {
 	t.Fatal("no Network category")
 }
 
+func TestSettingsClockFontChoice(t *testing.T) {
+	form := newSettingsForm()
+	form.Open(config{ClockFont: "dash"})
+	form.Update(tea.KeyMsg{Type: tea.KeyEnter}) // open General
+	for i := 0; i < 3; i++ {
+		form.Update(tea.KeyMsg{Type: tea.KeyDown}) // Live data -> gauge -> spark -> clock font
+	}
+	field := form.currentField()
+	if field == nil || field.kind != fieldChoice || field.choice == nil {
+		t.Fatalf("field = %+v, want the clock font choice", field)
+	}
+	if got := form.value(*field); got != "dash" {
+		t.Fatalf("clock font = %q, want dash", got)
+	}
+	form.Update(tea.KeyMsg{Type: tea.KeyRight})
+	if got := form.value(*form.currentField()); got == "dash" {
+		t.Fatal("clock font did not cycle")
+	}
+	if action := form.Update(tea.KeyMsg{Type: tea.KeyCtrlS}); action != settingsSaved {
+		t.Fatalf("save action = %v", action)
+	}
+	if form.SavedConfig().ClockFont == "dash" {
+		t.Fatal("clock font did not save")
+	}
+}
+
 func TestSettingsPanelGaugeChoice(t *testing.T) {
 	ws := tideui.NewWorkspace()
 	ws.Panel("system", nil).Title("System")

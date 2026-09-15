@@ -286,7 +286,7 @@ func (r Renderer) RenderClock(c ClockData, width int) string {
 	center := lipgloss.NewStyle().Background(bg).Width(width).Align(lipgloss.Center)
 	var lines []string
 	bigShown := false
-	if big := bigTime(clockDigits(c.Local)); lipgloss.Width(big[0]) <= width {
+	if big := r.bigTime(clockDigits(c.Local)); lipgloss.Width(big[0]) <= width {
 		bigShown = true
 		bigStyle := timeStyle.Width(width).Align(lipgloss.Center)
 		for _, line := range big {
@@ -345,7 +345,7 @@ func (r Renderer) RenderClockDetail(c ClockData, width int) string {
 	var parts []string
 
 	timeStyle := lipgloss.NewStyle().Background(bg).Foreground(ws.FrameActive).Bold(true)
-	if big := bigTime(clockDigits(c.Local)); lipgloss.Width(big[0]) <= width {
+	if big := r.bigTime(clockDigits(c.Local)); lipgloss.Width(big[0]) <= width {
 		for _, line := range big {
 			parts = append(parts, timeStyle.Render(line))
 		}
@@ -437,28 +437,47 @@ func dayFraction(t time.Time) float64 {
 	return clamp01(float64(t.Hour()*60+t.Minute()) / (24 * 60))
 }
 
-// bigClockFont is a 5-row block font for the large digital time. Five rows
-// give every digit its proper segments (notably a top-left on "4") that a
-// 3-row seven-segment font cannot.
-var bigClockFont = map[rune][5]string{
-	'0': {"███", "█ █", "█ █", "█ █", "███"},
-	'1': {"  █", "  █", "  █", "  █", "  █"},
-	'2': {"███", "  █", "███", "█  ", "███"},
-	'3': {"███", "  █", "███", "  █", "███"},
-	'4': {"█ █", "█ █", "███", "  █", "  █"},
-	'5': {"███", "█  ", "███", "  █", "███"},
-	'6': {"███", "█  ", "███", "█ █", "███"},
-	'7': {"███", "  █", "  █", "  █", "  █"},
-	'8': {"███", "█ █", "███", "█ █", "███"},
-	'9': {"███", "█ █", "███", "  █", "███"},
-	':': {"   ", " █ ", "   ", " █ ", "   "},
-}
+// The big clock uses a 5-row font so every digit has its proper segments,
+// notably a top-left on "4". Two glyph sets are available: light dash segments
+// and solid blocks.
+var (
+	bigClockDash = map[rune][5]string{
+		'0': {"───", "│ │", "│ │", "│ │", "───"},
+		'1': {"  │", "  │", "  │", "  │", "  │"},
+		'2': {"───", "  │", "───", "│  ", "───"},
+		'3': {"───", "  │", "───", "  │", "───"},
+		'4': {"│ │", "│ │", "───", "  │", "  │"},
+		'5': {"───", "│  ", "───", "  │", "───"},
+		'6': {"───", "│  ", "───", "│ │", "───"},
+		'7': {"───", "  │", "  │", "  │", "  │"},
+		'8': {"───", "│ │", "───", "│ │", "───"},
+		'9': {"───", "│ │", "───", "  │", "───"},
+		':': {"   ", " • ", "   ", " • ", "   "},
+	}
+	bigClockBlock = map[rune][5]string{
+		'0': {"███", "█ █", "█ █", "█ █", "███"},
+		'1': {"  █", "  █", "  █", "  █", "  █"},
+		'2': {"███", "  █", "███", "█  ", "███"},
+		'3': {"███", "  █", "███", "  █", "███"},
+		'4': {"█ █", "█ █", "███", "  █", "  █"},
+		'5': {"███", "█  ", "███", "  █", "███"},
+		'6': {"███", "█  ", "███", "█ █", "███"},
+		'7': {"███", "  █", "  █", "  █", "  █"},
+		'8': {"███", "█ █", "███", "█ █", "███"},
+		'9': {"███", "█ █", "███", "  █", "███"},
+		':': {"   ", " █ ", "   ", " █ ", "   "},
+	}
+)
 
-// bigTime renders "14:42" as five rows of large digits.
-func bigTime(text string) []string {
+// bigTime renders "14:42" as five rows of large digits in the selected font.
+func (r Renderer) bigTime(text string) []string {
+	font := bigClockDash
+	if r.Styles.ClockFont == ClockFontBlock {
+		font = bigClockBlock
+	}
 	rows := make([]string, 5)
 	for i, ch := range text {
-		glyph, ok := bigClockFont[ch]
+		glyph, ok := font[ch]
 		if !ok {
 			glyph = [5]string{"   ", "   ", "   ", "   ", "   "}
 		}

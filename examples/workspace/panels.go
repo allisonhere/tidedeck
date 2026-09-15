@@ -13,7 +13,7 @@ import (
 func viewRenderer(state *demoState) tideui.Renderer {
 	return tideui.NewRenderer(state.theme, tideui.StyleOptions{
 		Density: state.density, PaneCorners: tideui.RoundCorners,
-		Gauge: state.gauge, Sparkline: state.spark,
+		Gauge: state.gauge, Sparkline: state.spark, ClockFont: state.clockFont,
 	})
 }
 
