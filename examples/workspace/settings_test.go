@@ -30,14 +30,17 @@ func TestSettingsFormEditsAndSaves(t *testing.T) {
 	form := newSettingsForm()
 	form.Open(config{})
 
-	// Cursor starts on "Live data"; space toggles it.
-	form.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(" ")})
+	// The panel opens on the category list; General holds "Live data".
+	form.Update(tea.KeyMsg{Type: tea.KeyEnter})                     // open General
+	form.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(" ")}) // toggle Live data
 	if !form.state.live {
 		t.Fatal("space did not toggle live data")
 	}
-	// Move to latitude, clear it, and type a value.
-	form.Update(tea.KeyMsg{Type: tea.KeyDown})
-	form.Update(tea.KeyMsg{Type: tea.KeyDown})
+	// Back out, open Weather, move to latitude, clear it, and type a value.
+	form.Update(tea.KeyMsg{Type: tea.KeyEsc})  // back to categories
+	form.Update(tea.KeyMsg{Type: tea.KeyDown}) // Weather
+	form.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	form.Update(tea.KeyMsg{Type: tea.KeyDown}) // enabled -> latitude
 	form.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	form.state.latitude = ""
 	for _, r := range "52.52" {
@@ -78,7 +81,8 @@ func TestSavingSettingsAppliesLiveSource(t *testing.T) {
 	if !m.settings.Opened() {
 		t.Fatal("s did not open settings")
 	}
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(" ")})
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyEnter})                     // open General
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(" ")}) // toggle Live data
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyCtrlS})
 	if !m.cfg.Live {
 		t.Fatal("save did not persist live mode")
@@ -177,3 +181,41 @@ var errLookup = &lookupError{}
 type lookupError struct{}
 
 func (*lookupError) Error() string { return "no match" }
+
+func TestSettingsCategoryNavigation(t *testing.T) {
+	form := newSettingsForm()
+	form.Open(config{})
+	if form.view != viewCategories {
+		t.Fatal("should open on the category list")
+	}
+	if form.categories[0].name != "General" {
+		t.Fatalf("first category = %q", form.categories[0].name)
+	}
+
+	form.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if form.view != viewFields {
+		t.Fatal("enter did not open a category")
+	}
+	if len(form.currentFields()) == 0 || form.currentFields()[0].label != "Live data" {
+		t.Fatalf("General fields = %+v", form.currentFields())
+	}
+
+	form.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if form.view != viewCategories {
+		t.Fatal("esc did not return to the categories")
+	}
+	form.Update(tea.KeyMsg{Type: tea.KeyDown})
+	form.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if got := form.categories[form.category].name; got != "Weather" {
+		t.Fatalf("category = %q, want Weather", got)
+	}
+	found := false
+	for _, field := range form.currentFields() {
+		if field.label == "Look up coordinates" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("Weather category is missing the coordinate lookup")
+	}
+}

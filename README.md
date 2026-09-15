@@ -752,7 +752,11 @@ empty.
 ### Configuring TideDeck
 
 Press `s` to open the **settings panel** — every provider setting is edited
-there, nothing requires environment variables or hand-editing a file:
+there, nothing requires environment variables or hand-editing a file. The
+panel is organized as a **category list** (`General`, `Weather`, `Clock`,
+`News`, `Calendar`, `Tasks`, `Notes`, `Git`, `Markets`, `Services`, `Network`)
+that opens into a page of fields, so a growing configuration stays readable
+instead of becoming one long scroll:
 
 - **Live data** toggles between the deterministic demo feed and real providers.
 - **Weather**: enable, latitude, longitude, location label, Fahrenheit, wind mph.
@@ -765,9 +769,11 @@ there, nothing requires environment variables or hand-editing a file:
   **Markets** symbols, **Services** systemd units or a Docker socket, and the
   **Network** interface.
 
-Navigate with `↑/↓` (or `j`/`k`), toggle booleans and edit text with `enter`,
-and persist with `ctrl+s`. `esc` closes without saving. On save the dashboard is
-rebuilt from the new configuration immediately.
+On the category list, `↑/↓` choose and `enter` opens a category. Inside a
+category, `↑/↓` move between fields, `enter` toggles a boolean or edits text
+(or runs an action such as the lookup), and `esc` returns to the category list.
+`ctrl+s` applies from anywhere, and `esc` on the category list closes without
+saving. On save the dashboard is rebuilt from the new configuration immediately.
 
 The config is stored at `~/.config/tidedeck/config.json` (application-scoped,
 versionless) and the status strip shows `live` instead of `demo data`. Panels
