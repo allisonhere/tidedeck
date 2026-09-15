@@ -1,13 +1,16 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/allisonhere/tideui"
+	"github.com/allisonhere/tideui/provider"
 )
 
 type fieldKind int
@@ -43,6 +46,7 @@ type formState struct {
 	latitude       string
 	longitude      string
 	location       string
+	place          string // city or ZIP to look up
 	fahrenheit     bool
 	windMPH        bool
 	zones          string
@@ -64,6 +68,7 @@ func formFromConfig(cfg config) formState {
 		latitude:       formatFloat(cfg.Weather.Latitude),
 		longitude:      formatFloat(cfg.Weather.Longitude),
 		location:       cfg.Weather.Location,
+		place:          cfg.Weather.Location,
 		fahrenheit:     cfg.Weather.Fahrenheit,
 		windMPH:        cfg.Weather.WindMPH,
 		zones:          cfg.Zones,
@@ -161,6 +166,8 @@ func (s *settingsForm) buildFields() []formField {
 		{label: "Weather · location", kind: fieldText, text: &s.state.location},
 		{label: "Weather · fahrenheit", kind: fieldBool, flag: &s.state.fahrenheit},
 		{label: "Weather · wind mph", kind: fieldBool, flag: &s.state.windMPH},
+		{label: "Weather · city or ZIP", kind: fieldText, text: &s.state.place},
+		{label: "Look up coordinates", kind: fieldAction, action: s.lookupCoordinates},
 		{label: "Clock · zones", kind: fieldText, text: &s.state.zones},
 		{label: "News · feeds", kind: fieldText, text: &s.state.feeds},
 		{label: "Calendar · .ics", kind: fieldText, text: &s.state.calendars},
@@ -174,6 +181,24 @@ func (s *settingsForm) buildFields() []formField {
 		{label: "Save & apply", kind: fieldAction, action: func() settingsAction { return s.save() }},
 		{label: "Discard & close", kind: fieldAction, action: func() settingsAction { return settingsCancelled }},
 	}
+}
+
+// lookupCoordinates resolves the city or ZIP field into latitude, longitude,
+// and a location label, enabling weather if it succeeds.
+func (s *settingsForm) lookupCoordinates() settingsAction {
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	place, err := provider.Geocode(ctx, strings.TrimSpace(s.state.place))
+	if err != nil {
+		s.problem = err.Error()
+		return settingsNone
+	}
+	s.state.latitude = formatFloat(place.Latitude)
+	s.state.longitude = formatFloat(place.Longitude)
+	s.state.location = place.Name
+	s.state.weatherEnabled = true
+	s.problem = "found " + place.Label()
+	return settingsNone
 }
 
 // Update handles all input while the panel is open.

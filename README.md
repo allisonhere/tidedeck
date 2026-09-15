@@ -756,6 +756,9 @@ there, nothing requires environment variables or hand-editing a file:
 
 - **Live data** toggles between the deterministic demo feed and real providers.
 - **Weather**: enable, latitude, longitude, location label, Fahrenheit, wind mph.
+  Type a **city name or US ZIP** into "city or ZIP" and choose **Look up
+  coordinates** — it geocodes via Open-Meteo (with a Zippopotam ZIP fallback)
+  and fills in latitude, longitude, and the location label.
 - **Clock** zones, **News** feed URLs, **Calendar** `.ics` files,
   **Tasks** `todo.txt`, **Notes** paths, **Git** repository paths,
   **Markets** symbols, **Services** systemd units or a Docker socket, and the

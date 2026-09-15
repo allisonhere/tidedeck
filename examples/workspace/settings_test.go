@@ -88,3 +88,15 @@ func TestSavingSettingsAppliesLiveSource(t *testing.T) {
 		t.Fatal("settings should close after save")
 	}
 }
+
+func TestSettingsLookupValidatesInput(t *testing.T) {
+	form := newSettingsForm()
+	form.Open(config{})
+	form.state.place = ""
+	if action := form.lookupCoordinates(); action != settingsNone {
+		t.Fatalf("blank lookup action = %v", action)
+	}
+	if form.problem == "" {
+		t.Fatal("blank lookup should report a problem")
+	}
+}
