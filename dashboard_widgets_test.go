@@ -227,6 +227,12 @@ func TestClockLook(t *testing.T) {
 	if four := bigClockDash['4']; len(four) != 3 || four[0] != "| |" || four[2] != "  |" {
 		t.Fatalf("dash 4 = %#v", four)
 	}
+	// Top bars ride at the top of row 0 (overline), not on the baseline.
+	for _, ch := range []rune{'0', '2', '3', '5', '6', '7', '8', '9'} {
+		if !strings.Contains(bigClockDash[ch][0], "‾") {
+			t.Fatalf("dash %q row 0 = %q, want a top bar", ch, bigClockDash[ch][0])
+		}
+	}
 	block := NewRenderer(CatppuccinMocha, StyleOptions{ClockFont: ClockFontBlock}).bigTime("14:42")
 	if len(block) != 5 || lipgloss.Width(block[0]) != 19 {
 		t.Fatalf("block bigTime = %#v", block)
