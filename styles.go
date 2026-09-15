@@ -2,15 +2,40 @@ package tideui
 
 import "github.com/charmbracelet/lipgloss"
 
-// Density controls vertical spacing in rows and overlays.
+// Density controls spacing across rows, chrome, and overlays. It is a
+// first-class look-and-feel choice: dashboards prefer Dense, while reading
+// oriented apps prefer Comfortable.
 type Density string
 
 const (
-	// Compact removes optional spacer rows and modal padding.
-	Compact Density = "compact"
 	// Comfortable adds breathing room between rows and in modals.
 	Comfortable Density = "comfortable"
+	// Compact is the default: no optional spacer rows.
+	Compact Density = "compact"
+	// Dense removes secondary metadata and tightens chrome for dashboards.
+	Dense Density = "dense"
 )
+
+// IsComfortable reports whether the density adds extra spacing.
+func (d Density) IsComfortable() bool { return d == Comfortable }
+
+// IsDense reports whether the density strips secondary metadata.
+func (d Density) IsDense() bool { return d == Dense }
+
+// RowStride returns the terminal lines a list row occupies.
+func (d Density) RowStride() int {
+	if d == Comfortable {
+		return 2
+	}
+	return 1
+}
+
+// ShowsSubtitles reports whether panel subtitles and secondary metadata are
+// rendered at this density.
+func (d Density) ShowsSubtitles() bool { return d != Dense }
+
+// ShowsSecondary reports whether secondary/right-aligned metadata is rendered.
+func (d Density) ShowsSecondary() bool { return d != Dense }
 
 // PaneCorners selects the glyph set used for pane border corners.
 type PaneCorners string
@@ -87,13 +112,189 @@ type Styles struct {
 	InputFocused lipgloss.Style // text field with focus border
 	InputIdle    lipgloss.Style // text field without focus
 	InputLabel   lipgloss.Style // label above a text field
+
+	// Workspace chrome — resolved from the theme so panels, tabs, docking
+	// previews, and key hints all stay within one palette.
+	Workspace WorkspaceStyles
+}
+
+// WorkspaceStyles is TideUI's semantic visual-token set. Every token is
+// resolved from the active Theme with safe fallbacks, so any theme — including
+// a hand-written or low-colour one — yields a coherent, readable result
+// without the widgets naming a single raw colour.
+type WorkspaceStyles struct {
+	// Surfaces.
+	Bg             lipgloss.Color // workspace page background, fills gutters
+	SurfaceBg      lipgloss.Color // idle panel body
+	FocusSurfaceBg lipgloss.Color // focused panel body (subtle lift)
+	RaisedBg       lipgloss.Color // capsules, rails, hovered rows
+
+	// Panel frames.
+	FrameActive lipgloss.Color
+	FrameIdle   lipgloss.Color
+	FrameDimmed lipgloss.Color
+
+	// Titles.
+	TitleActiveBg lipgloss.Color
+	TitleActiveFg lipgloss.Color
+	TitleIdleFg   lipgloss.Color
+	TitleDimmedFg lipgloss.Color
+	SubtitleFg    lipgloss.Color
+
+	// Bodies.
+	BodyFg       lipgloss.Color
+	BodyDimmedFg lipgloss.Color
+	BodyMutedFg  lipgloss.Color
+
+	// Tabs.
+	TabActiveBg lipgloss.Color
+	TabActiveFg lipgloss.Color
+	TabIdleBg   lipgloss.Color
+	TabIdleFg   lipgloss.Color
+	TabBadgeBg  lipgloss.Color
+	TabBadgeFg  lipgloss.Color
+
+	// Badges.
+	BadgeFg        lipgloss.Color
+	BadgeBg        lipgloss.Color
+	BadgeGoodBg    lipgloss.Color
+	BadgeGoodFg    lipgloss.Color
+	BadgeWarningBg lipgloss.Color
+	BadgeWarningFg lipgloss.Color
+	BadgeDangerBg  lipgloss.Color
+	BadgeDangerFg  lipgloss.Color
+
+	// Selection.
+	SelectionBg         lipgloss.Color
+	SelectionFg         lipgloss.Color
+	SelectionInactiveBg lipgloss.Color
+	SelectionInactiveFg lipgloss.Color
+	SelectionBar        lipgloss.Color
+	FocusRail           lipgloss.Color
+	HoverBg             lipgloss.Color
+
+	// Separators and chrome.
+	Separator lipgloss.Color
+
+	// Keyboard hints.
+	KeyBg       lipgloss.Color
+	KeyFg       lipgloss.Color
+	KeyMutedBg  lipgloss.Color
+	FooterKeyFg lipgloss.Color
+	HintFg      lipgloss.Color
+
+	// Metrics.
+	MetricGood    lipgloss.Color
+	MetricWarning lipgloss.Color
+	MetricBad     lipgloss.Color
+	MetricTrack   lipgloss.Color
+
+	// Arrange / docking.
+	DockColor lipgloss.Color
+	DockFill  lipgloss.Color
+}
+
+func buildWorkspaceStyles(t Theme) WorkspaceStyles {
+	accent := t.BorderFocus
+	if accent == "" {
+		accent = t.OverlayBorder
+	}
+	if accent == "" {
+		accent = t.Border
+	}
+	idle := t.Border
+	if idle == "" {
+		idle = accent
+	}
+	dimStep := 0.05
+	if !isDark(t.Bg) {
+		dimStep = -dimStep
+	}
+	surface := t.Bg
+	focusSurface := focusLineBg(t)
+	selection := selectionBgForRatio(t.Bg, selectedBgMinContrast)
+	selectionInactive := selectionBgForRatio(t.Bg, 1.8)
+	keyBg := selectionBgForRatio(t.Bg, 2.2)
+	good := readableText(t.Unread, t.Bg, 3.0)
+	bad := readableText(t.Error, t.Bg, 3.0)
+	warning := readableText(MixColors(t.Unread, t.Error, 0.5), t.Bg, 3.0)
+	if warning == "" {
+		warning = accent
+	}
+	muted := mutedText(t.Fg, t.Bg)
+	separator := adjustLightness(idle, dimStep)
+	toneBg := func(c lipgloss.Color) lipgloss.Color { return MixColors(t.Bg, c, 0.22) }
+	return WorkspaceStyles{
+		Bg:             t.Bg,
+		SurfaceBg:      surface,
+		FocusSurfaceBg: focusSurface,
+		RaisedBg:       selectionInactive,
+
+		FrameActive: workspaceFocusColor(accent, t.Bg),
+		FrameIdle:   idle,
+		FrameDimmed: adjustLightness(idle, dimStep),
+
+		TitleActiveBg: accent,
+		TitleActiveFg: readableText(t.Fg, accent, 4.5),
+		TitleIdleFg:   muted,
+		TitleDimmedFg: muted,
+		SubtitleFg:    muted,
+
+		BodyFg:       readableText(t.Fg, t.Bg, contrastText),
+		BodyDimmedFg: muted,
+		BodyMutedFg:  muted,
+
+		TabActiveBg: accent,
+		TabActiveFg: readableText(t.Fg, accent, 4.5),
+		TabIdleBg:   surface,
+		TabIdleFg:   muted,
+		TabBadgeBg:  selection,
+		TabBadgeFg:  readableText(accent, selection, 4.5),
+
+		BadgeFg:        good,
+		BadgeBg:        selection,
+		BadgeGoodBg:    toneBg(good),
+		BadgeGoodFg:    good,
+		BadgeWarningBg: toneBg(warning),
+		BadgeWarningFg: warning,
+		BadgeDangerBg:  toneBg(bad),
+		BadgeDangerFg:  bad,
+
+		SelectionBg:         selection,
+		SelectionFg:         readableText(accent, selection, 4.5),
+		SelectionInactiveBg: selectionInactive,
+		SelectionInactiveFg: readableText(t.Fg, selectionInactive, 4.5),
+		SelectionBar:        readableText(accent, t.Bg, 3.0),
+		FocusRail:           MixColors(workspaceFocusColor(accent, t.Bg), t.Bg, 0.45),
+		HoverBg:             focusSurface,
+
+		Separator: separator,
+
+		KeyBg:       keyBg,
+		KeyFg:       readableText(t.Fg, keyBg, 4.5),
+		KeyMutedBg:  surface,
+		FooterKeyFg: readableText(accent, t.Bg, 3.0),
+		HintFg:      muted,
+
+		MetricGood:    good,
+		MetricWarning: warning,
+		MetricBad:     bad,
+		MetricTrack:   separator,
+
+		DockColor: readableText(accent, t.Bg, paneFocusMinContrast),
+		DockFill:  MixColors(t.Bg, accent, 0.18),
+	}
 }
 
 func normalizeDensity(d Density) Density {
-	if d == Comfortable {
+	switch d {
+	case Comfortable:
 		return Comfortable
+	case Dense:
+		return Dense
+	default:
+		return Compact
 	}
-	return Compact
 }
 
 func normalizePaneCorners(c PaneCorners) PaneCorners {
@@ -105,10 +306,7 @@ func normalizePaneCorners(c PaneCorners) PaneCorners {
 
 // ListItemLineStride returns the terminal-line height expected per rendered row.
 func (s Styles) ListItemLineStride() int {
-	if s.Density == Comfortable {
-		return 2
-	}
-	return 1
+	return s.Density.RowStride()
 }
 
 // StatusBarSeparator returns theme-appropriate separator text for footer segments.
@@ -242,5 +440,6 @@ func BuildStyles(base Theme, options StyleOptions) Styles {
 		InputIdle: lipgloss.NewStyle().Background(modalBG).Foreground(modalFG).
 			Border(paneBorder(plain)).BorderForeground(modalBorder).BorderBackground(modalBG).Padding(0, 1),
 		InputLabel: lipgloss.NewStyle().Foreground(modalMuted),
+		Workspace:  buildWorkspaceStyles(t),
 	}
 }

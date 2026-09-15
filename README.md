@@ -29,6 +29,10 @@ go get github.com/allisonhere/tideui
 - **Nineteen built-in palettes** (Catppuccin, Nord, Dracula, Gruvbox, and more) with per-field background/foreground/accent overrides.
 - **Themed chrome** — pane headers, status bars, centered modal overlays, and a ready-made theme picker.
 - **Soft modal panels** — Tide-family modal chrome with embedded border titles, quiet hint footers, and rail-focused rows.
+- **Workspace system** — a tiny tiling window manager for TUIs: declarative panels, a layout tree, semantic adaptive reflow, live arrange/resize modes, tab stacks, zoom, peek, contextual actions, a panel picker, command palette, presets, undo/redo, mouse support, and versioned persistence.
+- **Visual language** — semantic workspace tokens, reusable chrome primitives (headers, footers, tabs, badges, key capsules, metrics, sparklines, list rows), `Comfortable`/`Compact`/`Dense` density modes, and a configurable focus presentation.
+- **Dashboard widgets** — weather, agenda, clock, system, network, storage, services, news, tasks, notes, git activity, and markets, each driven by a plain data model and backed by a `Renderer` method, with a shared Enter-to-drill-down pattern.
+- **Per-panel themes** — any panel can take its own full theme or color overrides while density, corners, gutters, and global chrome stay workspace-wide; panel content inherits it through `PanelContext.Renderer`.
 - **Full-border pane focus** — every pane renders a 4-sided border colored by focus state, contrast-boosted to a 7:1 floor (square or round corners) so the focused pane is never hard to spot.
 - **List primitives** — single-line `Row` and multi-line `Block` with selected/muted states.
 - **Per-pane scrolling** via `Pane.ScrollOffset` and the `PaneScroller` helper.
@@ -114,7 +118,9 @@ theme = tideui.ThemeOverrides{
 ```
 
 `Theme.UsesASCII()` reports VT52 mode (ASCII-only glyphs) so callers can adapt.
-`StyleOptions{Density: tideui.Comfortable}` adds spacing; `Compact` removes it.
+`StyleOptions{Density: tideui.Comfortable}` adds spacing, `Compact` is the
+default, and `Dense` strips secondary metadata for dashboards (see
+[Visual language](#visual-language)).
 
 ## Pane borders
 
@@ -229,6 +235,457 @@ layout.Modal = &overlay
 
 Use `RenderSoftRow` for command palettes and picker rows, and
 `RenderSoftHints` for quiet lowercase footer hints.
+
+## Workspace
+
+`Workspace` is a first-class layout framework for applications that would
+otherwise hand-calculate rectangles. Applications declare panels with a purpose
+and let the workspace handle focus, responsive reflow, movement, resizing,
+persistence, zooming, hiding, and visual state. See
+[`examples/workspace`](./examples/workspace) for a runnable demo.
+
+```bash
+go run ./examples/workspace
+```
+
+### Creating a workspace and registering panels
+
+```go
+ws := tideui.NewWorkspace(
+    tideui.WithPersistence("tidegit"), // application-scoped layout key
+    tideui.WithAdaptiveLayout(),       // semantic responsive reflow
+)
+
+ws.Panel("repos", reposView).
+    Title("Repositories").
+    Role(tideui.RoleNavigation).
+    MinWidth(24).MinHeight(6).Priority(80).
+    Badge("12").Hint("j/k")
+
+ws.Panel("changes", changesView).
+    Title("Changes").Role(tideui.RoleSecondary).MinWidth(28)
+
+ws.Panel("diff", diffView).
+    Title("Diff").Role(tideui.RolePrimary).MinWidth(32).Grow(2).Priority(100).
+    Actions(
+        tideui.Action("stage", "s", stageHunk).Labeled("stage"),
+        tideui.Action("open", "o", openHunk).Labeled("open"),
+    )
+
+ws.Panel("log", logView).
+    Title("Log").Role(tideui.RoleTelemetry).MinWidth(20).HideBelow(90)
+```
+
+A `PanelView` receives a `PanelContext` with the allocated width/height and
+interaction state, so a panel can adapt its own content:
+
+```go
+func reposView(ctx tideui.PanelContext) string { /* ... */ }
+```
+
+Panels can be configured with `Title`, `Description`, `Role`, `MinWidth`,
+`MinHeight`, `PreferredWidth`, `PreferredHeight`, `Grow`, `Shrink`, `Priority`,
+`Focusable`, `Hideable`, `Zoomable`, `Badge`, `Hint`, `Accent`, `Content`,
+`Body`, `Actions`, and `Responsive`. Call `Hide` to start a panel hidden.
+
+### Semantic roles
+
+Roles express intent so the workspace can make responsive decisions without
+per-panel tuning:
+
+| Role | Default priority | Typical responsive behaviour |
+|---|---|---|
+| `RolePrimary` | 100 | survives the longest |
+| `RoleNavigation` | 80 | collapses below 60 columns |
+| `RoleSecondary` | 70 | collapses below 45 columns |
+| `RoleInspector` | 60 | moves below the primary panel below 100 columns |
+| `RoleTelemetry` | 40 | hides below 70 columns |
+| `RoleOptional` | 20 | hides below 80 columns |
+
+### Layout trees
+
+Layouts are trees, never screen coordinates:
+
+```go
+ws.Layout(
+    tideui.HStack(
+        tideui.Leaf("repos"),
+        tideui.VStack(tideui.Leaf("changes"), tideui.Leaf("log")),
+        tideui.Weighted(tideui.Leaf("diff"), 2),
+        tideui.Tabs("problems", "terminal"),
+    ),
+)
+```
+
+Node constructors: `Leaf`, `Tabs`, `HStack`, `VStack`, and `Weighted` (for an
+explicit share). Panels in a `Tabs` node share one region as a tab stack.
+Without an explicit layout, the workspace derives a default from panel roles.
+
+### Actions and the command palette
+
+Actions declared on a panel automatically appear in that panel's footer (when
+it is focused) and in the command palette as `Category · Label`. They are never
+registered twice.
+
+```go
+ws.OpenPanelPicker()    // default key: w
+ws.OpenCommandPalette() // default key: ctrl+p
+```
+
+Commands are searchable by label, category, key, and id. `ws.Commands()` returns
+the full list if you want to build your own palette.
+
+### Responsive policies
+
+Responsive behaviour is a generalized set of fallback rules, evaluated from
+the narrowest applicable threshold outward. Explicit rules win over role
+defaults, and hysteresis prevents flicker around a breakpoint.
+
+```go
+panel.HideBelow(70)             // remove entirely
+panel.CollapseBelow(90)         // reduce to a header strip
+panel.StackBelow(120, "diff")   // merge into `diff`'s tab stack
+panel.MoveBelow(100, "editor")  // relocate beneath `editor`
+panel.MoveRightOf(100, "editor")
+```
+
+The same application is expected to look intentional from 80 columns to 200+,
+and as a narrow tmux/SSH pane.
+
+### Focus
+
+`Workspace` owns focus traversal:
+
+```go
+ws.FocusNext()                 // tab
+ws.FocusPrev()                 // shift+tab
+ws.FocusDirection(tideui.DirRight)
+ws.Focus("diff")
+```
+
+Focus presentation is configurable and theme-driven:
+
+```go
+ws.SetFocusPresentation(tideui.FocusPresentation{
+    ActiveBorder: true, ActiveTitle: true, DimInactive: true,
+    MutedSecondary: true, AccentMarker: true, StatusStrip: true, KeyHints: true,
+})
+```
+
+### Arrange and resize modes
+
+Arrange mode is a two-phase, Mirador-style interaction: direction keys move a
+docking cursor and preview the exact half (or full region, for a tab stack) the
+panel will occupy. Nothing is committed until you drop, so layouts always stay
+valid and a cancel is free.
+
+Resize mode works on **dividers** — the boundary between two adjacent regions —
+rather than on a panel. Select a divider, then move it in either direction
+(`h`/`l` for a column boundary, `k`/`j` for a row boundary). This means a panel
+surrounded on every side is resized by choosing the boundary you care about,
+not by guessing which edge a direction maps to. The selected divider is
+highlighted while the mode is active, and weights are shifted rather than
+absolute coordinates, so minimum sizes are always honored.
+
+```go
+ws.ToggleArrange()                    // m
+ws.ArrangeMove(tideui.DirRight)       // h/j/k/l or arrows: move the cursor
+ws.ArrangeDrop()                      // enter: commit at the previewed spot
+ws.ArrangeMerge()                     // t: fold into the cursor's tab stack
+ws.ExitArrange()                      // esc: cancel, no layout change
+
+ws.SetResizeMode(true)   // R; direction key selects a divider, then moves it
+ws.Dividers()            // boundaries of the current layout
+ws.CycleResizeDivider(1) // tab: cycle dividers (so you can pick any boundary)
+ws.ResizeDivider(tideui.DirRight) // move the selected divider
+ws.SetResizeMode(false)  // esc
+
+// Panel-relative resize remains available programmatically:
+ws.Resize(tideui.DirRight, 0)         // ctrl+right
+ws.ResizeGrow(0) / ws.ResizeShrink(0) // nearest split axis
+ws.ResizeWidth(true) / ws.ResizeHeight(true)
+```
+
+While arranging, the moving panel keeps the spotlight, other panels recede, a
+compact cheat-sheet appears, and the status strip shows an `ARRANGE` mode
+capsule.
+
+### Zoom, peek, and tab stacks
+
+```go
+ws.Zoom("diff")   // fill the workspace; the saved layout is untouched
+ws.Unzoom()       // instant restore, focus/scroll preserved
+ws.Peek("log")    // temporarily reveal a hidden panel as a floating overlay
+ws.Unpeek()
+```
+
+Tab stacks can be declared directly (`tideui.Tabs("a", "b")`) or arise from a
+responsive `StackBelow` rule. `SetActiveTab` and mouse clicks switch the active
+tab.
+
+### History, presets, and persistence
+
+```go
+ws.AddPreset("Default", defaultTree)
+ws.AddPreset("Review", reviewTree)
+ws.ApplyPreset("Review")
+
+ws.Undo() // layout moves, resizes, hide/show, tab merge/split
+ws.Redo()
+
+ws.Persist() // to the configured LayoutStore
+```
+
+Persistence serializes visible panels, tree structure, tab stacks, weights,
+hidden state, and the active preset, and is versioned. Transient states (zoom,
+peek, overlays) are never persisted. Supply a durable store with `WithStore`;
+the default is in-memory:
+
+```go
+type LayoutStore interface {
+    Load(key string) ([]byte, error)
+    Save(key string, data []byte) error
+}
+```
+
+Restore is lazy: it runs on first layout, after panels are registered, so saved
+layouts survive app upgrades. Unknown panels are dropped; if nothing usable
+remains, the declared default is kept. Invalid or future-versioned layouts are
+rejected cleanly.
+
+### Theming and rendering
+
+`WorkspaceRenderer` uses `Renderer.Styles.Workspace`, so every frame, tab,
+badge, key hint, and docking preview is drawn from the active theme. Motion is
+opt-in and degrades gracefully:
+
+```go
+renderer := tideui.NewRenderer(theme, tideui.StyleOptions{
+    Density: tideui.Compact, PaneCorners: tideui.RoundCorners,
+})
+wr := tideui.NewWorkspaceRenderer(renderer)
+view := wr.Render(ws, width, height)
+
+ws.Animation().Set("dockPulse", 1) // subtle, application-ticked
+```
+
+### Per-panel themes
+
+A panel can opt out of the workspace palette without disturbing the rest of
+the dashboard. Density, corners, gutters, status bar, and docking preview stay
+workspace-wide; only the panel's own frame, title, tabs, and content change.
+
+```go
+ws.Panel("markets", marketsView).
+    Theme(tideui.GruvboxLight)                       // a full scheme
+ws.Panel("alerts", alertsView).
+    Overrides(tideui.ThemeOverrides{Background: "#1a0f0f"}) // or a tint
+ws.Panel("weather", weatherView).
+    Theme(tideui.Nord).
+    Overrides(tideui.ThemeOverrides{Accent: "#ff8800"})     // layering
+
+panel.ClearTheme() // back to the workspace theme
+```
+
+Panels without a theme keep following the global theme picker. Panel content
+inherits the panel theme automatically because `PanelContext` exposes the
+resolved renderer:
+
+```go
+func marketsView(ctx tideui.PanelContext) string {
+    return ctx.Renderer.RenderMarkets(quotes, ctx.Width)
+}
+```
+
+Precedence is `panel.Theme` → `panel.Overrides` → global density/corners. In
+the TideDeck demo, `T` opens the theme picker targeted at the focused panel
+(live preview on that panel; `Enter` applies, `Esc` restores its previous
+theme), `Ctrl+T` clears it, and the Markets panel ships with its own
+contrasting theme.
+
+### Keyboard and mouse
+
+| Key | Action |
+|---|---|
+| `tab` / `shift+tab` | focus next / previous panel |
+| `m` | toggle arrange mode (`h/j/k/l` move cursor, `enter` drop, `t` stack, `esc` cancel) |
+| `R` | toggle resize mode (direction key selects a divider, then moves it; `tab` cycles dividers; `esc` done) |
+| `ctrl+arrows` | one-step resize of the focused split |
+| `shift+space` | zoom / restore the focused panel |
+| `w` | panel picker |
+| `ctrl+p` | command palette |
+| `esc` | dismiss peek / zoom / picker / mode |
+
+Mouse support is additive: clicking focuses a panel, clicking a tab selects it,
+and dragging a separator resizes the adjacent split. `Workspace.HandleMouse`
+consumes events; keyboard remains complete without a mouse.
+
+## Visual language
+
+TideUI ships a reusable visual language for panels and dashboards so every Tide
+app — TideGit, TideMail, Tide RSS, Docker tools, file managers — shares one
+coherent look without hand-styling each widget.
+
+### Semantic tokens
+
+Every component draws from `Styles.Workspace`, a set of semantic tokens
+resolved from the active `Theme` with safe fallbacks. Any theme, including a
+hand-written or low-colour one, yields a readable, coherent result:
+
+```go
+ws := renderer.Styles.Workspace
+// surfaces
+ws.Bg, ws.SurfaceBg, ws.FocusSurfaceBg, ws.RaisedBg
+// frames + titles
+ws.FrameActive, ws.FrameIdle, ws.FrameDimmed
+ws.TitleActiveBg, ws.TitleActiveFg, ws.TitleIdleFg, ws.TitleDimmedFg, ws.SubtitleFg
+// bodies + selection
+ws.BodyFg, ws.BodyDimmedFg, ws.SelectionBg, ws.SelectionInactiveBg, ws.SelectionBar
+// tabs, badges, chrome, metrics, docking
+ws.TabActiveBg, ws.TabIdleBg, ws.BadgeGoodBg, ws.Separator, ws.KeyBg, ws.MetricGood, ws.DockFill
+```
+
+Because the tokens are derived, extending the palette never requires touching a
+widget, and meaning never depends on a single raw colour.
+
+### Chrome primitives
+
+Reusable, theme-aware components for building panels and dashboards:
+
+| Primitive | Purpose |
+|---|---|
+| `PanelHeader` / `Renderer.RenderPanelHeader` | title, subtitle, badge, right status, or a tab strip |
+| `PanelFooter` / `Renderer.RenderPanelFooter` | focused-panel key hints or a transient mode capsule |
+| `TabStrip` / `TabItem` | active/inactive tabs with badges and overflow |
+| `Badge` + `Tone` | neutral / accent / good / warning / danger status labels |
+| `KeyHint` / `Renderer.RenderKeyHints` | compact key capsules with label-drop fallback |
+| `ListItem` / `Renderer.RenderListItem` | polished selectable rows with rail, icon, meta, counter |
+| `SectionDivider` | labelled rules for grouping content |
+| `MetricRow` / `ProgressBar` / `Sparkline` | aligned metrics, gauges, and trends |
+| `FocusChrome` | shared "what does focused mean" decisions |
+| `StatusBar` regions / `Renderer.RenderStatusRegions` | three-region status strip with priority degradation |
+
+```go
+view := renderer.RenderMetricRow(tideui.MetricRow{
+    Label: "CPU", Value: "18%", Fraction: 0.18, Bar: true,
+    Tone: tideui.ToneGood, LabelWidth: 5, ValueWidth: 5, TotalWidth: width,
+}, renderer.Styles.Workspace.Bg)
+```
+
+### Density modes
+
+Density is a first-class look-and-feel setting:
+
+| Mode | Row stride | Behaviour |
+|---|---|---|
+| `Comfortable` | 2 | breathing room; full metadata |
+| `Compact` | 1 | default; full metadata |
+| `Dense` | 1 | dashboard mode; hides subtitles, right-aligned meta, and counters; tighter footer labels |
+
+```go
+renderer := tideui.NewRenderer(theme, tideui.StyleOptions{Density: tideui.Dense})
+```
+
+### Focus presentation
+
+`FocusPresentation` decides how the active panel is signalled without disabling
+the others:
+
+```go
+ws.SetFocusPresentation(tideui.FocusPresentation{
+    ActiveBorder: true, ActiveTitle: true, TitleCapsule: true, FocusRail: true,
+    DimInactive: true, MutedSecondary: true, AccentMarker: true,
+    InactiveSelection: true, StatusStrip: true, KeyHints: true,
+})
+```
+
+The focused panel gains an accent frame, a title capsule, and an inner accent
+rail; low-priority panels recede; an unfocused panel's selection stays visible
+but muted so context survives.
+
+### Capability degradation
+
+The language degrades without losing meaning:
+
+- **ASCII / VT52 themes** switch to ASCII borders, `|` separators, `#`/`-`
+  gauges, and `.`/`@` sparklines; the demo swaps Unicode icons for ASCII.
+- **No truecolor** — tones resolve through the active colour profile.
+- **Narrow terminals** drop key labels before keys, drop commands before mode
+  and identity, truncate titles, and hide secondary metadata at `Dense`.
+- **No mouse / no animation** — every action has a keyboard path and all motion
+  is opt-in.
+
+## Dashboard widgets
+
+TideDeck is built from first-party information widgets. They consume plain
+data models and return themed, bounded blocks — acquisition stays in the
+application, rendering stays in TideUI, so a real provider can be added later
+without touching a renderer.
+
+```go
+type WeatherData struct{ /* temperature, condition, H/L, rain, wind, hourly, daily */ }
+type AgendaItem   struct{ /* title, start/end, location, category, tone */ }
+type SystemMetrics struct{ /* cpu, memory, temp, load, uptime, cores */ }
+type NetworkMetrics struct{ /* down/up, unit, sparklines, LAN/WAN */ }
+type StorageMount  struct{ /* path, used %, used/total */ }
+type ServiceStatus struct{ /* name, state, detail, uptime, tone */ }
+type Headline      struct{ /* title, source, age, unread */ }
+type Task          struct{ /* title, done, due, tags, tone */ }
+type Note          struct{ /* title, body, pinned */ }
+type RepoActivity  struct{ /* name, branch, summary, commits */ }
+type MarketQuote   struct{ /* symbol, price, change % */ }
+```
+
+Renderers on `Renderer`:
+
+| Widget | Renderer | Detail renderer |
+|---|---|---|
+| Weather | `RenderWeather` | `RenderWeatherDetail` |
+| Agenda | `RenderAgenda` | `RenderAgendaDetail` |
+| Clock | `RenderClock` | `RenderClockDetail` (with `RenderMiniCalendar`) |
+| System | `RenderSystem` | `RenderSystemDetail` |
+| Network | `RenderNetwork` | `RenderNetworkDetail` |
+| Storage | `RenderStorage` | — |
+| Services | `RenderServices` | `RenderServicesDetail` |
+| News / RSS | `RenderHeadlines` | `RenderHeadlinesDetail` |
+| Tasks | `RenderTasks` | — |
+| Notes | `RenderNotes` | — |
+| Git activity | `RenderRepoActivity` | — |
+| Markets | `RenderMarkets` | — |
+
+```go
+view := renderer.RenderAgenda(items, time.Now(), width)
+```
+
+Supporting primitives: `StatusDot`, `StatValue`, `RenderTrend`, `BarGauge`,
+`MetricRow`, `ProgressBar`, `Sparkline`, `MiniCalendar`, and `SectionDivider`.
+
+### Status vocabulary
+
+Health and liveness use one shared vocabulary so a state reads the same in
+Services, System, Network, and future widgets, and never depends on colour:
+
+```go
+tideui.StatusBadge(tideui.StatusWarning, "degraded") // badge + tone
+renderer.RenderStatus(tideui.StatusHealthy, "healthy", bg) // ● healthy
+```
+
+`StatusHealthy`, `StatusWarning`, `StatusError`, `StatusStopped`,
+`StatusActive`, `StatusStale`, and `StatusUpdating` each carry a glyph (with an
+ASCII fallback), a semantic tone, and a word.
+
+### Drill-down pattern
+
+Every panel supports the same interaction: `Enter` zooms the focused panel and
+the widget switches to its detail rendering; `Esc` returns. Detail is a plain
+zoom, so the saved layout is never altered.
+
+### Presets and the demo
+
+`examples/workspace` ships five presets (`Overview`, `System`, `Productivity`,
+`Developer`, `Minimal`) and a deterministic fake feed that updates over time.
+The feed is a pure function of seed and time, so the demo is live but
+reproducible and testable, and no network is involved.
 
 ## Terminal background
 

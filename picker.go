@@ -71,6 +71,16 @@ func (p *ThemePicker) Open(confirmedName string) {
 	p.opened = true
 }
 
+// SetTitle changes the modal title. Empty restores the default "THEME". Use it
+// to label what the picker is editing, e.g. a specific panel's theme.
+func (p *ThemePicker) SetTitle(title string) {
+	p.ensureInitialized()
+	if title == "" {
+		title = "THEME"
+	}
+	p.title = title
+}
+
 // Opened reports whether the picker should currently be displayed.
 func (p ThemePicker) Opened() bool { return p.opened }
 

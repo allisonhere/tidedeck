@@ -1,0 +1,652 @@
+package tideui
+
+import (
+	"fmt"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+)
+
+// First-party dashboard widgets. Each renders a data model to a bounded,
+// themed block; none of them fetch data. Applications supply the model from a
+// provider (or a demo feed), so acquisition and rendering stay decoupled.
+
+// RenderWeather renders the compact weather summary.
+func (r Renderer) RenderWeather(w WeatherData, width int) string {
+	bg := r.Styles.Workspace.Bg
+	ws := r.Styles.Workspace
+	lines := []string{
+		r.RenderStatValue(StatValue{Value: fmt.Sprintf("%d°", w.Temperature), Unit: w.Unit, Label: w.Condition, Tone: ToneAccent}, bg),
+		lipgloss.NewStyle().Background(bg).Foreground(ws.BodyMutedFg).
+			Render(fmt.Sprintf("H %d°   L %d°", w.High, w.Low)),
+		"",
+		r.dashPair("Rain", fmt.Sprintf("%d%%", w.RainChance), 5, bg),
+		r.dashPair("Wind", fmt.Sprintf("%d %s", w.WindSpeed, w.WindUnit), 5, bg),
+	}
+	if len(w.Hourly) > 0 {
+		lines = append(lines, "", r.renderHourly(w.Hourly, bg))
+	}
+	return r.dashBlock(lines, width, bg)
+}
+
+// renderHourly lays the short forecast out as one grouped strip so it reads as
+// a single element rather than a stack of rows.
+func (r Renderer) renderHourly(points []ForecastPoint, bg lipgloss.Color) string {
+	ws := r.Styles.Workspace
+	segments := make([]string, 0, len(points))
+	for i, point := range points {
+		if i >= 5 {
+			break
+		}
+		label := lipgloss.NewStyle().Background(bg).Foreground(ws.BodyMutedFg).Render(point.Label)
+		temp := lipgloss.NewStyle().Background(bg).Foreground(ws.BodyFg).Bold(true).
+			Render(fmt.Sprintf("%d°", point.Temperature))
+		segments = append(segments, label+" "+temp)
+	}
+	return strings.Join(segments, "   ")
+}
+
+// RenderWeatherDetail renders the extended forecast.
+func (r Renderer) RenderWeatherDetail(w WeatherData, width int) string {
+	bg := r.Styles.Workspace.Bg
+	ws := r.Styles.Workspace
+	lines := []string{
+		r.RenderStatValue(StatValue{Value: fmt.Sprintf("%d°", w.Temperature), Unit: w.Unit, Label: w.Condition, Tone: ToneAccent}, bg),
+		lipgloss.NewStyle().Background(bg).Foreground(ws.BodyMutedFg).
+			Render(fmt.Sprintf("H %d°   L %d°   Rain %d%%   Wind %d %s", w.High, w.Low, w.RainChance, w.WindSpeed, w.WindUnit)),
+	}
+	if w.Location != "" {
+		lines = append(lines, r.dashPair("Place", w.Location, 6, bg))
+	}
+	if !w.Updated.IsZero() {
+		lines = append(lines, r.dashPair("Updated", w.Updated.Format("15:04"), 6, bg))
+	}
+	if len(w.Daily) > 0 {
+		lines = append(lines, r.RenderSectionDivider(SectionDivider{Label: "FORECAST", Width: width}, bg))
+		for _, day := range w.Daily {
+			condition := day.Condition
+			if condition == "" {
+				condition = "—"
+			}
+			lines = append(lines, r.dashPair(day.Label, fmt.Sprintf("%d°  %s", day.Temperature, condition), 6, bg))
+		}
+	}
+	return r.dashBlock(lines, width, bg)
+}
+
+// RenderAgenda renders upcoming events grouped by day with the next event
+// emphasised.
+func (r Renderer) RenderAgenda(items []AgendaItem, now time.Time, width int) string {
+	return r.renderAgenda(items, now, width, false)
+}
+
+// RenderAgendaDetail renders the agenda with locations and categories.
+func (r Renderer) RenderAgendaDetail(items []AgendaItem, now time.Time, width int) string {
+	return r.renderAgenda(items, now, width, true)
+}
+
+func (r Renderer) renderAgenda(items []AgendaItem, now time.Time, width int, detail bool) string {
+	bg := r.Styles.Workspace.Bg
+	ws := r.Styles.Workspace
+	if len(items) == 0 {
+		return r.dashBlock([]string{lipgloss.NewStyle().Background(bg).Foreground(ws.HintFg).Render("No upcoming events")}, width, bg)
+	}
+	sorted := append([]AgendaItem(nil), items...)
+	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Start.Before(sorted[j].Start) })
+
+	next := ""
+	if !detail {
+		for _, item := range sorted {
+			if !item.Done && item.Start.After(now) {
+				next = item.Start.Format(time.RFC3339) + item.Title
+				break
+			}
+		}
+	}
+
+	maxItems := 10
+	if r.Styles.Density.IsDense() {
+		maxItems = 8
+	}
+	var lines []string
+	shown := 0
+	for _, group := range groupAgenda(sorted, now) {
+		lines = append(lines, r.RenderSectionDivider(SectionDivider{Label: group.label, Width: width}, bg))
+		for _, item := range group.items {
+			if shown >= maxItems {
+				break
+			}
+			key := item.Start.Format(time.RFC3339) + item.Title
+			lines = append(lines, r.renderAgendaItem(item, key == next, detail, width, bg))
+			shown++
+		}
+	}
+	return r.dashBlock(lines, width, bg)
+}
+
+func (r Renderer) renderAgendaItem(item AgendaItem, isNext, detail bool, width int, bg lipgloss.Color) string {
+	ws := r.Styles.Workspace
+	timeText := dashTime(item.Start)
+	timeStyle := lipgloss.NewStyle().Background(bg).Foreground(ws.BodyMutedFg)
+	titleStyle := lipgloss.NewStyle().Background(bg).Foreground(ws.BodyFg)
+	dot := r.RenderStatusDot(StatusDot{Tone: item.Tone}, bg)
+	if item.Done {
+		titleStyle = titleStyle.Foreground(ws.BodyDimmedFg)
+		timeStyle = timeStyle.Foreground(ws.HintFg)
+	}
+	if isNext {
+		titleStyle = titleStyle.Foreground(ws.FrameActive).Bold(true)
+		dot = r.RenderStatusDot(StatusDot{Tone: ToneAccent}, bg)
+	}
+	left := timeStyle.Render(timeText) + lipgloss.NewStyle().Background(bg).Render("  ") +
+		dot + lipgloss.NewStyle().Background(bg).Render(" ") + titleStyle.Render(item.Title)
+	suffix := ""
+	if isNext {
+		suffix = r.RenderBadgeOn(NewBadge("next").WithTone(ToneAccent), bg)
+	}
+	if detail {
+		meta := item.Category
+		if item.Location != "" {
+			if meta != "" {
+				meta += " · "
+			}
+			meta += item.Location
+		}
+		if meta != "" {
+			left += lipgloss.NewStyle().Background(bg).Foreground(ws.SubtitleFg).Render("  " + meta)
+		}
+	}
+	return alignRow(left, "", suffix, width)
+}
+
+type agendaGroup struct {
+	label string
+	items []AgendaItem
+}
+
+func groupAgenda(items []AgendaItem, now time.Time) []agendaGroup {
+	var groups []agendaGroup
+	index := map[string]int{}
+	for _, item := range items {
+		label := dayLabel(item.Start, now)
+		position, ok := index[label]
+		if !ok {
+			position = len(groups)
+			index[label] = position
+			groups = append(groups, agendaGroup{label: label})
+		}
+		groups[position].items = append(groups[position].items, item)
+	}
+	return groups
+}
+
+func dayLabel(t, now time.Time) string {
+	switch daysBetween(now, t) {
+	case 0:
+		return "TODAY"
+	case 1:
+		return "TOMORROW"
+	case -1:
+		return "YESTERDAY"
+	default:
+		return strings.ToUpper(t.Format("Mon Jan 2"))
+	}
+}
+
+func daysBetween(a, b time.Time) int {
+	ay, am, ad := a.Date()
+	by, bm, bd := b.Date()
+	a0 := time.Date(ay, am, ad, 0, 0, 0, 0, time.UTC)
+	b0 := time.Date(by, bm, bd, 0, 0, 0, 0, time.UTC)
+	return int(b0.Sub(a0).Hours() / 24)
+}
+
+// RenderClock renders local time and world clocks.
+func (r Renderer) RenderClock(c ClockData, width int) string {
+	bg := r.Styles.Workspace.Bg
+	ws := r.Styles.Workspace
+	lines := []string{
+		lipgloss.NewStyle().Background(bg).Foreground(ws.FrameActive).Bold(true).
+			Render(c.Local.Format("15:04")),
+		lipgloss.NewStyle().Background(bg).Foreground(ws.SubtitleFg).
+			Render(c.Local.Format("Mon Jan 2")),
+	}
+	if c.Location != "" {
+		lines = append(lines, lipgloss.NewStyle().Background(bg).Foreground(ws.HintFg).Render(c.Location))
+	}
+	if len(c.Zones) > 0 {
+		lines = append(lines, "")
+		for _, zone := range c.Zones {
+			label := zone.City
+			if zone.Offset != "" {
+				label = fmt.Sprintf("%s %s", zone.City, zone.Offset)
+			}
+			lines = append(lines, r.dashPair(label, zone.Time.Format("15:04"), 12, bg))
+		}
+	}
+	return r.dashBlock(lines, width, bg)
+}
+
+// RenderClockDetail renders the clock with a month calendar.
+func (r Renderer) RenderClockDetail(c ClockData, width int) string {
+	bg := r.Styles.Workspace.Bg
+	calendarWidth := min(width, 21)
+	parts := []string{r.RenderClock(c, width)}
+	if calendarWidth >= 15 {
+		parts = append(parts, r.RenderMiniCalendar(MiniCalendar{
+			Year: c.Local.Year(), Month: c.Local.Month(), Highlight: c.Local.Day(), Width: calendarWidth,
+		}, bg))
+	}
+	return strings.Join(parts, "\n")
+}
+
+// RenderSystem renders the system-health summary.
+func (r Renderer) RenderSystem(m SystemMetrics, width int) string {
+	bg := r.Styles.Workspace.Bg
+	total := metricTotal(width, 5, 5, 20)
+	rows := []MetricRow{
+		{Label: "CPU", Value: fmt.Sprintf("%.0f%%", m.CPUPercent), Fraction: m.CPUPercent / 100,
+			Spark: m.CPUSpark, Tone: toneForPercent(m.CPUPercent), LabelWidth: 5, ValueWidth: 5, TotalWidth: total},
+		{Label: "MEM", Value: fmt.Sprintf("%.0f%%", m.MemoryPercent), Fraction: m.MemoryPercent / 100,
+			Bar: true, Tone: toneForPercent(m.MemoryPercent), LabelWidth: 5, ValueWidth: 5, TotalWidth: total},
+	}
+	lines := make([]string, 0, len(rows)+3)
+	for _, row := range rows {
+		lines = append(lines, r.RenderMetricRow(row, bg))
+	}
+	lines = append(lines, r.dashPair("TEMP", fmt.Sprintf("%d°C", m.TemperatureC), 5, bg))
+	lines = append(lines, r.dashPair("LOAD", fmt.Sprintf("%.1f %.1f %.1f", m.Load[0], m.Load[1], m.Load[2]), 5, bg))
+	lines = append(lines, r.dashPair("UP", formatUptime(m.Uptime), 5, bg))
+	return r.dashBlock(lines, width, bg)
+}
+
+// RenderSystemDetail renders per-core load, memory totals, and processes.
+func (r Renderer) RenderSystemDetail(m SystemMetrics, width int) string {
+	bg := r.Styles.Workspace.Bg
+	lines := strings.Split(r.RenderSystem(m, width), "\n")
+	if len(m.Cores) > 0 {
+		lines = append(lines, r.RenderSectionDivider(SectionDivider{Label: "CORES", Width: width}, bg))
+		barWidth := max(4, width-10)
+		for i, core := range m.Cores {
+			lines = append(lines, r.dashPair(fmt.Sprintf("cpu%d", i), "", 5, bg)+
+				r.RenderProgressBar(ProgressBar{Fraction: core / 100, Width: barWidth, Tone: toneForPercent(core)}, bg))
+		}
+	}
+	memory := m.MemoryUsed
+	if m.MemoryTotal != "" {
+		memory = fmt.Sprintf("%s / %s", m.MemoryUsed, m.MemoryTotal)
+	}
+	if memory != "" {
+		lines = append(lines, r.dashPair("Mem", memory, 5, bg))
+	}
+	if m.Processes > 0 {
+		lines = append(lines, r.dashPair("Proc", fmt.Sprintf("%d", m.Processes), 5, bg))
+	}
+	return r.dashBlock(lines, width, bg)
+}
+
+// RenderNetwork renders throughput and a short-term graph.
+func (r Renderer) RenderNetwork(m NetworkMetrics, width int) string {
+	bg := r.Styles.Workspace.Bg
+	ws := r.Styles.Workspace
+	unit := m.Unit
+	if unit == "" {
+		unit = "Mbps"
+	}
+	lines := []string{
+		lipgloss.NewStyle().Background(bg).Foreground(ws.BodyMutedFg).Render("↓ ") +
+			lipgloss.NewStyle().Background(bg).Foreground(ws.FrameActive).Bold(true).
+				Render(fmt.Sprintf("%.0f %s", m.Download, unit)),
+		lipgloss.NewStyle().Background(bg).Foreground(ws.BodyMutedFg).Render("↑ ") +
+			lipgloss.NewStyle().Background(bg).Foreground(ws.BodyFg).Bold(true).
+				Render(fmt.Sprintf("%.0f %s", m.Upload, unit)),
+	}
+	if len(m.DownSpark) > 0 {
+		graphWidth := min(width, 26)
+		lines = append(lines, "", r.RenderSparkline(Sparkline{Values: m.DownSpark, Width: graphWidth, Tone: ToneAccent}, bg))
+	}
+	if m.Interface != "" {
+		lines = append(lines, "", lipgloss.NewStyle().Background(bg).Foreground(ws.BodyMutedFg).
+			Render(m.Interface))
+	}
+	return r.dashBlock(lines, width, bg)
+}
+
+// RenderNetworkDetail adds LAN/WAN summaries and an upload graph.
+func (r Renderer) RenderNetworkDetail(m NetworkMetrics, width int) string {
+	bg := r.Styles.Workspace.Bg
+	lines := strings.Split(r.RenderNetwork(m, width), "\n")
+	if len(m.UpSpark) > 0 {
+		lines = append(lines, "", r.RenderSparkline(Sparkline{Values: m.UpSpark, Width: width, Tone: ToneGood}, bg))
+	}
+	if m.LAN != "" {
+		lines = append(lines, r.dashPair("LAN", m.LAN, 6, bg))
+	}
+	if m.WAN != "" {
+		lines = append(lines, r.dashPair("WAN", m.WAN, 6, bg))
+	}
+	return r.dashBlock(lines, width, bg)
+}
+
+// RenderStorage renders mounted filesystems with gauges.
+func (r Renderer) RenderStorage(mounts []StorageMount, width int) string {
+	bg := r.Styles.Workspace.Bg
+	if len(mounts) == 0 {
+		return ""
+	}
+	labelWidth := 0
+	for _, mount := range mounts {
+		labelWidth = max(labelWidth, lipgloss.Width(mount.Path))
+	}
+	labelWidth = min(labelWidth, max(4, width/3))
+	lines := make([]string, 0, len(mounts))
+	for _, mount := range mounts {
+		tone := mount.Tone
+		if tone == ToneNeutral {
+			tone = toneForPercent(mount.UsedPercent)
+		}
+		lines = append(lines, r.RenderMetricRow(MetricRow{
+			Label: mount.Path, Value: fmt.Sprintf("%.0f%%", mount.UsedPercent),
+			Fraction: mount.UsedPercent / 100, Bar: true, Tone: tone,
+			LabelWidth: labelWidth, ValueWidth: 4, TotalWidth: metricTotal(width, labelWidth, 4, 28),
+		}, bg))
+	}
+	return r.dashBlock(lines, width, bg)
+}
+
+// RenderServices renders service/container statuses.
+func (r Renderer) RenderServices(items []ServiceStatus, width int) string {
+	return r.renderServices(items, width, false)
+}
+
+// RenderServicesDetail adds each service's detail and uptime.
+func (r Renderer) RenderServicesDetail(items []ServiceStatus, width int) string {
+	return r.renderServices(items, width, true)
+}
+
+func (r Renderer) renderServices(items []ServiceStatus, width int, detail bool) string {
+	bg := r.Styles.Workspace.Bg
+	ws := r.Styles.Workspace
+	if len(items) == 0 {
+		return ""
+	}
+	plain := r.Styles.PlainUI
+	nameWidth, stateWidth, ageWidth := 0, 0, 0
+	for _, item := range items {
+		_, label, _ := item.resolved()
+		nameWidth = max(nameWidth, lipgloss.Width(item.Name))
+		stateWidth = max(stateWidth, lipgloss.Width(label))
+		ageWidth = max(ageWidth, lipgloss.Width(serviceAge(item)))
+	}
+	nameWidth = min(nameWidth, max(4, width/3))
+	stateWidth = min(stateWidth, 9)
+	ageWidth = min(ageWidth, 5)
+
+	var lines []string
+	for _, item := range items {
+		kind, label, tone := item.resolved()
+		dot := lipgloss.NewStyle().Background(bg).Foreground(r.toneColor(tone)).
+			Render(kind.Glyph(plain))
+		name := lipgloss.NewStyle().Background(bg).Foreground(ws.BodyFg).
+			Render(padRight(ansi.Truncate(item.Name, nameWidth, "…"), nameWidth))
+		state := lipgloss.NewStyle().Background(bg).Foreground(r.toneColor(tone)).
+			Render(padRight(ansi.Truncate(label, stateWidth, "…"), stateWidth))
+		age := lipgloss.NewStyle().Background(bg).Foreground(ws.BodyMutedFg).
+			Render(padRight(ansi.Truncate(serviceAge(item), ageWidth, "…"), ageWidth))
+		// Keep name, state, and age as one grouped column set rather than
+		// flinging the age to the far edge of a wide panel.
+		lines = append(lines, dot+" "+name+" "+state+"  "+age)
+		if detail && item.Detail != "" {
+			extra := item.Detail
+			if item.Uptime != "" {
+				extra += "  ·  up " + item.Uptime
+			}
+			lines = append(lines, lipgloss.NewStyle().Background(bg).Foreground(ws.SubtitleFg).
+				Render("  "+extra))
+		}
+	}
+	return r.dashBlock(lines, width, bg)
+}
+
+// serviceAge returns the compact age column, defaulting to "--".
+func serviceAge(item ServiceStatus) string {
+	if item.Age != "" {
+		return item.Age
+	}
+	return "--"
+}
+
+// RenderHeadlines renders a compact headline list.
+func (r Renderer) RenderHeadlines(items []Headline, width int) string {
+	return r.renderHeadlines(items, width, false)
+}
+
+// RenderHeadlinesDetail renders more headlines with sources.
+func (r Renderer) RenderHeadlinesDetail(items []Headline, width int) string {
+	return r.renderHeadlines(items, width, true)
+}
+
+func (r Renderer) renderHeadlines(items []Headline, width int, detail bool) string {
+	if len(items) == 0 {
+		return ""
+	}
+	bg := r.Styles.Workspace.Bg
+	ws := r.Styles.Workspace
+	limit := 6
+	if detail {
+		limit = 12
+	}
+	twoLine := !r.Styles.Density.IsDense()
+	var lines []string
+	for i, item := range items {
+		if i >= limit {
+			break
+		}
+		// Headlines stay neutral; only the unread marker carries accent so the
+		// panel never becomes a wall of colour.
+		titleStyle := lipgloss.NewStyle().Background(bg).Foreground(ws.BodyFg)
+		if !item.Unread {
+			titleStyle = titleStyle.Foreground(ws.BodyDimmedFg)
+		}
+		marker := " "
+		if item.Unread {
+			marker = lipgloss.NewStyle().Background(bg).Foreground(r.toneColor(ToneAccent)).
+				Render(StatusHealthy.Glyph(r.Styles.PlainUI))
+		}
+		title := titleStyle.Render(item.Title)
+		if twoLine {
+			lines = append(lines, marker+lipgloss.NewStyle().Background(bg).Render(" ")+title)
+			meta := item.Source
+			if item.Age != "" {
+				meta += "  ·  " + item.Age
+			}
+			lines = append(lines, lipgloss.NewStyle().Background(bg).Foreground(ws.SubtitleFg).Render("   "+meta))
+		} else {
+			meta := item.Source
+			if item.Age != "" {
+				meta += " " + item.Age
+			}
+			lines = append(lines, alignRow(marker+" "+title, "", lipgloss.NewStyle().Background(bg).Foreground(ws.SubtitleFg).Render(meta), width))
+		}
+	}
+	return r.dashBlock(lines, width, bg)
+}
+
+// RenderTasks renders a task list with checkboxes and due dates.
+func (r Renderer) RenderTasks(tasks []Task, width int) string {
+	if len(tasks) == 0 {
+		return ""
+	}
+	bg := r.Styles.Workspace.Bg
+	ws := r.Styles.Workspace
+	plain := r.Styles.PlainUI
+	var lines []string
+	for _, task := range tasks {
+		box := "□"
+		tone := ToneMuted
+		if task.Done {
+			box = "✓"
+			tone = ToneGood
+		} else if task.Tone != ToneNeutral {
+			tone = task.Tone
+		}
+		if plain {
+			if task.Done {
+				box = "[x]"
+			} else {
+				box = "[ ]"
+			}
+		}
+		boxStyle := lipgloss.NewStyle().Background(bg).Foreground(r.toneColor(tone))
+		titleStyle := lipgloss.NewStyle().Background(bg).Foreground(ws.BodyFg)
+		if task.Done {
+			titleStyle = titleStyle.Foreground(ws.BodyDimmedFg)
+		}
+		left := boxStyle.Render(box) + lipgloss.NewStyle().Background(bg).Render(" ") + titleStyle.Render(task.Title)
+		if len(task.Tags) > 0 && !r.Styles.Density.IsDense() {
+			left += lipgloss.NewStyle().Background(bg).Foreground(ws.SubtitleFg).Render("  " + strings.Join(task.Tags, " "))
+		}
+		right := ""
+		if task.Due != "" {
+			dueStyle := lipgloss.NewStyle().Background(bg).Foreground(ws.BodyMutedFg)
+			if !task.Done && strings.EqualFold(task.Due, "today") {
+				dueStyle = dueStyle.Foreground(r.toneColor(ToneWarning))
+			}
+			right = dueStyle.Render(task.Due)
+		}
+		lines = append(lines, alignRow(left, "", right, width))
+	}
+	return r.dashBlock(lines, width, bg)
+}
+
+// RenderNotes renders pinned and short notes.
+func (r Renderer) RenderNotes(items []Note, width int) string {
+	if len(items) == 0 {
+		return ""
+	}
+	bg := r.Styles.Workspace.Bg
+	ws := r.Styles.Workspace
+	var lines []string
+	for i, note := range items {
+		if i > 0 {
+			lines = append(lines, "")
+		}
+		title := note.Title
+		if note.Pinned {
+			title = "★ " + title
+		}
+		if title != "" {
+			lines = append(lines, lipgloss.NewStyle().Background(bg).Foreground(ws.BodyFg).Bold(true).Render(title))
+		}
+		for _, bodyLine := range strings.Split(note.Body, "\n") {
+			lines = append(lines, lipgloss.NewStyle().Background(bg).Foreground(ws.BodyMutedFg).
+				Render("  • "+strings.TrimSpace(strings.TrimPrefix(bodyLine, "- "))))
+		}
+	}
+	return r.dashBlock(lines, width, bg)
+}
+
+// RenderRepoActivity renders a compact repository activity list.
+func (r Renderer) RenderRepoActivity(items []RepoActivity, width int) string {
+	if len(items) == 0 {
+		return ""
+	}
+	bg := r.Styles.Workspace.Bg
+	ws := r.Styles.Workspace
+	labelWidth := 0
+	for _, item := range items {
+		labelWidth = max(labelWidth, lipgloss.Width(item.Name))
+	}
+	labelWidth = min(labelWidth, max(4, width/3))
+	var lines []string
+	for _, item := range items {
+		tone := item.Tone
+		if tone == ToneNeutral {
+			tone = ToneAccent
+		}
+		left := lipgloss.NewStyle().Background(bg).Foreground(r.toneColor(tone)).Bold(true).
+			Render(padRight(item.Name, labelWidth))
+		summary := item.Summary
+		if !r.Styles.Density.IsDense() && item.Branch != "" {
+			mark := "✓"
+			if r.Styles.PlainUI {
+				mark = "ok"
+			}
+			summary = strings.TrimSpace(item.Branch + " " + mark + "  " + summary)
+		}
+		left += lipgloss.NewStyle().Background(bg).Render(" ") +
+			lipgloss.NewStyle().Background(bg).Foreground(ws.BodyMutedFg).Render(summary)
+		right := ""
+		if item.Commits > 0 {
+			right = lipgloss.NewStyle().Background(bg).Foreground(ws.BodyFg).
+				Render(fmt.Sprintf("%d commits", item.Commits))
+		}
+		lines = append(lines, alignRow(left, "", right, width))
+	}
+	return r.dashBlock(lines, width, bg)
+}
+
+// RenderMarkets renders an aligned watchlist.
+func (r Renderer) RenderMarkets(items []MarketQuote, width int) string {
+	if len(items) == 0 {
+		return ""
+	}
+	bg := r.Styles.Workspace.Bg
+	ws := r.Styles.Workspace
+	symbolWidth := 0
+	for _, item := range items {
+		symbolWidth = max(symbolWidth, lipgloss.Width(item.Symbol))
+	}
+	var lines []string
+	for _, item := range items {
+		price := fmt.Sprintf("%.2f", item.Price)
+		if item.Currency != "" {
+			price += " " + item.Currency
+		}
+		left := lipgloss.NewStyle().Background(bg).Foreground(ws.BodyFg).Bold(true).
+			Render(padRight(item.Symbol, symbolWidth))
+		right := lipgloss.NewStyle().Background(bg).Foreground(ws.BodyFg).Render(price) +
+			lipgloss.NewStyle().Background(bg).Render("  ") + r.RenderTrend(item.ChangePct, "%", bg)
+		lines = append(lines, alignRow(left, "", right, width))
+	}
+	return r.dashBlock(lines, width, bg)
+}
+
+// metricTotal caps a metric row's width so its gauge or sparkline does not
+// stretch across a very wide panel.
+func metricTotal(width, labelWidth, valueWidth, maxPlot int) int {
+	return min(width, labelWidth+valueWidth+4+maxPlot)
+}
+
+// toneForPercent maps a utilisation percentage to a metric tone.
+func toneForPercent(percent float64) Tone {
+	switch {
+	case percent >= 85:
+		return ToneDanger
+	case percent >= 70:
+		return ToneWarning
+	default:
+		return ToneGood
+	}
+}
+
+// formatUptime renders a duration in a compact dashboard form.
+func formatUptime(d time.Duration) string {
+	if d <= 0 {
+		return "—"
+	}
+	days := int(d.Hours()) / 24
+	hours := int(d.Hours()) % 24
+	minutes := int(d.Minutes()) % 60
+	switch {
+	case days > 0:
+		return fmt.Sprintf("%dd %dh", days, hours)
+	case hours > 0:
+		return fmt.Sprintf("%dh %dm", hours, minutes)
+	default:
+		return fmt.Sprintf("%dm", minutes)
+	}
+}
