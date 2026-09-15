@@ -62,7 +62,7 @@ type demoState struct {
 	density tideui.Density
 	now     time.Time
 	source  dataSource
-	live    *liveSource // non-nil when TIDEDECK_LIVE is set
+	live    *liveSource // non-nil when live data is enabled in settings
 	status  string
 
 	weatherUnit  string
@@ -82,6 +82,10 @@ type model struct {
 	ws            *tideui.Workspace
 	picker        tideui.ThemePicker
 
+	cfg      config
+	feed     *demoFeed
+	settings *settingsForm
+
 	// pickerTarget is "" when the picker is editing the workspace theme, or a
 	// panel id when it is editing that panel's theme. pickerPrev/pickerHad
 	// preserve the panel's previous theme so Escape can restore it.
@@ -99,6 +103,7 @@ func tickCmd(rate time.Duration) tea.Cmd {
 func newModel() model {
 	started := time.Now()
 	feed := newDemoFeed(7, started)
+	cfg := loadConfig()
 	var source dataSource = feed
 	state := &demoState{
 		theme: tideui.CatppuccinMocha, density: tideui.Dense, now: started, source: source, weatherUnit: "F",
@@ -109,15 +114,14 @@ func newModel() model {
 		repos:     feed.RepoActivity(),
 		mounts:    feed.Storage(),
 	}
-	// TIDEDECK_LIVE switches the dashboard from the deterministic demo feed to
-	// real providers. Static collections start empty and fill from the first
-	// successful snapshot.
-	if os.Getenv("TIDEDECK_LIVE") != "" {
-		state.live = newLiveSource()
+	// Live data is configured in the settings panel (s) and persisted; when
+	// enabled the dashboard reads real providers and the static collections
+	// start empty, filling from the first snapshot.
+	if cfg.Live {
+		state.live = newLiveSource(cfg)
 		state.source = state.live
 		state.tasks, state.headlines, state.services = nil, nil, nil
 		state.notes, state.repos, state.mounts = nil, nil, nil
-		state.weatherUnit = "F"
 	}
 
 	store := fileStore{path: filepath.Join(userConfigDir(), "tidedeck", "layout.json")}
@@ -147,7 +151,33 @@ func newModel() model {
 	ws.ApplyPreset("Overview")
 	ws.Focus("agenda")
 
-	return model{state: state, ws: ws, picker: tideui.NewThemePicker(tideui.ThemePickerOptions{InitialTheme: state.theme.Name})}
+	return model{
+		state:    state,
+		ws:       ws,
+		picker:   tideui.NewThemePicker(tideui.ThemePickerOptions{InitialTheme: state.theme.Name}),
+		cfg:      cfg,
+		feed:     feed,
+		settings: newSettingsForm(),
+	}
+}
+
+// applyConfig switches the data source to match the saved configuration.
+func (m *model) applyConfig() {
+	if m.cfg.Live {
+		m.state.live = newLiveSource(m.cfg)
+		m.state.source = m.state.live
+		m.state.tasks, m.state.headlines, m.state.services = nil, nil, nil
+		m.state.notes, m.state.repos, m.state.mounts = nil, nil, nil
+	} else {
+		m.state.live = nil
+		m.state.source = m.feed
+		m.state.tasks = m.feed.Tasks()
+		m.state.headlines = m.feed.Headlines()
+		m.state.services = m.feed.Services()
+		m.state.notes = m.feed.Notes()
+		m.state.repos = m.feed.RepoActivity()
+		m.state.mounts = m.feed.Storage()
+	}
 }
 
 func registerPanels(ws *tideui.Workspace, state *demoState) {
@@ -394,6 +424,21 @@ func (m model) refreshBadges() {
 }
 
 func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.settings.Opened() {
+		switch m.settings.Update(msg) {
+		case settingsSaved:
+			m.cfg = m.settings.SavedConfig()
+			if err := m.cfg.save(); err != nil {
+				m.state.status = "config save failed: " + err.Error()
+			} else {
+				m.state.status = "settings saved"
+			}
+			m.applyConfig()
+		case settingsCancelled:
+			m.state.status = "settings unchanged"
+		}
+		return m, nil
+	}
 	if m.picker.Opened() {
 		m.updateThemePicker(msg)
 		return m, nil
@@ -410,6 +455,10 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case "t":
 			m.openWorkspaceThemePicker()
+			return m, nil
+		case "s":
+			m.settings.Open(m.cfg)
+			m.state.status = "settings"
 			return m, nil
 		case "d":
 			m.state.density = nextDensity(m.state.density)
@@ -571,6 +620,12 @@ func (m model) View() string {
 	wr.Options.StatusSecondary = secondary
 	base := wr.Render(m.ws, m.width, m.height)
 
+	if m.settings.Opened() {
+		overlay := m.settings.Render(renderer, m.width, m.height)
+		if overlay.Visible {
+			return renderer.OverlayModal(base, overlay.Content, m.width, m.height)
+		}
+	}
 	if overlay := m.ws.Overlay(renderer); overlay != nil && overlay.Visible {
 		return renderer.OverlayModal(base, overlay.Content, m.width, m.height)
 	}

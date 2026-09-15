@@ -522,6 +522,7 @@ contrasting theme.
 | `ctrl+arrows` | one-step resize of the focused split |
 | `shift+space` | zoom / restore the focused panel |
 | `w` | panel picker |
+| `s` | settings panel (edit all provider config) |
 | `ctrl+p` | command palette |
 | `esc` | dismiss peek / zoom / picker / mode |
 
@@ -748,27 +749,25 @@ snapshot := dashboard.Snapshot() // reads cache only, never blocks
 Linux-only sources return an error elsewhere, which simply leaves that panel
 empty.
 
-### Running TideDeck live
+### Configuring TideDeck
 
-Set `TIDEDECK_LIVE=1` to switch the demo from the fake feed to real providers.
-Everything else is optional:
+Press `s` to open the **settings panel** — every provider setting is edited
+there, nothing requires environment variables or hand-editing a file:
 
-```bash
-TIDEDECK_LIVE=1 \
-TIDEDECK_LAT=52.52 TIDEDECK_LON=13.405 TIDEDECK_LOCATION=Berlin \
-TIDEDECK_ZONES=Europe/London,Asia/Tokyo \
-TIDEDECK_FEEDS=https://lwn.net/headlines/rss \
-TIDEDECK_ICS=~/.local/share/cal.ics \
-TIDEDECK_TODO=~/todo.txt \
-TIDEDECK_NOTES=~/notes \
-TIDEDECK_REPOS=~/Projects/tidedeck,~/Projects/tideui \
-TIDEDECK_SYMBOLS=AMD,NVDA,SPY \
-TIDEDECK_SYSTEMD=sshd,docker \
-go run ./examples/workspace
-```
+- **Live data** toggles between the deterministic demo feed and real providers.
+- **Weather**: enable, latitude, longitude, location label, Fahrenheit, wind mph.
+- **Clock** zones, **News** feed URLs, **Calendar** `.ics` files,
+  **Tasks** `todo.txt`, **Notes** paths, **Git** repository paths,
+  **Markets** symbols, **Services** systemd units or a Docker socket, and the
+  **Network** interface.
 
-The status strip shows `live` instead of `demo data`. Unset any variable and the
-corresponding panel simply starts empty.
+Navigate with `↑/↓` (or `j`/`k`), toggle booleans and edit text with `enter`,
+and persist with `ctrl+s`. `esc` closes without saving. On save the dashboard is
+rebuilt from the new configuration immediately.
+
+The config is stored at `~/.config/tidedeck/config.json` (application-scoped,
+versionless) and the status strip shows `live` instead of `demo data`. Panels
+whose provider is not configured simply start empty.
 
 ## Terminal background
 

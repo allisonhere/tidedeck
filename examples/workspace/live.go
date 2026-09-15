@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -33,43 +31,50 @@ type liveSource struct {
 	snapshot  provider.Snapshot
 }
 
-func newLiveSource() *liveSource {
+// newLiveSource builds the provider dashboard from the application config.
+// Sources with no configuration are simply left unset and their panels stay
+// empty.
+func newLiveSource(cfg config) *liveSource {
+	location := strings.TrimSpace(cfg.Weather.Location)
+	if location == "" {
+		location = "Local"
+	}
 	dashboard := &provider.Dashboard{
-		Clock:   provider.NewFetcher(time.Minute, provider.Clock(envOr("TIDEDECK_LOCATION", "Local"), envList("TIDEDECK_ZONES")...)),
+		Clock:   provider.NewFetcher(time.Minute, provider.Clock(location, list(cfg.Zones)...)),
 		System:  provider.NewFetcher(time.Second, provider.System()),
-		Network: provider.NewFetcher(time.Second, provider.Network(envOr("TIDEDECK_IFACE", ""))),
+		Network: provider.NewFetcher(time.Second, provider.Network(strings.TrimSpace(cfg.Interface))),
 		Storage: provider.NewFetcher(2*time.Minute, provider.Storage()),
 	}
-	if latitude, longitude, ok := envCoordinates(); ok {
+	if cfg.Weather.usable() {
 		dashboard.Weather = provider.NewFetcher(10*time.Minute, provider.Weather(provider.WeatherOptions{
-			Latitude:   latitude,
-			Longitude:  longitude,
-			Location:   envOr("TIDEDECK_LOCATION", "Local"),
-			Fahrenheit: !strings.EqualFold(envOr("TIDEDECK_UNITS", "f"), "c"),
-			WindMPH:    !strings.EqualFold(envOr("TIDEDECK_WIND", "mph"), "kmh"),
+			Latitude:   cfg.Weather.Latitude,
+			Longitude:  cfg.Weather.Longitude,
+			Location:   location,
+			Fahrenheit: cfg.Weather.Fahrenheit,
+			WindMPH:    cfg.Weather.WindMPH,
 		}))
 	}
-	if feeds := envList("TIDEDECK_FEEDS"); len(feeds) > 0 {
+	if feeds := list(cfg.Feeds); len(feeds) > 0 {
 		dashboard.Headlines = provider.NewFetcher(5*time.Minute, provider.Feed(feeds...))
 	}
-	if repos := envList("TIDEDECK_REPOS"); len(repos) > 0 {
+	if repos := list(cfg.Repos); len(repos) > 0 {
 		dashboard.Repos = provider.NewFetcher(time.Minute, provider.Git(repos...))
 	}
-	if todo := envOr("TIDEDECK_TODO", ""); todo != "" {
+	if todo := expandPath(strings.TrimSpace(cfg.Todo)); todo != "" {
 		dashboard.Tasks = provider.NewFetcher(30*time.Second, provider.TodoTxt(todo))
 	}
-	if notes := envList("TIDEDECK_NOTES"); len(notes) > 0 {
+	if notes := list(cfg.Notes); len(notes) > 0 {
 		dashboard.Notes = provider.NewFetcher(30*time.Second, provider.Notes(notes...))
 	}
-	if calendars := envList("TIDEDECK_ICS"); len(calendars) > 0 {
+	if calendars := list(cfg.Calendars); len(calendars) > 0 {
 		dashboard.Agenda = provider.NewFetcher(time.Minute, provider.Calendar(calendars...))
 	}
-	if symbols := envList("TIDEDECK_SYMBOLS"); len(symbols) > 0 {
+	if symbols := list(cfg.Symbols); len(symbols) > 0 {
 		dashboard.Markets = provider.NewFetcher(time.Minute, provider.Markets(symbols...))
 	}
-	if units := envList("TIDEDECK_SYSTEMD"); len(units) > 0 {
+	if units := list(cfg.Systemd); len(units) > 0 {
 		dashboard.Services = provider.NewFetcher(15*time.Second, provider.Systemd(units...))
-	} else if socket := envOr("TIDEDECK_DOCKER", ""); socket != "" {
+	} else if socket := strings.TrimSpace(cfg.Docker); socket != "" {
 		if socket == "1" {
 			socket = ""
 		}
@@ -132,39 +137,4 @@ func (s *liveSource) Network(time.Time) tideui.NetworkMetrics {
 
 func (s *liveSource) Markets(time.Time) []tideui.MarketQuote {
 	return s.snapshotCopy().Markets
-}
-
-func envOr(key, fallback string) string {
-	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
-		return value
-	}
-	return fallback
-}
-
-func envList(key string) []string {
-	raw := strings.TrimSpace(os.Getenv(key))
-	if raw == "" {
-		return nil
-	}
-	var values []string
-	for _, part := range strings.Split(raw, ",") {
-		if value := strings.TrimSpace(part); value != "" {
-			values = append(values, value)
-		}
-	}
-	return values
-}
-
-func envCoordinates() (float64, float64, bool) {
-	latitudeRaw := strings.TrimSpace(os.Getenv("TIDEDECK_LAT"))
-	longitudeRaw := strings.TrimSpace(os.Getenv("TIDEDECK_LON"))
-	if latitudeRaw == "" || longitudeRaw == "" {
-		return 0, 0, false
-	}
-	latitude, err1 := strconv.ParseFloat(latitudeRaw, 64)
-	longitude, err2 := strconv.ParseFloat(longitudeRaw, 64)
-	if err1 != nil || err2 != nil {
-		return 0, 0, false
-	}
-	return latitude, longitude, true
 }

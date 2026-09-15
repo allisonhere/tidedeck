@@ -8,21 +8,15 @@ import (
 )
 
 // TestLiveSourceCollectsLocalMetrics exercises the live provider path without
-// network: system, network, and storage come from /proc and statfs. Network
-// sources are explicitly left unconfigured.
+// network: system, network, and storage come from /proc and statfs. Only those
+// local sources are configured.
 func TestLiveSourceCollectsLocalMetrics(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("live system metrics are linux-only")
 	}
-	for _, key := range []string{
-		"TIDEDECK_LAT", "TIDEDECK_LON", "TIDEDECK_FEEDS", "TIDEDECK_REPOS",
-		"TIDEDECK_TODO", "TIDEDECK_NOTES", "TIDEDECK_ICS", "TIDEDECK_SYMBOLS",
-		"TIDEDECK_SYSTEMD", "TIDEDECK_DOCKER",
-	} {
-		t.Setenv(key, "")
-	}
+	cfg := config{Weather: weatherConfig{Enabled: false}, Interface: ""}
 
-	source := newLiveSource()
+	source := newLiveSource(cfg)
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		source.refresh(context.Background())
