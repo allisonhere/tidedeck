@@ -448,6 +448,8 @@ func insertRelative(root LayoutNode, moving, target string, side DockSide) Layou
 	horizontal := side == DockLeft || side == DockRight
 	before := side == DockLeft || side == DockAbove
 
+	orientation := orientationFor(horizontal)
+
 	var insert func(LayoutNode) (LayoutNode, bool)
 	insert = func(node LayoutNode) (LayoutNode, bool) {
 		split, ok := node.(*SplitNode)
@@ -455,15 +457,33 @@ func insertRelative(root LayoutNode, moving, target string, side DockSide) Layou
 			return node, false
 		}
 		for i, child := range split.Children {
-			if isPanelNode(child, target) && split.Orientation == orientationFor(horizontal) {
-				newChild := Leaf(moving)
-				children := append([]LayoutNode(nil), split.Children...)
-				at := i
-				if !before {
-					at = i + 1
+			if isPanelNode(child, target) {
+				if split.Orientation == orientation {
+					// The target's parent already runs along the docking
+					// axis: drop the panel in as a sibling next to it.
+					children := make([]LayoutNode, 0, len(split.Children)+1)
+					children = append(children, split.Children[:i]...)
+					if before {
+						children = append(children, Leaf(moving), split.Children[i])
+					} else {
+						children = append(children, split.Children[i], Leaf(moving))
+					}
+					children = append(children, split.Children[i+1:]...)
+					split.Children = children
+					return split, true
 				}
-				children = append(children[:at:at], append([]LayoutNode{newChild}, children[at:]...)...)
-				split.Children = children
+				// The target's parent runs along the other axis (for example
+				// docking below a pane inside a multi-pane row). Wrap the
+				// target in place so the move lands in the target's slot
+				// instead of skipping the whole row.
+				setChildWeight(child, 1)
+				wrapped := &SplitNode{Orientation: orientation}
+				if before {
+					wrapped.Children = []LayoutNode{Leaf(moving), child}
+				} else {
+					wrapped.Children = []LayoutNode{child, Leaf(moving)}
+				}
+				split.Children[i] = wrapped
 				return split, true
 			}
 			if replaced, ok := insert(child); ok {
@@ -476,11 +496,11 @@ func insertRelative(root LayoutNode, moving, target string, side DockSide) Layou
 	if next, ok := insert(root); ok {
 		return NormalizeLayout(next)
 	}
-	// No suitable parent axis: wrap the whole tree and the moving panel.
+	// Target not found: fall back to wrapping the whole tree.
 	if before {
-		return NormalizeLayout(&SplitNode{Orientation: orientationFor(horizontal), Children: []LayoutNode{Leaf(moving), root}})
+		return NormalizeLayout(&SplitNode{Orientation: orientation, Children: []LayoutNode{Leaf(moving), root}})
 	}
-	return NormalizeLayout(&SplitNode{Orientation: orientationFor(horizontal), Children: []LayoutNode{root, Leaf(moving)}})
+	return NormalizeLayout(&SplitNode{Orientation: orientation, Children: []LayoutNode{root, Leaf(moving)}})
 }
 
 func orientationFor(horizontal bool) Orientation {

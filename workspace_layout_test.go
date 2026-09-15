@@ -251,3 +251,46 @@ func panelAtY(solved SolvedLayout, y int) string {
 	}
 	return ""
 }
+
+func TestMovePanelDocksIntoMultiPaneRow(t *testing.T) {
+	// Three stacked rows, the middle one split into two columns.
+	root := VStack(
+		HStack(Leaf("a"), Leaf("b")),
+		HStack(Leaf("c"), Leaf("d")),
+		HStack(Leaf("e"), Leaf("f")),
+	)
+	// Dock "a" below "c": it must land in c's column, not skip to the bottom.
+	next := MovePanel(root, "a", "c", DockBelow)
+	solved := flatSolver(0).Solve(next, 40, 30)
+
+	a, c, e := solved.Rects["a"], solved.Rects["c"], solved.Rects["e"]
+	if a.Y <= c.Y {
+		t.Fatalf("a not below c: a=%+v c=%+v", a, c)
+	}
+	if a.Y >= e.Y {
+		t.Fatalf("a skipped past the row: a=%+v e=%+v", a, e)
+	}
+	if a.X != c.X {
+		t.Fatalf("a not in c's column: a=%+v c=%+v", a, c)
+	}
+	if a.Width >= 40 {
+		t.Fatalf("a spans the full width instead of a column: %+v", a)
+	}
+	if d := solved.Rects["d"]; d.X < a.X+a.Width {
+		t.Fatalf("d overlaps a's column: %+v", solved.Rects)
+	}
+}
+
+func TestMovePanelDocksBesideTargetInsideColumn(t *testing.T) {
+	// A single column: docking right of a pane must create a row at its slot.
+	root := VStack(Leaf("x"), Leaf("y"))
+	next := MovePanel(root, "y", "x", DockRight)
+	solved := flatSolver(0).Solve(next, 40, 20)
+	x, y := solved.Rects["x"], solved.Rects["y"]
+	if y.X <= x.X {
+		t.Fatalf("y not right of x: x=%+v y=%+v", x, y)
+	}
+	if y.Y != x.Y || y.Height != x.Height {
+		t.Fatalf("docking beside should preserve the row: x=%+v y=%+v", x, y)
+	}
+}
