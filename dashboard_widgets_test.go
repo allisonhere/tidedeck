@@ -81,8 +81,8 @@ func TestWeatherKindGlyph(t *testing.T) {
 		if glyph == "" {
 			t.Fatalf("kind %d has no glyph", kind)
 		}
-		if width := ansi.StringWidth(glyph); width != 1 {
-			t.Fatalf("kind %d glyph %q width = %d, want 1 (Nerd Font icon)", kind, glyph, width)
+		if width := ansi.StringWidth(glyph); width != 2 {
+			t.Fatalf("kind %d glyph %q width = %d, want 2 (emoji presentation)", kind, glyph, width)
 		}
 		if seen[glyph] {
 			t.Fatalf("duplicate glyph %q", glyph)
