@@ -19,6 +19,9 @@ type WorkspaceRenderOptions struct {
 	ShowKeyHints bool
 	// ShowArrangeCard shows the compact arrange-mode cheat sheet.
 	ShowArrangeCard bool
+	// StatusHints are appended to the default status-bar key hints for
+	// application-level shortcuts (for example a settings panel).
+	StatusHints []KeyHint
 }
 
 // WorkspaceRenderer turns a solved workspace into a themed, bounded string. It
@@ -473,7 +476,13 @@ func (wr WorkspaceRenderer) renderStrip(ws *Workspace, width int) string {
 	if wr.Options.StatusRight != "" {
 		return wr.Renderer.RenderStatusRegions(primary, mode, wr.Options.StatusRight, width)
 	}
-	return wr.Renderer.RenderWorkspaceStatus(primary, wr.Options.StatusSecondary, mode, wr.statusHints(ws), width)
+	hints := wr.statusHints(ws)
+	if !ws.Arranging() && !ws.Resizing() && len(wr.Options.StatusHints) > 0 {
+		// Application hints lead, so a shortcut like "settings" stays
+		// discoverable when the strip is narrow.
+		hints = append(append([]KeyHint{}, wr.Options.StatusHints...), hints...)
+	}
+	return wr.Renderer.RenderWorkspaceStatus(primary, wr.Options.StatusSecondary, mode, hints, width)
 }
 
 // statusHints returns the transient instructions that match the active mode,

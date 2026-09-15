@@ -618,6 +618,7 @@ func (m model) View() string {
 	}
 	wr.Options.StatusLeft = primary
 	wr.Options.StatusSecondary = secondary
+	wr.Options.StatusHints = []tideui.KeyHint{tideui.Hint("s", "settings")}
 	base := wr.Render(m.ws, m.width, m.height)
 
 	if m.settings.Opened() {

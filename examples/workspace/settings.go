@@ -344,6 +344,9 @@ func (s settingsForm) Render(r tideui.Renderer, width, height int) tideui.Overla
 	if s.problem != "" {
 		lines = append(lines, r.Styles.StatusError.Width(innerWidth).Render("  "+s.problem))
 	}
+	if first > 0 {
+		lines = append(lines, r.Styles.OverlayHint.Width(innerWidth).Render("  ▲ more"))
+	}
 	for index := first; index < last; index++ {
 		field := s.fields[index]
 		row := tideui.SoftRow{
@@ -358,6 +361,8 @@ func (s settingsForm) Render(r tideui.Renderer, width, height int) tideui.Overla
 			} else {
 				row.Prefix = "[ ] "
 			}
+		case fieldAction:
+			row.Prefix = "  ▸ "
 		default:
 			row.Prefix = "    "
 		}
@@ -366,9 +371,12 @@ func (s settingsForm) Render(r tideui.Renderer, width, height int) tideui.Overla
 		}
 		lines = append(lines, r.RenderSoftRow(row, innerWidth))
 	}
+	if last < len(s.fields) {
+		lines = append(lines, r.Styles.OverlayHint.Width(innerWidth).Render("  ▼ more"))
+	}
 	lines = append(lines, "", r.RenderSoftHints(innerWidth,
 		tideui.SoftHint{Key: "↑/↓", Label: "move"},
-		tideui.SoftHint{Key: "enter", Label: "edit/toggle"},
+		tideui.SoftHint{Key: "enter", Label: "edit / run"},
 		tideui.SoftHint{Key: "ctrl+s", Label: "save"},
 		tideui.SoftHint{Key: "esc", Label: "close"},
 	))
