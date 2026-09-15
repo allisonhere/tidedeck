@@ -167,7 +167,7 @@ func TestWorkspaceFocusDirection(t *testing.T) {
 	}
 }
 
-func TestWorkspaceArrangeMoveClosesGapAndPreviews(t *testing.T) {
+func TestWorkspaceArrangeMoveIsLiveAndClosesGap(t *testing.T) {
 	ws := newTestWorkspace(t)
 	ws.Focus("nav")
 	ws.Solve(80, 24)
@@ -177,23 +177,27 @@ func TestWorkspaceArrangeMoveClosesGapAndPreviews(t *testing.T) {
 	if !ws.ArrangeMove(DirRight) {
 		t.Fatal("ArrangeMove failed")
 	}
-	if dock := ws.Dock(); dock == nil || dock.Target != "main" {
-		t.Fatalf("dock preview = %+v, want target main", dock)
+	// The move is applied immediately; there is no separate preview state.
+	solved := ws.Solve(80, 24)
+	if solved.Rects["nav"].X <= solved.Rects["main"].X {
+		t.Fatalf("nav did not move right of main: %+v", solved.Rects)
 	}
-	// Moving the cursor must not touch the layout yet.
-	if solved := ws.Solve(80, 24); solved.Rects["nav"].X > solved.Rects["main"].X {
-		t.Fatal("layout changed before drop")
+	if ws.ArrangeCursor() != "main" {
+		t.Fatalf("arrange cursor = %q, want main", ws.ArrangeCursor())
 	}
+	if !ws.CanUndo() {
+		t.Fatal("live move should be recorded in history")
+	}
+	// Dropping just leaves the mode; the layout is unchanged.
+	before := ws.Solve(80, 24).Rects["nav"]
 	if !ws.ArrangeDrop() {
 		t.Fatal("ArrangeDrop failed")
 	}
-	ws.Solve(80, 24)
-	if solved := ws.Solve(80, 24); solved.Rects["nav"].X <= solved.Rects["main"].X {
-		t.Fatalf("nav did not move right after drop: %+v", solved.Rects)
-	}
-	ws.ExitArrange()
 	if ws.Arranging() {
-		t.Fatal("still arranging after exit")
+		t.Fatal("still arranging after drop")
+	}
+	if got := ws.Solve(80, 24).Rects["nav"]; got != before {
+		t.Fatalf("drop changed the layout: %+v -> %+v", before, got)
 	}
 }
 

@@ -34,7 +34,6 @@ type Workspace struct {
 	arrangeCursor string
 	resizeMode    bool
 	resizeDivider int // index into Dividers(); -1 when none selected
-	dock          *DockPreview
 
 	drag    *mouseDrag
 	tabHits []tabHit
@@ -60,13 +59,6 @@ type Workspace struct {
 	anim      *Animator
 	picker    *PanelPicker
 	palette   *CommandPalette
-}
-
-// DockPreview describes the pending landing spot while arranging panels.
-type DockPreview struct {
-	Target string
-	Side   DockSide
-	Rect   Rect
 }
 
 // WorkspaceOption configures a Workspace at construction time.
@@ -214,7 +206,6 @@ func (ws *Workspace) Layout(root LayoutNode) *Workspace {
 			ws.explicitRoot = true
 		}
 	}
-	ws.dock = nil
 	ws.ensureFocus()
 	ws.commit()
 	return ws
@@ -701,10 +692,11 @@ func (ws *Workspace) Peeked() string { return ws.peeked }
 // Arranging reports whether arrange mode is active.
 func (ws *Workspace) Arranging() bool { return ws.arrange }
 
-// EnterArrange starts panel rearrangement on the focused panel. While
-// arranging, direction keys move a target cursor and preview the half of the
-// target the panel would occupy; Enter commits, t stacks, and Escape cancels
-// without touching the saved layout.
+// EnterArrange starts live panel rearrangement on the focused panel. Direction
+// keys move the panel between neighbouring regions immediately, so the real
+// layout is its own preview: the panel is shown where it will land, gaps close
+// behind it, and every move is recorded in history. t folds the panel into a
+// neighbouring tab stack; Escape leaves the mode.
 func (ws *Workspace) EnterArrange() bool {
 	if ws.focus.Current() == "" {
 		return false
@@ -712,18 +704,16 @@ func (ws *Workspace) EnterArrange() bool {
 	ws.arrange = true
 	ws.arrangeCursor = ws.focus.Current()
 	ws.resizeMode = false
-	ws.dock = nil
 	return true
 }
 
-// ExitArrange leaves arrange mode, discarding any pending preview.
+// ExitArrange leaves arrange mode.
 func (ws *Workspace) ExitArrange() {
 	ws.arrange = false
 	ws.arrangeCursor = ""
-	ws.dock = nil
 }
 
-// ArrangeCursor returns the panel currently under the docking cursor.
+// ArrangeCursor returns the neighbour the last move docked against.
 func (ws *Workspace) ArrangeCursor() string { return ws.arrangeCursor }
 
 // ToggleArrange enters or leaves arrange mode.
@@ -735,57 +725,45 @@ func (ws *Workspace) ToggleArrange() bool {
 	return ws.EnterArrange()
 }
 
-// Dock returns the pending landing preview while arranging.
-func (ws *Workspace) Dock() *DockPreview { return ws.dock }
-
-// ArrangeMove moves the docking cursor one region in a direction and updates
-// the preview. It does not alter the layout; ArrangeDrop commits.
+// ArrangeMove moves the focused panel one region in a direction. The layout
+// updates immediately and the move is recorded, so the moving panel is visible
+// in its new position rather than behind a preview overlay.
 func (ws *Workspace) ArrangeMove(dir Direction) bool {
 	if !ws.arrange {
 		return false
 	}
-	from := ws.arrangeCursor
-	if from == "" {
-		from = ws.focus.Current()
-	}
-	if from == "" {
-		return false
-	}
-	finder := FocusManager{current: from}
-	target := finder.Directional(ws.solved, dir, func(id string) bool {
-		return LayoutContainsPanel(ws.solvedTree, id)
-	})
-	if target == "" || target == from {
-		return false
-	}
-	ws.arrangeCursor = target
-	ws.dock = &DockPreview{Target: target, Side: MovedDock(dir)}
-	if region, ok := ws.solved.RegionFor(target); ok {
-		ws.dock.Rect = dockPreviewRect(region.Rect, ws.dock.Side)
-	}
-	return true
-}
-
-// ArrangeDrop commits the focused panel to the pending docking preview,
-// closing the gap it leaves behind.
-func (ws *Workspace) ArrangeDrop() bool {
 	moving := ws.focus.Current()
-	if !ws.arrange || moving == "" || ws.dock == nil || ws.dock.Target == "" || ws.dock.Target == moving {
+	if moving == "" {
 		return false
 	}
-	next := MovePanel(ws.ensureRoot(), moving, ws.dock.Target, ws.dock.Side)
+	target := ws.focus.Directional(ws.solved, dir, func(id string) bool {
+		return id != moving && LayoutContainsPanel(ws.solvedTree, id)
+	})
+	if target == "" || target == moving {
+		return false
+	}
+	next := MovePanel(ws.ensureRoot(), moving, target, MovedDock(dir))
 	if next == nil || !LayoutContainsPanel(next, moving) {
 		return false
 	}
 	ws.root = next
 	ws.explicitRoot = true
+	ws.arrangeCursor = target
 	ws.commit()
 	ws.focus.Set(moving)
-	ws.arrangeCursor = moving
-	ws.dock = nil
 	if ws.width > 0 && ws.height > 0 {
 		ws.Solve(ws.width, ws.height)
 	}
+	return true
+}
+
+// ArrangeDrop finishes arrange mode. Moves are applied as they happen, so
+// dropping only leaves the mode.
+func (ws *Workspace) ArrangeDrop() bool {
+	if !ws.arrange {
+		return false
+	}
+	ws.ExitArrange()
 	return true
 }
 
@@ -811,7 +789,6 @@ func (ws *Workspace) ArrangeMerge() bool {
 	ws.commit()
 	ws.focus.Set(moving)
 	ws.arrangeCursor = moving
-	ws.dock = nil
 	if ws.width > 0 && ws.height > 0 {
 		ws.Solve(ws.width, ws.height)
 	}
@@ -831,7 +808,6 @@ func (ws *Workspace) SetResizeMode(enabled bool) {
 	ws.resizeDivider = -1
 	if enabled {
 		ws.arrange = false
-		ws.dock = nil
 	}
 }
 
@@ -1346,7 +1322,6 @@ func (ws *Workspace) restoreState(state workspaceSnapshot) {
 	ws.peeked = ""
 	ws.arrange = false
 	ws.resizeMode = false
-	ws.dock = nil
 	ws.focus.Set(state.focus)
 	ws.ensureFocus()
 }

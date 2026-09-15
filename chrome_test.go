@@ -416,28 +416,7 @@ func TestListItemAndHeaderAtTinyWidths(t *testing.T) {
 
 func ptrBadge(b Badge) *Badge { return &b }
 
-func TestDockPreviewRectHalves(t *testing.T) {
-	target := Rect{X: 10, Y: 5, Width: 20, Height: 10}
-	left := dockPreviewRect(target, DockLeft)
-	right := dockPreviewRect(target, DockRight)
-	if left.Width != 10 || right.Width != 10 {
-		t.Fatalf("side halves = %d/%d, want 10/10", left.Width, right.Width)
-	}
-	if left.X != target.X || right.X+right.Width != target.X+target.Width {
-		t.Fatalf("side halves not anchored: %+v %+v", left, right)
-	}
-	above := dockPreviewRect(target, DockAbove)
-	below := dockPreviewRect(target, DockBelow)
-	if above.Height != 5 || below.Height != 5 {
-		t.Fatalf("vertical halves = %d/%d, want 5/5", above.Height, below.Height)
-	}
-	full := dockPreviewRect(target, DockCenter)
-	if full != target {
-		t.Fatalf("center preview = %+v, want %+v", full, target)
-	}
-}
-
-func TestWorkspaceRenderDockPreviewBounded(t *testing.T) {
+func TestWorkspaceRenderArrangeLiveMoveBounded(t *testing.T) {
 	r := chromeRenderer(Compact)
 	for _, size := range [][2]int{{20, 6}, {30, 10}, {80, 24}, {120, 30}} {
 		ws := NewWorkspace(WithGap(1))

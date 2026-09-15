@@ -129,7 +129,7 @@ func TestArrangeModeUsesStatusBarHints(t *testing.T) {
 	ws.Solve(100, 30)
 	ws.EnterArrange()
 	strip := ansi.Strip(wr.renderStrip(ws, 100))
-	for _, want := range []string{"ARRANGE", "move", "dock", "cancel"} {
+	for _, want := range []string{"ARRANGE", "move", "stack", "done"} {
 		if !strings.Contains(strip, want) {
 			t.Fatalf("arrange status strip missing %q: %q", want, strip)
 		}

@@ -336,13 +336,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.refreshBadges()
-		if m.ws.Arranging() {
-			target := 1.0
-			if m.state.now.Second()%2 == 0 {
-				target = 0.45
-			}
-			m.ws.Animation().Set("dockPulse", target)
-		}
 		m.ws.Animation().Tick()
 		return m, tickCmd(time.Second)
 	case tea.MouseMsg:

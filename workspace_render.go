@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/x/ansi"
 )
 
 // WorkspaceRenderOptions tunes the optional chrome the workspace draws.
@@ -18,8 +17,6 @@ type WorkspaceRenderOptions struct {
 	StatusRight     string
 	// ShowKeyHints renders focused-panel action hints in the panel footer.
 	ShowKeyHints bool
-	// ShowDockPreview draws the pending landing spot while arranging.
-	ShowDockPreview bool
 	// ShowArrangeCard shows the compact arrange-mode cheat sheet.
 	ShowArrangeCard bool
 }
@@ -34,9 +31,8 @@ type WorkspaceRenderer struct {
 // NewWorkspaceRenderer creates a workspace renderer over an existing Renderer.
 func NewWorkspaceRenderer(renderer Renderer) WorkspaceRenderer {
 	return WorkspaceRenderer{Renderer: renderer, Options: WorkspaceRenderOptions{
-		ShowStatus:      true,
-		ShowKeyHints:    true,
-		ShowDockPreview: true,
+		ShowStatus:   true,
+		ShowKeyHints: true,
 		// Arrange instructions live in the status strip by default, so no
 		// floating card is drawn unless an application opts in.
 		ShowArrangeCard: false,
@@ -67,9 +63,6 @@ func (wr WorkspaceRenderer) Render(ws *Workspace, width, height int) string {
 		canvas = placeBoxAt(canvas, box, region.Rect.X, region.Rect.Y, width, contentHeight, styles.Workspace.Bg)
 	}
 
-	if wr.Options.ShowDockPreview && ws.Arranging() {
-		canvas = wr.renderDock(ws, canvas, width, contentHeight)
-	}
 	if ws.Resizing() {
 		canvas = wr.renderResizeDivider(ws, canvas, width, contentHeight)
 	}
@@ -152,7 +145,7 @@ func (wr WorkspaceRenderer) renderRegion(ws *Workspace, region SolvedRegion, foc
 		wr.recordTabHits(ws, region, frame.tabs)
 	}
 	if ws.Arranging() && focused {
-		frame.mode = "arrange"
+		frame.mode = "moving"
 	} else {
 		frame.footerHints = wr.footerHints(ws, panel, focused)
 	}
@@ -362,126 +355,6 @@ func (d DockSide) String() string {
 	}
 }
 
-// dockPreviewRect returns the half (or full) of the target the moving panel
-// will occupy, so the preview communicates direction, not just destination.
-func dockPreviewRect(target Rect, side DockSide) Rect {
-	if target.Empty() {
-		return target
-	}
-	halfW := max(1, target.Width/2)
-	halfH := max(1, target.Height/2)
-	switch side {
-	case DockLeft:
-		return Rect{X: target.X, Y: target.Y, Width: halfW, Height: target.Height}
-	case DockRight:
-		return Rect{X: target.X + target.Width - halfW, Y: target.Y, Width: halfW, Height: target.Height}
-	case DockAbove:
-		return Rect{X: target.X, Y: target.Y, Width: target.Width, Height: halfH}
-	case DockBelow:
-		return Rect{X: target.X, Y: target.Y + target.Height - halfH, Width: target.Width, Height: halfH}
-	default:
-		return target
-	}
-}
-
-func (wr WorkspaceRenderer) renderDock(ws *Workspace, canvas string, width, height int) string {
-	dock := ws.Dock()
-	if dock == nil || dock.Rect.Empty() {
-		return canvas
-	}
-	styles := wr.Renderer.Styles
-	wsStyles := styles.Workspace
-	preview := dock.Rect
-	if preview.Empty() {
-		if region, ok := ws.solved.RegionFor(dock.Target); ok {
-			preview = dockPreviewRect(region.Rect, dock.Side)
-		}
-	}
-	if preview.Empty() {
-		return canvas
-	}
-	dockColor := wsStyles.DockColor
-	fill := wsStyles.DockFill
-	// A gentle pulse makes the landing spot obvious without strobing. It is
-	// driven by the shared animator, so it disables cleanly.
-	if ws.anim != nil && ws.anim.Enabled() {
-		pulse := 0.5 + 0.5*clamp01(ws.anim.Value("dockPulse"))
-		dockColor = MixColors(wsStyles.DockColor, wsStyles.Bg, 1-pulse)
-		fill = MixColors(wsStyles.DockFill, wsStyles.Bg, 1-pulse*0.4)
-	}
-
-	box := dockPreviewBox(wr.Renderer, preview.Width, preview.Height, dock.Side, dockColor, fill)
-	return placeBoxAt(canvas, box, preview.X, preview.Y, width, height, wsStyles.Bg)
-}
-
-// dockPreviewBox draws a translucent, labelled landing zone.
-func dockPreviewBox(renderer Renderer, width, height int, side DockSide, color, fill lipgloss.Color) string {
-	width = max(1, width)
-	height = max(1, height)
-	plain := renderer.Styles.PlainUI
-	border := paneFrameBorder(plain, renderer.Styles.PaneCorners == RoundCorners)
-	borderStyle := lipgloss.NewStyle().Background(fill).Foreground(color)
-	labelStyle := lipgloss.NewStyle().Background(fill).Foreground(color).Bold(true)
-	text := "dock " + side.String()
-	if side == DockCenter {
-		text = "stack"
-	}
-	label := " " + text + " "
-
-	// A one-cell-thick preview still has to read as a landing zone: draw a
-	// coloured rule with the label baked in rather than a bare fill, which
-	// looked like a dark hole across short up/down halves.
-	if width < 2 {
-		glyph := "┃"
-		if plain {
-			glyph = "|"
-		}
-		lines := make([]string, height)
-		for i := range lines {
-			lines[i] = borderStyle.Render(glyph)
-		}
-		return strings.Join(lines, "\n")
-	}
-	if height < 2 {
-		content := labelStyle.Render(ansi.Truncate(label, width, "…"))
-		return padStyled(content, width, fill)
-	}
-
-	innerWidth := width - 2
-	innerHeight := height - 2
-	lines := []string{labelledTopBorder(border, borderStyle, labelStyle, label, innerWidth)}
-	fillLine := borderStyle.Render(border.Left) +
-		lipgloss.NewStyle().Background(fill).Render(strings.Repeat(" ", innerWidth)) +
-		borderStyle.Render(border.Right)
-	for i := 0; i < innerHeight; i++ {
-		lines = append(lines, fillLine)
-	}
-	lines = append(lines, borderStyle.Render(border.BottomLeft)+
-		borderStyle.Render(strings.Repeat(border.Bottom, innerWidth))+
-		borderStyle.Render(border.BottomRight))
-	return strings.Join(lines, "\n")
-}
-
-// labelledTopBorder draws a box top edge with the docking label embedded, so
-// even a two-row preview communicates where the panel will land.
-func labelledTopBorder(border lipgloss.Border, borderStyle, labelStyle lipgloss.Style, label string, innerWidth int) string {
-	if innerWidth <= 0 {
-		return borderStyle.Render(border.TopLeft) + borderStyle.Render(border.TopRight)
-	}
-	rendered := labelStyle.Render(ansi.Truncate(label, max(0, innerWidth-1), "…"))
-	used := 1 + lipgloss.Width(rendered)
-	if used > innerWidth {
-		return borderStyle.Render(border.TopLeft) +
-			borderStyle.Render(strings.Repeat(border.Top, innerWidth)) +
-			borderStyle.Render(border.TopRight)
-	}
-	return borderStyle.Render(border.TopLeft) +
-		borderStyle.Render(border.Top) +
-		rendered +
-		borderStyle.Render(strings.Repeat(border.Top, innerWidth-used)) +
-		borderStyle.Render(border.TopRight)
-}
-
 // renderResizeDivider highlights the boundary selected in resize mode so it is
 // obvious which gap the direction keys will move.
 func (wr WorkspaceRenderer) renderResizeDivider(ws *Workspace, canvas string, width, height int) string {
@@ -605,8 +478,7 @@ func (wr WorkspaceRenderer) statusHints(ws *Workspace) []KeyHint {
 	switch {
 	case ws.Arranging():
 		return []KeyHint{
-			Hint("h/j/k/l", "move"), Hint("enter", "dock"),
-			Hint("t", "stack"), Hint("esc", "cancel"),
+			Hint("h/j/k/l", "move"), Hint("t", "stack"), Hint("esc", "done"),
 		}
 	case ws.Resizing():
 		return []KeyHint{

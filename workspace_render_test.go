@@ -74,7 +74,7 @@ func TestWorkspaceRendererTabStackShowsTitles(t *testing.T) {
 	}
 }
 
-func TestWorkspaceRendererDockPreview(t *testing.T) {
+func TestWorkspaceRendererArrangeMovesPanelLive(t *testing.T) {
 	wr, ws := renderFixture(t)
 	ws.Focus("nav")
 	ws.Solve(100, 30)
@@ -82,9 +82,14 @@ func TestWorkspaceRendererDockPreview(t *testing.T) {
 	if !ws.ArrangeMove(DirRight) {
 		t.Fatal("ArrangeMove failed")
 	}
+	// The panel really moved: nav now sits to the right of main.
+	solved := ws.Solve(100, 30)
+	if solved.Rects["nav"].X <= solved.Rects["main"].X {
+		t.Fatalf("nav did not move right of main: %+v", solved.Rects)
+	}
 	view := ansi.Strip(wr.Render(ws, 100, 30))
-	if !strings.Contains(view, "right") {
-		t.Fatalf("dock preview label missing:\n%s", view)
+	if !strings.Contains(view, "nav body") {
+		t.Fatalf("moved panel content missing from render:\n%s", view)
 	}
 }
 
@@ -116,30 +121,5 @@ func TestWorkspaceRendererASCIIDegradesCleanly(t *testing.T) {
 	assertBounded(t, view, 40, 12)
 	if strings.Contains(view, "╭") {
 		t.Fatalf("ASCII theme rendered unicode borders:\n%s", ansi.Strip(view))
-	}
-}
-
-func TestDockPreviewBoxIsAlwaysLabelledAndBounded(t *testing.T) {
-	r := chromeRenderer(Compact)
-	ws := r.Styles.Workspace
-	for _, size := range [][2]int{{1, 1}, {1, 8}, {3, 1}, {4, 2}, {6, 3}, {12, 2}, {20, 5}, {30, 1}} {
-		view := dockPreviewBox(r, size[0], size[1], DockBelow, ws.DockColor, ws.DockFill)
-		lines := strings.Split(ansi.Strip(view), "\n")
-		if len(lines) != size[1] {
-			t.Fatalf("%v: %d lines, want %d", size, len(lines), size[1])
-		}
-		for i, line := range lines {
-			if got := lipgloss.Width(line); got != size[0] {
-				t.Fatalf("%v: line %d width %d, want %d", size, i, got, size[0])
-			}
-		}
-	}
-	// A short up/down half must still name the landing zone, not render as a
-	// bare dark fill.
-	for _, height := range []int{1, 2, 3} {
-		view := ansi.Strip(dockPreviewBox(r, 20, height, DockBelow, ws.DockColor, ws.DockFill))
-		if !strings.Contains(view, "dock down") {
-			t.Fatalf("height %d preview lost its label:\n%s", height, view)
-		}
 	}
 }

@@ -374,10 +374,11 @@ ws.SetFocusPresentation(tideui.FocusPresentation{
 
 ### Arrange and resize modes
 
-Arrange mode is a two-phase, Mirador-style interaction: direction keys move a
-docking cursor and preview the exact half (or full region, for a tab stack) the
-panel will occupy. Nothing is committed until you drop, so layouts always stay
-valid and a cancel is free.
+Arrange mode moves the real panel: each direction key immediately repositions
+the focused panel against its neighbour, so the layout itself is the preview.
+The gap the panel leaves behind closes, every move is recorded in history, and
+`esc` simply leaves the mode. Panels that are surrounded on all sides are moved
+one step at a time without any docking cursor or overlay.
 
 Resize mode works on **dividers** — the boundary between two adjacent regions —
 rather than on a panel. Select a divider, then move it in either direction
@@ -389,10 +390,10 @@ absolute coordinates, so minimum sizes are always honored.
 
 ```go
 ws.ToggleArrange()                    // m
-ws.ArrangeMove(tideui.DirRight)       // h/j/k/l or arrows: move the cursor
-ws.ArrangeDrop()                      // enter: commit at the previewed spot
-ws.ArrangeMerge()                     // t: fold into the cursor's tab stack
-ws.ExitArrange()                      // esc: cancel, no layout change
+ws.ArrangeMove(tideui.DirRight)       // h/j/k/l or arrows: move the panel live
+ws.ArrangeMerge()                     // t: fold into the neighbour's tab stack
+ws.ExitArrange()                      // esc: leave the mode
+ws.Undo()                             // each live move is one history entry
 
 ws.SetResizeMode(true)   // R; direction key selects a divider, then moves it
 ws.Dividers()            // boundaries of the current layout
@@ -406,9 +407,10 @@ ws.ResizeGrow(0) / ws.ResizeShrink(0) // nearest split axis
 ws.ResizeWidth(true) / ws.ResizeHeight(true)
 ```
 
-While arranging, the moving panel keeps the spotlight, other panels recede, a
-compact cheat-sheet appears, and the status strip shows an `ARRANGE` mode
-capsule.
+While arranging, the moving panel keeps the spotlight and a `MOVING` badge,
+other panels recede, and the status strip shows an `ARRANGE` capsule with
+`h/j/k/l move · t stack · esc done`. Because moves are live, `undo` steps back
+through them; `esc` only leaves the mode.
 
 ### Zoom, peek, and tab stacks
 
@@ -456,24 +458,22 @@ rejected cleanly.
 ### Theming and rendering
 
 `WorkspaceRenderer` uses `Renderer.Styles.Workspace`, so every frame, tab,
-badge, key hint, and docking preview is drawn from the active theme. Motion is
-opt-in and degrades gracefully:
+badge, and key hint is drawn from the active theme. Motion is opt-in and
+degrades gracefully:
 
 ```go
 renderer := tideui.NewRenderer(theme, tideui.StyleOptions{
     Density: tideui.Compact, PaneCorners: tideui.RoundCorners,
 })
 wr := tideui.NewWorkspaceRenderer(renderer)
-view := wr.Render(ws, width, height)
-
-ws.Animation().Set("dockPulse", 1) // subtle, application-ticked
+view := wr.Render(ws, width, height) // solves and draws every frame
 ```
 
 ### Per-panel themes
 
 A panel can opt out of the workspace palette without disturbing the rest of
-the dashboard. Density, corners, gutters, status bar, and docking preview stay
-workspace-wide; only the panel's own frame, title, tabs, and content change.
+the dashboard. Density, corners, gutters, and status bar stay workspace-wide;
+only the panel's own frame, title, tabs, and content change.
 
 ```go
 ws.Panel("markets", marketsView).
@@ -508,7 +508,7 @@ contrasting theme.
 | Key | Action |
 |---|---|
 | `tab` / `shift+tab` | focus next / previous panel |
-| `m` | toggle arrange mode (`h/j/k/l` move cursor, `enter` drop, `t` stack, `esc` cancel) |
+| `m` | toggle arrange mode (`h/j/k/l` move the focused panel live, `t` stack, `esc` done) |
 | `R` | toggle resize mode (direction key selects a divider, then moves it; `tab` cycles dividers; `esc` done) |
 | `ctrl+arrows` | one-step resize of the focused split |
 | `shift+space` | zoom / restore the focused panel |
@@ -541,7 +541,7 @@ ws.FrameActive, ws.FrameIdle, ws.FrameDimmed
 ws.TitleActiveBg, ws.TitleActiveFg, ws.TitleIdleFg, ws.TitleDimmedFg, ws.SubtitleFg
 // bodies + selection
 ws.BodyFg, ws.BodyDimmedFg, ws.SelectionBg, ws.SelectionInactiveBg, ws.SelectionBar
-// tabs, badges, chrome, metrics, docking
+// tabs, badges, chrome, metrics, focus
 ws.TabActiveBg, ws.TabIdleBg, ws.BadgeGoodBg, ws.Separator, ws.KeyBg, ws.MetricGood, ws.DockFill
 ```
 
