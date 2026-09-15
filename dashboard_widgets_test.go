@@ -198,6 +198,42 @@ func TestRenderClockAndCalendar(t *testing.T) {
 	}
 }
 
+func TestClockLook(t *testing.T) {
+	r := chromeRenderer(Compact)
+	morning := time.Date(2026, 9, 14, 8, 5, 0, 0, time.UTC)
+	if label, glyph := r.dayPeriod(morning); label != "morning" || glyph == "" {
+		t.Fatalf("dayPeriod(morning) = %q,%q", label, glyph)
+	}
+	if label, _ := r.dayPeriod(time.Date(2026, 9, 14, 2, 0, 0, 0, time.UTC)); label != "night" {
+		t.Fatalf("dayPeriod(night) = %q", label)
+	}
+	if f := dayFraction(morning); f <= 0 || f >= 1 {
+		t.Fatalf("dayFraction = %v, want between 0 and 1", f)
+	}
+	big := bigTime("14:42")
+	if len(big) != 3 || lipgloss.Width(big[0]) != 19 {
+		t.Fatalf("bigTime = %#v", big)
+	}
+	face := r.analogClock(morning)
+	if len(face) != 7 {
+		t.Fatalf("analog face height = %d, want 7", len(face))
+	}
+	for _, line := range face {
+		if lipgloss.Width(line) != 13 {
+			t.Fatalf("analog face width = %d, want 13 (%q)", lipgloss.Width(line), line)
+		}
+	}
+	_, glyph := r.dayPeriod(morning)
+	compact := ansi.Strip(r.RenderClock(ClockData{Local: morning, Location: "Local"}, 30))
+	if !strings.Contains(compact, "morning") || !strings.Contains(compact, glyph) {
+		t.Fatalf("compact clock missing period:\n%s", compact)
+	}
+	detail := ansi.Strip(r.RenderClockDetail(ClockData{Local: morning, Location: "Local"}, 30))
+	if !strings.Contains(detail, "% of day") {
+		t.Fatalf("detail clock missing day progress:\n%s", detail)
+	}
+}
+
 func TestRenderSystemNetworkStorage(t *testing.T) {
 	r := chromeRenderer(Compact)
 	system := ansi.Strip(r.RenderSystem(SystemMetrics{

@@ -2,6 +2,7 @@ package tideui
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -270,15 +271,24 @@ func daysBetween(a, b time.Time) int {
 	return int(b0.Sub(a0).Hours() / 24)
 }
 
-// RenderClock renders local time and world clocks.
+// RenderClock renders local time and world clocks: the time with a sun/moon
+// glyph, the date and day-period, and each world clock with its own glyph.
 func (r Renderer) RenderClock(c ClockData, width int) string {
 	bg := r.Styles.Workspace.Bg
 	ws := r.Styles.Workspace
+	period, glyph := r.dayPeriod(c.Local)
+	glyphColor := ws.WeatherSun
+	if period == "night" {
+		glyphColor = ws.SubtitleFg
+	}
+	headline := lipgloss.NewStyle().Background(bg).Foreground(ws.FrameActive).Bold(true).
+		Render(clockTime(c.Local, c.Hour24)) +
+		lipgloss.NewStyle().Background(bg).Render(" ") +
+		lipgloss.NewStyle().Background(bg).Foreground(glyphColor).Render(glyph)
 	lines := []string{
-		lipgloss.NewStyle().Background(bg).Foreground(ws.FrameActive).Bold(true).
-			Render(clockTime(c.Local, c.Hour24)),
+		headline,
 		lipgloss.NewStyle().Background(bg).Foreground(ws.SubtitleFg).
-			Render(c.Local.Format("Mon Jan 2")),
+			Render(c.Local.Format("Mon Jan 2") + " · " + period),
 	}
 	if c.Location != "" {
 		lines = append(lines, lipgloss.NewStyle().Background(bg).Foreground(ws.HintFg).Render(c.Location))
@@ -290,10 +300,65 @@ func (r Renderer) RenderClock(c ClockData, width int) string {
 			if zone.Offset != "" {
 				label = fmt.Sprintf("%s %s", zone.City, zone.Offset)
 			}
-			lines = append(lines, r.dashPair(label, clockTime(zone.Time, c.Hour24), 12, bg))
+			_, zoneGlyph := r.dayPeriod(zone.Time)
+			lines = append(lines, r.dashPair(label, clockTime(zone.Time, c.Hour24)+" "+zoneGlyph, 12, bg))
 		}
 	}
 	return r.dashBlock(lines, width, bg)
+}
+
+// RenderClockDetail renders the clock as a big digital time over a day-progress
+// gauge, an analog face, the world clocks, and a month calendar.
+func (r Renderer) RenderClockDetail(c ClockData, width int) string {
+	bg := r.Styles.Workspace.Bg
+	ws := r.Styles.Workspace
+	period, _ := r.dayPeriod(c.Local)
+	var parts []string
+
+	timeStyle := lipgloss.NewStyle().Background(bg).Foreground(ws.FrameActive).Bold(true)
+	if big := bigTime(clockDigits(c.Local)); lipgloss.Width(big[0]) <= width {
+		for _, line := range big {
+			parts = append(parts, timeStyle.Render(line))
+		}
+	} else {
+		parts = append(parts, timeStyle.Render(clockTime(c.Local, c.Hour24)))
+	}
+	parts = append(parts, lipgloss.NewStyle().Background(bg).Foreground(ws.SubtitleFg).
+		Render(c.Local.Format("Monday, Jan 2")+" · "+period))
+
+	if barWidth := min(max(width-14, 0), 24); barWidth >= 6 {
+		fraction := dayFraction(c.Local)
+		bar := r.RenderProgressBar(ProgressBar{Fraction: fraction, Width: barWidth, Tone: ToneAccent}, bg)
+		pct := lipgloss.NewStyle().Background(bg).Foreground(ws.BodyMutedFg).
+			Render(fmt.Sprintf("  %d%% of day", int(math.Round(fraction*100))))
+		parts = append(parts, bar+pct)
+	}
+
+	if width >= 15 {
+		for _, line := range r.analogClock(c.Local) {
+			parts = append(parts, lipgloss.NewStyle().Background(bg).Foreground(ws.BodyFg).Render(line))
+		}
+	}
+
+	if len(c.Zones) > 0 {
+		parts = append(parts, "")
+		for _, zone := range c.Zones {
+			label := zone.City
+			if zone.Offset != "" {
+				label = fmt.Sprintf("%s %s", zone.City, zone.Offset)
+			}
+			_, zoneGlyph := r.dayPeriod(zone.Time)
+			parts = append(parts, r.dashPair(label, clockTime(zone.Time, c.Hour24)+" "+zoneGlyph, 12, bg))
+		}
+	}
+
+	calendarWidth := min(width, 21)
+	if calendarWidth >= 15 {
+		parts = append(parts, r.RenderMiniCalendar(MiniCalendar{
+			Year: c.Local.Year(), Month: c.Local.Month(), Highlight: c.Local.Day(), Width: calendarWidth,
+		}, bg))
+	}
+	return strings.Join(parts, "\n")
 }
 
 // clockTime formats a time as 24-hour ("15:04") or 12-hour ("3:04 PM").
@@ -304,17 +369,126 @@ func clockTime(t time.Time, hour24 bool) string {
 	return t.Format("3:04 PM")
 }
 
-// RenderClockDetail renders the clock with a month calendar.
-func (r Renderer) RenderClockDetail(c ClockData, width int) string {
-	bg := r.Styles.Workspace.Bg
-	calendarWidth := min(width, 21)
-	parts := []string{r.RenderClock(c, width)}
-	if calendarWidth >= 15 {
-		parts = append(parts, r.RenderMiniCalendar(MiniCalendar{
-			Year: c.Local.Year(), Month: c.Local.Month(), Highlight: c.Local.Day(), Width: calendarWidth,
-		}, bg))
+// clockDigits formats a time without a meridiem, for the big digital face.
+func clockDigits(t time.Time) string {
+	hour := t.Hour()
+	if hour > 12 {
+		hour -= 12
 	}
-	return strings.Join(parts, "\n")
+	if hour == 0 {
+		hour = 12
+	}
+	return fmt.Sprintf("%d:%02d", hour, t.Minute())
+}
+
+// dayPeriod returns a short label and a sun/moon glyph for a time of day.
+func (r Renderer) dayPeriod(t time.Time) (string, string) {
+	label := "night"
+	glyph := "\U0001F319" // crescent moon
+	switch h := t.Hour(); {
+	case h >= 5 && h < 12:
+		label, glyph = "morning", "\u2600\uFE0F"
+	case h >= 12 && h < 17:
+		label, glyph = "afternoon", "\u2600\uFE0F"
+	case h >= 17 && h < 21:
+		label, glyph = "evening", "\u2600\uFE0F"
+	}
+	if r.Styles.PlainUI {
+		if label == "night" {
+			glyph = "z"
+		} else {
+			glyph = "*"
+		}
+	}
+	return label, glyph
+}
+
+// dayFraction is how far through the day a time is, 0..1.
+func dayFraction(t time.Time) float64 {
+	return clamp01(float64(t.Hour()*60+t.Minute()) / (24 * 60))
+}
+
+// bigClockFont is a 3-row seven-segment-ish font for the large digital time.
+var bigClockFont = map[rune][3]string{
+	'0': {" _ ", "| |", "|_|"},
+	'1': {"   ", "  |", "  |"},
+	'2': {" _ ", " _|", "|_ "},
+	'3': {" _ ", " _|", " _|"},
+	'4': {"   ", "|_|", "  |"},
+	'5': {" _ ", "|_ ", " _|"},
+	'6': {" _ ", "|_ ", "|_|"},
+	'7': {" _ ", "  |", "  |"},
+	'8': {" _ ", "|_|", "|_|"},
+	'9': {" _ ", "|_|", " _|"},
+	':': {"   ", " . ", " . "},
+}
+
+// bigTime renders "14:42" as three rows of large digits.
+func bigTime(text string) []string {
+	rows := []string{"", "", ""}
+	for i, ch := range text {
+		glyph, ok := bigClockFont[ch]
+		if !ok {
+			glyph = [3]string{"   ", "   ", "   "}
+		}
+		for row := 0; row < 3; row++ {
+			if i > 0 {
+				rows[row] += " "
+			}
+			rows[row] += glyph[row]
+		}
+	}
+	return rows
+}
+
+// analogClock draws a small clock face: a rim, quarter marks, and hour and
+// minute hands. Cells are about twice as tall as wide, so the radius is wider
+// horizontally to keep the face round.
+func (r Renderer) analogClock(t time.Time) []string {
+	const cx, cy = 6, 3
+	const rx, ry = 6, 3
+	grid := make([][]rune, cy*2+1)
+	for i := range grid {
+		grid[i] = make([]rune, cx*2+1)
+		for j := range grid[i] {
+			grid[i][j] = ' '
+		}
+	}
+	put := func(x, y int, ch rune) {
+		if y >= 0 && y < len(grid) && x >= 0 && x < len(grid[0]) {
+			grid[y][x] = ch
+		}
+	}
+	// Rim: mark every cell near the ellipse boundary, so it comes out even.
+	for y := range grid {
+		for x := range grid[y] {
+			dx := float64(x-cx) / float64(rx)
+			dy := float64(y-cy) / float64(ry)
+			if d := math.Sqrt(dx*dx + dy*dy); d > 0.82 && d < 1.18 {
+				grid[y][x] = '·'
+			}
+		}
+	}
+	for _, hour := range []int{0, 3, 6, 9} {
+		a := float64(hour) * math.Pi / 6
+		put(cx+int(math.Round(rx*math.Sin(a))), cy-int(math.Round(ry*math.Cos(a))), '•')
+	}
+	hand := func(angle, length float64, ch rune) {
+		for step := 1; step <= 12; step++ {
+			f := length * float64(step) / 12
+			put(cx+int(math.Round(f*rx*math.Sin(angle))), cy-int(math.Round(f*ry*math.Cos(angle))), ch)
+		}
+	}
+	hourAngle := (float64(t.Hour()%12) + float64(t.Minute())/60) / 12 * 2 * math.Pi
+	minuteAngle := float64(t.Minute()) / 60 * 2 * math.Pi
+	hand(minuteAngle, 0.85, '•')
+	hand(hourAngle, 0.55, '●')
+	put(cx, cy, '○')
+	lines := make([]string, len(grid))
+	for i, row := range grid {
+		lines[i] = string(row)
+	}
+	return lines
 }
 
 // RenderSystem renders the system-health summary.
