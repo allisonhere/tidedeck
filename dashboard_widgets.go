@@ -270,8 +270,10 @@ func daysBetween(a, b time.Time) int {
 	return int(b0.Sub(a0).Hours() / 24)
 }
 
-// RenderClock renders local time and world clocks: the time with a sun/moon
-// glyph, the date and day-period, and each world clock with its own glyph.
+// RenderClock renders local time and world clocks. When the pane is wide enough
+// the time is drawn as big digital rows; otherwise it falls back to text. The
+// date carries the day-period and a sun/moon glyph, a day-progress gauge sits
+// under it, and each world clock carries its own glyph.
 func (r Renderer) RenderClock(c ClockData, width int) string {
 	bg := r.Styles.Workspace.Bg
 	ws := r.Styles.Workspace
@@ -280,14 +282,24 @@ func (r Renderer) RenderClock(c ClockData, width int) string {
 	if period == "night" {
 		glyphColor = ws.SubtitleFg
 	}
-	headline := lipgloss.NewStyle().Background(bg).Foreground(ws.FrameActive).Bold(true).
-		Render(clockTime(c.Local, c.Hour24)) +
-		lipgloss.NewStyle().Background(bg).Render(" ") +
-		lipgloss.NewStyle().Background(bg).Foreground(glyphColor).Render(glyph)
-	lines := []string{
-		headline,
-		lipgloss.NewStyle().Background(bg).Foreground(ws.SubtitleFg).
-			Render(c.Local.Format("Mon Jan 2") + " · " + period),
+	timeStyle := lipgloss.NewStyle().Background(bg).Foreground(ws.FrameActive).Bold(true)
+	var lines []string
+	if big := bigTime(clockDigits(c.Local)); lipgloss.Width(big[0]) <= width {
+		for _, line := range big {
+			lines = append(lines, timeStyle.Render(line))
+		}
+	} else {
+		lines = append(lines, timeStyle.Render(clockTime(c.Local, c.Hour24)))
+	}
+	lines = append(lines, lipgloss.NewStyle().Background(bg).Foreground(ws.SubtitleFg).
+		Render(c.Local.Format("Mon Jan 2")+" · "+period)+
+		lipgloss.NewStyle().Background(bg).Foreground(glyphColor).Render(" "+glyph))
+	if barWidth := min(width-2, 18); barWidth >= 6 {
+		fraction := dayFraction(c.Local)
+		bar := r.RenderProgressBar(ProgressBar{Fraction: fraction, Width: barWidth, Tone: ToneAccent}, bg)
+		pct := lipgloss.NewStyle().Background(bg).Foreground(ws.BodyMutedFg).
+			Render(fmt.Sprintf("  %d%%", int(math.Round(fraction*100))))
+		lines = append(lines, bar+pct)
 	}
 	if c.Location != "" {
 		lines = append(lines, lipgloss.NewStyle().Background(bg).Foreground(ws.HintFg).Render(c.Location))

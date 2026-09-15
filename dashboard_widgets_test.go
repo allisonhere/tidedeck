@@ -177,15 +177,24 @@ func TestRenderClockAndCalendar(t *testing.T) {
 	r := chromeRenderer(Compact)
 	now := dashboardNow()
 	clock := ClockData{Local: now, Location: "Local", Hour24: true, Zones: []WorldClock{{City: "London", Time: now, Offset: "UTC"}, {City: "Tokyo", Time: now.Add(9 * time.Hour), Offset: "+9"}}}
-	plain := ansi.Strip(r.RenderClock(clock, 24))
+	// At a narrow width the time is plain text.
+	plain := ansi.Strip(r.RenderClock(clock, 14))
 	for _, want := range []string{"14:42", "Mon Sep 14", "London", "Tokyo"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("clock missing %q:\n%s", want, plain)
 		}
 	}
-	twelve := ansi.Strip(r.RenderClock(ClockData{Local: now, Hour24: false}, 24))
+	twelve := ansi.Strip(r.RenderClock(ClockData{Local: now, Hour24: false}, 14))
 	if !strings.Contains(twelve, "2:42 PM") {
 		t.Fatalf("12-hour clock = %q, want 2:42 PM", twelve)
+	}
+	// At a wide width the time is drawn big, with a day-progress gauge.
+	big := ansi.Strip(r.RenderClock(clock, 30))
+	if !strings.Contains(big, "afternoon") || !strings.Contains(big, "% of day") && !strings.Contains(big, "61%") {
+		t.Fatalf("wide clock should be rich:\n%s", big)
+	}
+	if !strings.Contains(big, "_") || !strings.Contains(big, "|") {
+		t.Fatalf("wide clock missing big digits:\n%s", big)
 	}
 	calendar := ansi.Strip(r.RenderMiniCalendar(MiniCalendar{Year: 2026, Month: time.September, Highlight: 14, Width: 21}, r.Styles.Workspace.Bg))
 	if !strings.Contains(calendar, "September 2026") || !strings.Contains(calendar, "14") {
