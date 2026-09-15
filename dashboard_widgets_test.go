@@ -193,7 +193,7 @@ func TestRenderClockAndCalendar(t *testing.T) {
 	if !strings.Contains(big, "afternoon") || !strings.Contains(big, "% of day") && !strings.Contains(big, "61%") {
 		t.Fatalf("wide clock should be rich:\n%s", big)
 	}
-	if !strings.Contains(big, "█") {
+	if !strings.Contains(big, "_") {
 		t.Fatalf("wide clock missing big digits:\n%s", big)
 	}
 	calendar := ansi.Strip(r.RenderMiniCalendar(MiniCalendar{Year: 2026, Month: time.September, Highlight: 14, Width: 21}, r.Styles.Workspace.Bg))
@@ -219,9 +219,13 @@ func TestClockLook(t *testing.T) {
 	if f := dayFraction(morning); f <= 0 || f >= 1 {
 		t.Fatalf("dayFraction = %v, want between 0 and 1", f)
 	}
-	big := r.bigTime("14:42")
-	if len(big) != 5 || lipgloss.Width(big[0]) != 19 {
-		t.Fatalf("bigTime = %#v", big)
+	big := r.bigTime("14:42") // default dash font is 3 rows
+	if len(big) != 3 || lipgloss.Width(big[0]) != 19 {
+		t.Fatalf("dash bigTime = %#v", big)
+	}
+	block := NewRenderer(CatppuccinMocha, StyleOptions{ClockFont: ClockFontBlock}).bigTime("14:42")
+	if len(block) != 5 || lipgloss.Width(block[0]) != 19 {
+		t.Fatalf("block bigTime = %#v", block)
 	}
 	face := r.analogClock(morning)
 	if len(face) != 7 {
@@ -238,7 +242,7 @@ func TestClockLook(t *testing.T) {
 			t.Fatalf("resolved clock font = %q, want %q", fr.Styles.ClockFont, font)
 		}
 		rows := fr.bigTime("14:42")
-		if len(rows) != 5 || lipgloss.Width(rows[0]) != 19 {
+		if lipgloss.Width(rows[0]) != 19 {
 			t.Fatalf("%s bigTime = %#v", font, rows)
 		}
 	}

@@ -437,24 +437,24 @@ func dayFraction(t time.Time) float64 {
 	return clamp01(float64(t.Hour()*60+t.Minute()) / (24 * 60))
 }
 
-// The big clock uses a 5-row font so every digit has its proper segments,
-// notably a top-left on "4". Two glyph sets are available: light dash segments
-// and solid blocks.
+// Two big-clock fonts. "dash" is the original 3-row seven-segment LED look;
+// "block" is a heavier 5-row solid font. Both place each segment so digits
+// read correctly (a "4" has its top-left vertical).
 var (
-	bigClockDash = map[rune][5]string{
-		'0': {"───", "│ │", "│ │", "│ │", "───"},
-		'1': {"  │", "  │", "  │", "  │", "  │"},
-		'2': {"───", "  │", "───", "│  ", "───"},
-		'3': {"───", "  │", "───", "  │", "───"},
-		'4': {"│ │", "│ │", "───", "  │", "  │"},
-		'5': {"───", "│  ", "───", "  │", "───"},
-		'6': {"───", "│  ", "───", "│ │", "───"},
-		'7': {"───", "  │", "  │", "  │", "  │"},
-		'8': {"───", "│ │", "───", "│ │", "───"},
-		'9': {"───", "│ │", "───", "  │", "───"},
-		':': {"   ", " • ", "   ", " • ", "   "},
+	bigClockDash = map[rune][]string{
+		'0': {" _ ", "| |", "|_|"},
+		'1': {"   ", "  |", "  |"},
+		'2': {" _ ", " _|", "|_ "},
+		'3': {" _ ", " _|", " _|"},
+		'4': {"|  ", "|_|", "  |"},
+		'5': {" _ ", "|_ ", " _|"},
+		'6': {" _ ", "|_ ", "|_|"},
+		'7': {" _ ", "  |", "  |"},
+		'8': {" _ ", "|_|", "|_|"},
+		'9': {" _ ", "|_|", " _|"},
+		':': {"   ", " . ", " . "},
 	}
-	bigClockBlock = map[rune][5]string{
+	bigClockBlock = map[rune][]string{
 		'0': {"███", "█ █", "█ █", "█ █", "███"},
 		'1': {"  █", "  █", "  █", "  █", "  █"},
 		'2': {"███", "  █", "███", "█  ", "███"},
@@ -469,19 +469,24 @@ var (
 	}
 )
 
-// bigTime renders "14:42" as five rows of large digits in the selected font.
+// bigTime renders "14:42" as large digits in the selected font.
 func (r Renderer) bigTime(text string) []string {
 	font := bigClockDash
+	height := 3
 	if r.Styles.ClockFont == ClockFontBlock {
 		font = bigClockBlock
+		height = 5
 	}
-	rows := make([]string, 5)
+	rows := make([]string, height)
 	for i, ch := range text {
 		glyph, ok := font[ch]
-		if !ok {
-			glyph = [5]string{"   ", "   ", "   ", "   ", "   "}
+		if !ok || len(glyph) != height {
+			glyph = make([]string, height)
+			for j := range glyph {
+				glyph[j] = "   "
+			}
 		}
-		for row := 0; row < 5; row++ {
+		for row := 0; row < height; row++ {
 			if i > 0 {
 				rows[row] += " "
 			}
