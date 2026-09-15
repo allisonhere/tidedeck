@@ -118,3 +118,28 @@ func TestWorkspaceRendererASCIIDegradesCleanly(t *testing.T) {
 		t.Fatalf("ASCII theme rendered unicode borders:\n%s", ansi.Strip(view))
 	}
 }
+
+func TestDockPreviewBoxIsAlwaysLabelledAndBounded(t *testing.T) {
+	r := chromeRenderer(Compact)
+	ws := r.Styles.Workspace
+	for _, size := range [][2]int{{1, 1}, {1, 8}, {3, 1}, {4, 2}, {6, 3}, {12, 2}, {20, 5}, {30, 1}} {
+		view := dockPreviewBox(r, size[0], size[1], DockBelow, ws.DockColor, ws.DockFill)
+		lines := strings.Split(ansi.Strip(view), "\n")
+		if len(lines) != size[1] {
+			t.Fatalf("%v: %d lines, want %d", size, len(lines), size[1])
+		}
+		for i, line := range lines {
+			if got := lipgloss.Width(line); got != size[0] {
+				t.Fatalf("%v: line %d width %d, want %d", size, i, got, size[0])
+			}
+		}
+	}
+	// A short up/down half must still name the landing zone, not render as a
+	// bare dark fill.
+	for _, height := range []int{1, 2, 3} {
+		view := ansi.Strip(dockPreviewBox(r, 20, height, DockBelow, ws.DockColor, ws.DockFill))
+		if !strings.Contains(view, "dock down") {
+			t.Fatalf("height %d preview lost its label:\n%s", height, view)
+		}
+	}
+}

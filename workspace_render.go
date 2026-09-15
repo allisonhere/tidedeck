@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // WorkspaceRenderOptions tunes the optional chrome the workspace draws.
@@ -417,35 +418,68 @@ func (wr WorkspaceRenderer) renderDock(ws *Workspace, canvas string, width, heig
 func dockPreviewBox(renderer Renderer, width, height int, side DockSide, color, fill lipgloss.Color) string {
 	width = max(1, width)
 	height = max(1, height)
-	if width == 1 || height == 1 {
-		return blankCanvas(width, height, fill)
-	}
-	border := paneFrameBorder(renderer.Styles.PlainUI, renderer.Styles.PaneCorners == RoundCorners)
+	plain := renderer.Styles.PlainUI
+	border := paneFrameBorder(plain, renderer.Styles.PaneCorners == RoundCorners)
 	borderStyle := lipgloss.NewStyle().Background(fill).Foreground(color)
-	innerWidth := width - 2
-	innerHeight := height - 2
+	labelStyle := lipgloss.NewStyle().Background(fill).Foreground(color).Bold(true)
 	text := "dock " + side.String()
 	if side == DockCenter {
 		text = "stack"
 	}
 	label := " " + text + " "
-	if lipgloss.Width(label) > innerWidth {
-		label = ""
-	}
-	var lines []string
-	for i := 0; i < innerHeight; i++ {
-		mid := ""
-		if i == innerHeight/2 {
-			mid = lipgloss.NewStyle().Background(fill).Foreground(fill).Render(strings.Repeat(" ", max(0, (innerWidth-lipgloss.Width(label))/2))) + label
-			mid = padStyled(mid, innerWidth, fill)
-		} else {
-			mid = lipgloss.NewStyle().Background(fill).Render(strings.Repeat(" ", innerWidth))
+
+	// A one-cell-thick preview still has to read as a landing zone: draw a
+	// coloured rule with the label baked in rather than a bare fill, which
+	// looked like a dark hole across short up/down halves.
+	if width < 2 {
+		glyph := "┃"
+		if plain {
+			glyph = "|"
 		}
-		lines = append(lines, borderStyle.Render(border.Left)+mid+borderStyle.Render(border.Right))
+		lines := make([]string, height)
+		for i := range lines {
+			lines[i] = borderStyle.Render(glyph)
+		}
+		return strings.Join(lines, "\n")
 	}
-	top := borderStyle.Render(border.TopLeft) + borderStyle.Render(strings.Repeat(border.Top, innerWidth)) + borderStyle.Render(border.TopRight)
-	bottom := borderStyle.Render(border.BottomLeft) + borderStyle.Render(strings.Repeat(border.Bottom, innerWidth)) + borderStyle.Render(border.BottomRight)
-	return top + "\n" + strings.Join(lines, "\n") + "\n" + bottom
+	if height < 2 {
+		content := labelStyle.Render(ansi.Truncate(label, width, "…"))
+		return padStyled(content, width, fill)
+	}
+
+	innerWidth := width - 2
+	innerHeight := height - 2
+	lines := []string{labelledTopBorder(border, borderStyle, labelStyle, label, innerWidth)}
+	fillLine := borderStyle.Render(border.Left) +
+		lipgloss.NewStyle().Background(fill).Render(strings.Repeat(" ", innerWidth)) +
+		borderStyle.Render(border.Right)
+	for i := 0; i < innerHeight; i++ {
+		lines = append(lines, fillLine)
+	}
+	lines = append(lines, borderStyle.Render(border.BottomLeft)+
+		borderStyle.Render(strings.Repeat(border.Bottom, innerWidth))+
+		borderStyle.Render(border.BottomRight))
+	return strings.Join(lines, "\n")
+}
+
+// labelledTopBorder draws a box top edge with the docking label embedded, so
+// even a two-row preview communicates where the panel will land.
+func labelledTopBorder(border lipgloss.Border, borderStyle, labelStyle lipgloss.Style, label string, innerWidth int) string {
+	if innerWidth <= 0 {
+		return borderStyle.Render(border.TopLeft) + borderStyle.Render(border.TopRight)
+	}
+	rendered := labelStyle.Render(ansi.Truncate(label, max(0, innerWidth-1), "…"))
+	used := 1 + lipgloss.Width(rendered)
+	if used > innerWidth {
+		return borderStyle.Render(border.TopLeft) +
+			borderStyle.Render(strings.Repeat(border.Top, innerWidth)) +
+			borderStyle.Render(border.TopRight)
+	}
+	return borderStyle.Render(border.TopLeft) +
+		borderStyle.Render(border.Top) +
+		rendered +
+		borderStyle.Render(strings.Repeat(border.Top, innerWidth-used)) +
+		borderStyle.Render(border.TopRight)
 }
 
 // renderResizeDivider highlights the boundary selected in resize mode so it is
