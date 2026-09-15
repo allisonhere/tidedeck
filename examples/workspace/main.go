@@ -18,6 +18,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/allisonhere/tideui"
+	"github.com/allisonhere/tideui/provider"
 )
 
 // fileStore is a tiny durable LayoutStore so the demo persists its layout.
@@ -67,6 +68,9 @@ type demoState struct {
 
 	weatherUnit  string
 	agendaOffset int
+
+	lastStatus string
+	statusAge  int
 
 	tasks     []tideui.Task
 	headlines []tideui.Headline
@@ -368,9 +372,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.state.mounts = snapshot.Storage
 			}
 		}
+		// Auto-clear transient status feedback a few seconds after it stops
+		// changing, so it is prominent but never sticks around.
+		if m.state.status != m.state.lastStatus {
+			m.state.lastStatus = m.state.status
+			m.state.statusAge = 0
+		} else if m.state.status != "" {
+			m.state.statusAge++
+			if m.state.statusAge > 6 {
+				m.state.status = ""
+				m.state.lastStatus = ""
+				m.state.statusAge = 0
+			}
+		}
 		m.refreshBadges()
 		m.ws.Animation().Tick()
 		return m, tickCmd(time.Second)
+	case lookupMsg:
+		if m.settings.Opened() {
+			m.settings.ApplyLookup(msg.place, msg.err)
+		}
+		return m, nil
 	case tea.MouseMsg:
 		if m.ws.HandleMouse(msg) {
 			return m, nil
@@ -379,6 +401,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 	}
 	return m, nil
+}
+
+type lookupMsg struct {
+	place provider.Place
+	err   error
+}
+
+// lookupCmd runs a geocoding request off the UI goroutine and delivers the
+// result as a message.
+func lookupCmd(query string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		defer cancel()
+		place, err := provider.Geocode(ctx, query)
+		return lookupMsg{place: place, err: err}
+	}
 }
 
 func (m model) refreshBadges() {
@@ -425,13 +463,17 @@ func (m model) refreshBadges() {
 
 func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.settings.Opened() {
-		switch m.settings.Update(msg) {
+		action := m.settings.Update(msg)
+		if query := m.settings.TakeLookup(); query != "" {
+			return m, lookupCmd(query)
+		}
+		switch action {
 		case settingsSaved:
 			m.cfg = m.settings.SavedConfig()
 			if err := m.cfg.save(); err != nil {
 				m.state.status = "config save failed: " + err.Error()
 			} else {
-				m.state.status = "settings saved"
+				m.state.status = "settings applied"
 			}
 			m.applyConfig()
 		case settingsCancelled:
@@ -608,9 +650,6 @@ func (m model) View() string {
 		dataLabel = "live"
 	}
 	secondary := "updated " + m.state.now.Format("15:04") + "  ·  " + dataLabel
-	if m.state.status != "" {
-		secondary = m.state.status + "  ·  " + secondary
-	}
 	if panel, ok := m.ws.Lookup(m.ws.Focused()); ok {
 		if theme, has := panel.PanelTheme(); has {
 			secondary = panel.TitleText() + "[" + theme.Name + "]  ·  " + secondary
@@ -619,6 +658,9 @@ func (m model) View() string {
 	wr.Options.StatusLeft = primary
 	wr.Options.StatusSecondary = secondary
 	wr.Options.StatusHints = []tideui.KeyHint{tideui.Hint("s", "settings")}
+	// Status messages show as the strip's capsule, so they stay visible even
+	// when the secondary metadata is truncated on a narrow terminal.
+	wr.Options.StatusNotice = m.state.status
 	base := wr.Render(m.ws, m.width, m.height)
 
 	if m.settings.Opened() {

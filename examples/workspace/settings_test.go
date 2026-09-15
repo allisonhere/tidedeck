@@ -126,3 +126,54 @@ func TestLookupAppliesPlaceAndEnablesLive(t *testing.T) {
 		t.Fatal("saved config should have live enabled")
 	}
 }
+
+func TestLookupQueuesQuery(t *testing.T) {
+	form := newSettingsForm()
+	form.Open(config{})
+	form.state.place = "Berlin"
+	if action := form.lookupCoordinates(); action != settingsNone {
+		t.Fatalf("lookup action = %v", action)
+	}
+	if query := form.TakeLookup(); query != "Berlin" {
+		t.Fatalf("queued query = %q, want Berlin", query)
+	}
+	if !form.lookingUp {
+		t.Fatal("form should be marked as looking up")
+	}
+	if form.TakeLookup() != "" {
+		t.Fatal("TakeLookup should clear the pending query")
+	}
+}
+
+func TestApplyLookupFillsPlace(t *testing.T) {
+	form := newSettingsForm()
+	form.Open(config{})
+	form.ApplyLookup(provider.Place{Name: "Berlin", Latitude: 52.52, Longitude: 13.405, Country: "Germany"}, nil)
+	if form.lookingUp {
+		t.Fatal("lookingUp should be cleared")
+	}
+	if !form.state.live || !form.state.weatherEnabled {
+		t.Fatal("lookup should enable live weather")
+	}
+	if form.state.latitude != "52.52" || form.state.location != "Berlin" {
+		t.Fatalf("place not applied: %+v", form.state)
+	}
+}
+
+func TestApplyLookupError(t *testing.T) {
+	form := newSettingsForm()
+	form.Open(config{})
+	form.ApplyLookup(provider.Place{}, errLookup)
+	if form.problem == "" {
+		t.Fatal("expected the error to be shown")
+	}
+	if form.state.live {
+		t.Fatal("a failed lookup should not enable live data")
+	}
+}
+
+var errLookup = &lookupError{}
+
+type lookupError struct{}
+
+func (*lookupError) Error() string { return "no match" }

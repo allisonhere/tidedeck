@@ -22,6 +22,10 @@ type WorkspaceRenderOptions struct {
 	// StatusHints are appended to the default status-bar key hints for
 	// application-level shortcuts (for example a settings panel).
 	StatusHints []KeyHint
+	// StatusNotice, when set, is shown as the status strip's mode capsule
+	// while no transient mode (arrange/resize/zoom) is active. Use it for
+	// short-lived application feedback such as "settings applied".
+	StatusNotice string
 }
 
 // WorkspaceRenderer turns a solved workspace into a themed, bounded string. It
@@ -470,6 +474,9 @@ func (wr WorkspaceRenderer) renderStrip(ws *Workspace, width int) string {
 		mode = "RESIZE"
 	case ws.Zoomed() != "":
 		mode = "ZOOM"
+	}
+	if mode == "" {
+		mode = wr.Options.StatusNotice
 	}
 
 	// A caller-provided right segment takes over the legacy two-region path.

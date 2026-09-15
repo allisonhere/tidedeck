@@ -1,11 +1,9 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -127,15 +125,17 @@ func parseOptionalFloat(value string) (float64, error) {
 // settingsForm is the modal configuration panel. Every provider setting is
 // edited here; nothing requires environment variables or a hand-edited file.
 type settingsForm struct {
-	opened  bool
-	state   *formState
-	cfg     config // config produced by the last successful save
-	fields  []formField
-	cursor  int
-	editing bool
-	caret   int
-	problem string
-	dirty   bool
+	opened        bool
+	state         *formState
+	cfg           config // config produced by the last successful save
+	fields        []formField
+	cursor        int
+	editing       bool
+	caret         int
+	problem       string
+	dirty         bool
+	pendingLookup string
+	lookingUp     bool
 }
 
 // SavedConfig returns the config produced by the most recent save.
@@ -185,18 +185,35 @@ func (s *settingsForm) buildFields() []formField {
 	}
 }
 
-// lookupCoordinates resolves the city or ZIP field into latitude, longitude,
-// and a location label, enabling weather if it succeeds.
+// lookupCoordinates queues a geocoding request for the model to run in the
+// background, so the panel can show progress instead of freezing.
 func (s *settingsForm) lookupCoordinates() settingsAction {
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-	defer cancel()
-	place, err := provider.Geocode(ctx, strings.TrimSpace(s.state.place))
-	if err != nil {
-		s.problem = err.Error()
+	query := strings.TrimSpace(s.state.place)
+	if query == "" {
+		s.problem = "enter a city or postal code first"
 		return settingsNone
 	}
-	s.applyPlace(place)
+	s.pendingLookup = query
+	s.lookingUp = true
+	s.problem = "looking up " + query + "…"
 	return settingsNone
+}
+
+// TakeLookup returns and clears a queued geocoding query, if any.
+func (s *settingsForm) TakeLookup() string {
+	query := s.pendingLookup
+	s.pendingLookup = ""
+	return query
+}
+
+// ApplyLookup records the result of a background lookup.
+func (s *settingsForm) ApplyLookup(place provider.Place, err error) {
+	s.lookingUp = false
+	if err != nil {
+		s.problem = err.Error()
+		return
+	}
+	s.applyPlace(place)
 }
 
 // applyPlace writes a geocoding result into the form and enables live data,
