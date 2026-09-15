@@ -12,18 +12,25 @@ import (
 // through the in-app settings panel (s) and persisted as JSON, so no
 // environment variables or hand-editing are required.
 type config struct {
-	Live      bool          `json:"live"`
-	Weather   weatherConfig `json:"weather"`
-	Zones     string        `json:"zones"`
-	Feeds     string        `json:"feeds"`
-	Calendars string        `json:"calendars"`
-	Todo      string        `json:"todo"`
-	Notes     string        `json:"notes"`
-	Repos     string        `json:"repos"`
-	Symbols   string        `json:"symbols"`
-	Systemd   string        `json:"systemd"`
-	Docker    string        `json:"docker"`
-	Interface string        `json:"interface"`
+	Live        bool              `json:"live"`
+	Weather     weatherConfig     `json:"weather"`
+	Zones       string            `json:"zones"`
+	Clock24     bool              `json:"clock_24"`
+	GaugeStyle  string            `json:"gauge_style"`
+	SparkStyle  string            `json:"spark_style"`
+	PanelGauges map[string]string `json:"panel_gauges,omitempty"`
+	// PanelSparks overrides the sparkline style per panel id. "default" or a
+	// missing entry follows the workspace SparkStyle.
+	PanelSparks map[string]string `json:"panel_sparks,omitempty"`
+	Feeds       string            `json:"feeds"`
+	Calendars   string            `json:"calendars"`
+	Todo        string            `json:"todo"`
+	Notes       string            `json:"notes"`
+	Repos       string            `json:"repos"`
+	Symbols     string            `json:"symbols"`
+	Systemd     string            `json:"systemd"`
+	Docker      string            `json:"docker"`
+	Interface   string            `json:"interface"`
 }
 
 // weatherConfig configures the Open-Meteo weather source.
@@ -49,7 +56,10 @@ func defaultConfig() config {
 			WindMPH:    true,
 			Location:   "Local",
 		},
-		Zones: "Europe/London,Asia/Tokyo,Sydney",
+		Zones:      "Europe/London,Asia/Tokyo,Sydney",
+		Clock24:    true,
+		GaugeStyle: "solid",
+		SparkStyle: "blocks",
 	}
 }
 

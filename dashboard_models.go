@@ -56,8 +56,10 @@ func WeatherKindFromCondition(condition string) WeatherKind {
 	}
 }
 
-// Glyph returns a single-cell symbol for the kind. Plain UI falls back to
-// ASCII so the widget stays legible in terminals without Unicode.
+// Glyph returns a weather symbol for the kind. The non-plain glyphs are emoji
+// followed by U+FE0F (emoji presentation); that makes the width table and the
+// terminal agree the glyph is two cells wide, so it no longer overflows the
+// line. Plain UI falls back to single-cell ASCII.
 func (k WeatherKind) Glyph(plain bool) string {
 	if plain {
 		switch k {
@@ -81,19 +83,19 @@ func (k WeatherKind) Glyph(plain bool) string {
 	}
 	switch k {
 	case WeatherClear:
-		return "☀"
+		return "\u2600\uFE0F"
 	case WeatherPartly:
-		return "🌤"
+		return "\u26C5\uFE0F"
 	case WeatherCloudy:
-		return "☁"
+		return "\u2601\uFE0F"
 	case WeatherFog:
-		return "≡"
+		return "\U0001F32B\uFE0F"
 	case WeatherRain:
-		return "☂"
+		return "\U0001F327\uFE0F"
 	case WeatherSnow:
-		return "❄"
+		return "\u2744\uFE0F"
 	case WeatherStorm:
-		return "🌩"
+		return "\u26A1\uFE0F"
 	default:
 		return "·"
 	}
@@ -145,10 +147,12 @@ type WorldClock struct {
 	Offset string // "+9", "-5"
 }
 
-// ClockData backs the clock widget.
+// ClockData backs the clock widget. Hour24 selects 24-hour ("15:04") instead
+// of 12-hour ("3:04 PM") formatting.
 type ClockData struct {
 	Local    time.Time
 	Location string
+	Hour24   bool
 	Zones    []WorldClock
 }
 

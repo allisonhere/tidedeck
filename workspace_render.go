@@ -180,27 +180,48 @@ func (wr WorkspaceRenderer) renderRegion(ws *Workspace, region SolvedRegion, foc
 }
 
 // panelRenderer resolves the renderer a panel draws with. A panel theme
-// replaces the workspace theme, panel overrides recolor it, and the global
-// density, corner style, and shadow settings are always preserved. Panels
-// without panel-scoped theming reuse the workspace renderer directly.
+// replaces the workspace theme, panel overrides recolor it, a panel gauge
+// style replaces the workspace default, and the global density, corner style,
+// and shadow settings are always preserved. Panels without panel-scoped
+// overrides reuse the workspace renderer directly.
 func (wr WorkspaceRenderer) panelRenderer(panel *Panel) Renderer {
-	base := wr.Renderer.Styles
-	if panel == nil || !panel.HasPanelTheme() {
+	if panel == nil {
 		return wr.Renderer
 	}
+	base := wr.Renderer.Styles
 	theme := base.Theme
+	themeChanged := false
 	if panel.theme != nil {
 		theme = *panel.theme
+		themeChanged = true
 	}
 	if panel.overrides != (ThemeOverrides{}) {
 		theme = panel.overrides.Apply(theme)
+		themeChanged = true
 	}
-	if theme == base.Theme {
-		return wr.Renderer
+	gauge := base.Gauge
+	if panel.gaugeSet {
+		gauge = normalizeGaugeStyle(panel.gauge)
+	}
+	sparkline := base.Sparkline
+	if panel.sparkSet {
+		sparkline = normalizeSparklineStyle(panel.sparkline)
+	}
+	if !themeChanged {
+		if gauge == base.Gauge && sparkline == base.Sparkline {
+			return wr.Renderer
+		}
+		// Only the metric styles differ; reuse the workspace styles.
+		out := wr.Renderer
+		out.Styles.Gauge = gauge
+		out.Styles.Sparkline = sparkline
+		return out
 	}
 	return Renderer{Styles: BuildStyles(theme, StyleOptions{
 		Density:     base.Density,
 		PaneCorners: base.PaneCorners,
+		Gauge:       gauge,
+		Sparkline:   sparkline,
 		ModalShadow: base.ModalShadow,
 	})}
 }

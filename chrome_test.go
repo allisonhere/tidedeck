@@ -107,6 +107,118 @@ func TestProgressBarBounds(t *testing.T) {
 	}
 }
 
+func TestMetricGradientScale(t *testing.T) {
+	ws := chromeRenderer(Compact).Styles.Workspace
+	if got := ws.MetricGradient(0); got != ws.MetricGood {
+		t.Fatalf("gradient(0) = %s, want MetricGood %s", got, ws.MetricGood)
+	}
+	if got := ws.MetricGradient(1); got != ws.MetricBad {
+		t.Fatalf("gradient(1) = %s, want MetricBad %s", got, ws.MetricBad)
+	}
+	if ws.MetricGradient(0.5) == ws.MetricGood || ws.MetricGradient(0.5) == ws.MetricBad {
+		t.Fatal("mid gradient should sit between the extremes")
+	}
+	low, high := valueRange([]float64{0.4, 0.1, 0.9, 0.2})
+	if low != 0.1 || high != 0.9 {
+		t.Fatalf("valueRange = %v..%v, want 0.1..0.9", low, high)
+	}
+}
+
+func TestGaugeStyles(t *testing.T) {
+	for _, style := range GaugeStyles() {
+		r := NewRenderer(CatppuccinMocha, StyleOptions{Gauge: style})
+		if r.Styles.Gauge != style {
+			t.Fatalf("resolved gauge = %q, want %q", r.Styles.Gauge, style)
+		}
+		got := r.RenderProgressBar(ProgressBar{Fraction: 0.5, Width: 10, Tone: ToneGood}, r.Styles.Workspace.Bg)
+		if w := lipgloss.Width(got); w != 10 {
+			t.Fatalf("%s gauge width = %d, want 10", style, w)
+		}
+	}
+	unknown := NewRenderer(CatppuccinMocha, StyleOptions{Gauge: GaugeStyle("nope")})
+	if unknown.Styles.Gauge != GaugeSolid {
+		t.Fatalf("unknown gauge = %q, want solid", unknown.Styles.Gauge)
+	}
+}
+
+func TestSparklineStyles(t *testing.T) {
+	for _, style := range SparklineStyles() {
+		r := NewRenderer(CatppuccinMocha, StyleOptions{Sparkline: style})
+		if r.Styles.Sparkline != style {
+			t.Fatalf("resolved sparkline = %q, want %q", r.Styles.Sparkline, style)
+		}
+		sample := r.SparkSample(style, 9)
+		if w := lipgloss.Width(sample); w != 9 {
+			t.Fatalf("%s sample width = %d, want 9 (%q)", style, w, sample)
+		}
+		line := r.RenderSparkline(Sparkline{Values: []float64{0.2, 0.8, 0.4}, Width: 6, Tone: ToneAccent}, r.Styles.Workspace.Bg)
+		if w := lipgloss.Width(line); w != 6 {
+			t.Fatalf("%s sparkline width = %d, want 6", style, w)
+		}
+	}
+	unknown := NewRenderer(CatppuccinMocha, StyleOptions{Sparkline: SparklineStyle("nope")})
+	if unknown.Styles.Sparkline != SparkBlocks {
+		t.Fatalf("unknown sparkline = %q, want blocks", unknown.Styles.Sparkline)
+	}
+}
+
+func TestPanelSparklineOverride(t *testing.T) {
+	wr := NewWorkspaceRenderer(NewRenderer(CatppuccinMocha, StyleOptions{Sparkline: SparkBlocks}))
+	panel := newPanel("system", nil)
+	if got := wr.panelRenderer(panel).Styles.Sparkline; got != SparkBlocks {
+		t.Fatalf("default panel sparkline = %q, want blocks", got)
+	}
+	panel.Sparkline(SparkBraille)
+	if style, ok := panel.PanelSparkline(); !ok || style != SparkBraille {
+		t.Fatalf("PanelSparkline = %q,%v, want braille", style, ok)
+	}
+	if got := wr.panelRenderer(panel).Styles.Sparkline; got != SparkBraille {
+		t.Fatalf("panel sparkline = %q, want braille", got)
+	}
+	panel.ClearSparkline()
+	if got := wr.panelRenderer(panel).Styles.Sparkline; got != SparkBlocks {
+		t.Fatalf("cleared panel sparkline = %q, want blocks", got)
+	}
+}
+
+func TestGaugeSample(t *testing.T) {
+	for _, style := range GaugeStyles() {
+		r := NewRenderer(CatppuccinMocha, StyleOptions{Gauge: style})
+		sample := r.GaugeSample(style, 8)
+		if w := lipgloss.Width(sample); w != 8 {
+			t.Fatalf("%s sample width = %d, want 8 (%q)", style, w, sample)
+		}
+	}
+	// The sample differs between styles, so the picker previews are distinct.
+	a := NewRenderer(CatppuccinMocha, StyleOptions{}).GaugeSample(GaugeSolid, 8)
+	b := NewRenderer(CatppuccinMocha, StyleOptions{}).GaugeSample(GaugeCircles, 8)
+	if a == b {
+		t.Fatalf("solid and circles samples should differ: %q", a)
+	}
+}
+
+func TestPanelGaugeOverride(t *testing.T) {
+	wr := NewWorkspaceRenderer(NewRenderer(CatppuccinMocha, StyleOptions{Gauge: GaugeSolid}))
+	panel := newPanel("system", nil)
+	if got := wr.panelRenderer(panel).Styles.Gauge; got != GaugeSolid {
+		t.Fatalf("default panel gauge = %q, want solid", got)
+	}
+	panel.Gauge(GaugeCircles)
+	if style, ok := panel.PanelGauge(); !ok || style != GaugeCircles {
+		t.Fatalf("PanelGauge = %q,%v, want circles", style, ok)
+	}
+	if got := wr.panelRenderer(panel).Styles.Gauge; got != GaugeCircles {
+		t.Fatalf("panel gauge = %q, want circles", got)
+	}
+	panel.ClearGauge()
+	if panel.HasPanelGauge() {
+		t.Fatal("ClearGauge did not clear the override")
+	}
+	if got := wr.panelRenderer(panel).Styles.Gauge; got != GaugeSolid {
+		t.Fatalf("cleared panel gauge = %q, want solid", got)
+	}
+}
+
 func TestSparklineWidth(t *testing.T) {
 	r := chromeRenderer(Compact)
 	got := r.RenderSparkline(Sparkline{Values: []float64{0.1, 0.9, 0.4}, Width: 8, Tone: ToneAccent}, r.Styles.Workspace.Bg)

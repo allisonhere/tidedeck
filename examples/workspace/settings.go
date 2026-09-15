@@ -17,14 +17,47 @@ const (
 	fieldBool fieldKind = iota
 	fieldText
 	fieldAction
+	fieldPanel
+	fieldChoice
 )
 
 type formField struct {
-	label  string
-	kind   fieldKind
-	flag   *bool
-	text   *string
-	action func() settingsAction
+	label        string
+	kind         fieldKind
+	flag         *bool
+	text         *string
+	action       func() settingsAction
+	panel        string   // panel id, for fieldPanel
+	choice       *string  // current value, for fieldChoice
+	options      []string // selectable values, for fieldChoice
+	gaugePreview bool     // fieldChoice shows a sample gauge instead of its name
+	sparkPreview bool     // fieldChoice shows a sample sparkline instead of its name
+	// choiceMap/choiceKey back a choice stored in a map (e.g. per-panel
+	// gauges) instead of a single string.
+	choiceMap map[string]string
+	choiceKey string
+}
+
+// choiceValue reads the field's current choice from its pointer or map.
+func (f formField) choiceValue() string {
+	if f.choice != nil {
+		return *f.choice
+	}
+	if f.choiceMap != nil {
+		return f.choiceMap[f.choiceKey]
+	}
+	return ""
+}
+
+// setChoice writes the field's choice to its pointer or map.
+func (f *formField) setChoice(value string) {
+	if f.choice != nil {
+		*f.choice = value
+		return
+	}
+	if f.choiceMap != nil {
+		f.choiceMap[f.choiceKey] = value
+	}
 }
 
 // settingsAction reports how a settings update ended.
@@ -48,6 +81,11 @@ type formState struct {
 	fahrenheit     bool
 	windMPH        bool
 	zones          string
+	clock24        bool
+	gauge          string
+	spark          string
+	panelGauges    map[string]string
+	panelSparks    map[string]string
 	feeds          string
 	calendars      string
 	todo           string
@@ -70,6 +108,11 @@ func formFromConfig(cfg config) formState {
 		fahrenheit:     cfg.Weather.Fahrenheit,
 		windMPH:        cfg.Weather.WindMPH,
 		zones:          cfg.Zones,
+		clock24:        cfg.Clock24,
+		gauge:          gaugeOrDefault(cfg.GaugeStyle),
+		spark:          sparkOrDefault(cfg.SparkStyle),
+		panelGauges:    copyStringMap(cfg.PanelGauges),
+		panelSparks:    copyStringMap(cfg.PanelSparks),
 		feeds:          cfg.Feeds,
 		calendars:      cfg.Calendars,
 		todo:           cfg.Todo,
@@ -101,17 +144,86 @@ func (s formState) toConfig() (config, error) {
 			Fahrenheit: s.fahrenheit,
 			WindMPH:    s.windMPH,
 		},
-		Zones:     s.zones,
-		Feeds:     s.feeds,
-		Calendars: s.calendars,
-		Todo:      s.todo,
-		Notes:     s.notes,
-		Repos:     s.repos,
-		Symbols:   s.symbols,
-		Systemd:   s.systemd,
-		Docker:    s.docker,
-		Interface: s.iface,
+		Zones:       s.zones,
+		Clock24:     s.clock24,
+		GaugeStyle:  gaugeOrDefault(s.gauge),
+		SparkStyle:  sparkOrDefault(s.spark),
+		PanelGauges: panelOverrides(s.panelGauges),
+		PanelSparks: panelOverrides(s.panelSparks),
+		Feeds:       s.feeds,
+		Calendars:   s.calendars,
+		Todo:        s.todo,
+		Notes:       s.notes,
+		Repos:       s.repos,
+		Symbols:     s.symbols,
+		Systemd:     s.systemd,
+		Docker:      s.docker,
+		Interface:   s.iface,
 	}, nil
+}
+
+// gaugeStyleNames lists the selectable gauge styles as strings.
+func gaugeStyleNames() []string {
+	styles := tideui.GaugeStyles()
+	names := make([]string, len(styles))
+	for i, style := range styles {
+		names[i] = string(style)
+	}
+	return names
+}
+
+func copyStringMap(in map[string]string) map[string]string {
+	out := make(map[string]string, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
+}
+
+// panelOverrides drops entries that follow the workspace default so the saved
+// config only stores real per-panel choices.
+func panelOverrides(in map[string]string) map[string]string {
+	out := map[string]string{}
+	for id, style := range in {
+		if style == "" || style == "default" {
+			continue
+		}
+		out[id] = style
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// gaugeOrDefault falls back to the solid style when no gauge style is set.
+func gaugeOrDefault(style string) string {
+	for _, known := range tideui.GaugeStyles() {
+		if style == string(known) {
+			return style
+		}
+	}
+	return string(tideui.GaugeSolid)
+}
+
+// sparkStyleNames lists the selectable sparkline styles as strings.
+func sparkStyleNames() []string {
+	styles := tideui.SparklineStyles()
+	names := make([]string, len(styles))
+	for i, style := range styles {
+		names[i] = string(style)
+	}
+	return names
+}
+
+// sparkOrDefault falls back to the blocks style when no sparkline style is set.
+func sparkOrDefault(style string) string {
+	for _, known := range tideui.SparklineStyles() {
+		if style == string(known) {
+			return style
+		}
+	}
+	return string(tideui.SparkBlocks)
 }
 
 func parseOptionalFloat(value string) (float64, error) {
@@ -123,10 +235,13 @@ func parseOptionalFloat(value string) (float64, error) {
 }
 
 // settingsCategory groups fields under a heading so the panel stays navigable
-// as the number of settings grows.
+// as the number of settings grows. panelID names the dashboard panel the
+// category configures; when set, an enable/disable toggle is added to the top
+// of the page so the panel can be shown or hidden from its own settings.
 type settingsCategory struct {
-	name   string
-	fields []formField
+	name    string
+	fields  []formField
+	panelID string
 }
 
 type settingsView int
@@ -153,6 +268,11 @@ type settingsForm struct {
 	problem    string
 	dirty      bool
 
+	// ws backs the per-category panel toggles, which change live visibility
+	// rather than a config value. It is nil when the form runs without a
+	// workspace (as in unit tests), which simply omits those fields.
+	ws *tideui.Workspace
+
 	pendingLookup string
 	lookingUp     bool
 }
@@ -160,7 +280,45 @@ type settingsForm struct {
 // SavedConfig returns the config produced by the most recent save.
 func (s settingsForm) SavedConfig() config { return s.cfg }
 
+// GaugeStyle returns the gauge style currently selected in the form, so the
+// caller can preview it live before it is saved.
+func (s settingsForm) GaugeStyle() string {
+	if s.state == nil {
+		return string(tideui.GaugeSolid)
+	}
+	return gaugeOrDefault(s.state.gauge)
+}
+
+// PanelGaugeStyle returns a panel's chosen gauge override, or "" when it
+// follows the workspace style.
+func (s settingsForm) PanelGaugeStyle(id string) string {
+	if s.state == nil {
+		return ""
+	}
+	return s.state.panelGauges[id]
+}
+
+// SparkStyle returns the sparkline style currently selected in the form.
+func (s settingsForm) SparkStyle() string {
+	if s.state == nil {
+		return string(tideui.SparkBlocks)
+	}
+	return sparkOrDefault(s.state.spark)
+}
+
+// PanelSparkStyle returns a panel's chosen sparkline override, or "" when it
+// follows the workspace style.
+func (s settingsForm) PanelSparkStyle(id string) string {
+	if s.state == nil {
+		return ""
+	}
+	return s.state.panelSparks[id]
+}
+
 func newSettingsForm() *settingsForm { return &settingsForm{} }
+
+// SetWorkspace attaches the workspace whose panels the Panels category toggles.
+func (s *settingsForm) SetWorkspace(ws *tideui.Workspace) { s.ws = ws }
 
 // Open loads cfg into the form and displays the category list.
 func (s *settingsForm) Open(cfg config) {
@@ -181,49 +339,144 @@ func (s *settingsForm) Open(cfg config) {
 func (s settingsForm) Opened() bool { return s.opened }
 
 func (s *settingsForm) buildCategories() []settingsCategory {
-	return []settingsCategory{
+	categories := []settingsCategory{
 		{name: "General", fields: []formField{
 			{label: "Live data", kind: fieldBool, flag: &s.state.live},
+			{label: "gauge style", kind: fieldChoice, choice: &s.state.gauge, options: gaugeStyleNames(), gaugePreview: true},
+			{label: "spark style", kind: fieldChoice, choice: &s.state.spark, options: sparkStyleNames(), sparkPreview: true},
 		}},
-		{name: "Weather", fields: []formField{
-			{label: "enabled", kind: fieldBool, flag: &s.state.weatherEnabled},
+		{name: "Weather", panelID: "weather", fields: []formField{
+			{label: "live weather", kind: fieldBool, flag: &s.state.weatherEnabled},
+			{label: "city or ZIP", kind: fieldText, text: &s.state.place},
+			{label: "Look up coordinates", kind: fieldAction, action: s.lookupCoordinates},
 			{label: "latitude", kind: fieldText, text: &s.state.latitude},
 			{label: "longitude", kind: fieldText, text: &s.state.longitude},
 			{label: "location", kind: fieldText, text: &s.state.location},
 			{label: "fahrenheit", kind: fieldBool, flag: &s.state.fahrenheit},
 			{label: "wind mph", kind: fieldBool, flag: &s.state.windMPH},
-			{label: "city or ZIP", kind: fieldText, text: &s.state.place},
-			{label: "Look up coordinates", kind: fieldAction, action: s.lookupCoordinates},
 		}},
-		{name: "Clock", fields: []formField{
+		{name: "Agenda", panelID: "agenda", fields: nil},
+		{name: "Clock", panelID: "clock", fields: []formField{
+			{label: "24-hour", kind: fieldBool, flag: &s.state.clock24},
 			{label: "zones", kind: fieldText, text: &s.state.zones},
 		}},
-		{name: "News", fields: []formField{
+		{name: "System", panelID: "system", fields: nil},
+		{name: "Network", panelID: "network", fields: []formField{
+			{label: "interface", kind: fieldText, text: &s.state.iface},
+		}},
+		{name: "Storage", panelID: "storage", fields: nil},
+		{name: "Services", panelID: "services", fields: []formField{
+			{label: "systemd units", kind: fieldText, text: &s.state.systemd},
+			{label: "docker socket", kind: fieldText, text: &s.state.docker},
+		}},
+		{name: "News", panelID: "news", fields: []formField{
 			{label: "feeds", kind: fieldText, text: &s.state.feeds},
 		}},
 		{name: "Calendar", fields: []formField{
 			{label: ".ics files", kind: fieldText, text: &s.state.calendars},
 		}},
-		{name: "Tasks", fields: []formField{
+		{name: "Tasks", panelID: "tasks", fields: []formField{
 			{label: "todo.txt", kind: fieldText, text: &s.state.todo},
 		}},
-		{name: "Notes", fields: []formField{
+		{name: "Notes", panelID: "notes", fields: []formField{
 			{label: "paths", kind: fieldText, text: &s.state.notes},
 		}},
-		{name: "Git", fields: []formField{
+		{name: "Git", panelID: "git", fields: []formField{
 			{label: "repository paths", kind: fieldText, text: &s.state.repos},
 		}},
-		{name: "Markets", fields: []formField{
+		{name: "Markets", panelID: "markets", fields: []formField{
 			{label: "symbols", kind: fieldText, text: &s.state.symbols},
 		}},
-		{name: "Services", fields: []formField{
-			{label: "systemd units", kind: fieldText, text: &s.state.systemd},
-			{label: "docker socket", kind: fieldText, text: &s.state.docker},
-		}},
-		{name: "Network", fields: []formField{
-			{label: "interface", kind: fieldText, text: &s.state.iface},
-		}},
 	}
+	// Put each panel's visibility toggle and metric styles at the top of its
+	// own settings page.
+	for i := range categories {
+		id := categories[i].panelID
+		if id == "" {
+			continue
+		}
+		var prepend []formField
+		if field := s.panelField(id); field != nil {
+			prepend = append(prepend, *field)
+		}
+		if gauge := s.panelGaugeField(id); gauge != nil {
+			prepend = append(prepend, *gauge)
+		}
+		if spark := s.panelSparkField(id); spark != nil {
+			prepend = append(prepend, *spark)
+		}
+		if len(prepend) > 0 {
+			categories[i].fields = append(prepend, categories[i].fields...)
+		}
+	}
+	return categories
+}
+
+// panelGaugeField builds a per-panel gauge style choice. "default" follows the
+// workspace setting; any other value overrides it for this panel.
+func (s *settingsForm) panelGaugeField(id string) *formField {
+	if s.ws == nil || id == "" {
+		return nil
+	}
+	if _, ok := s.ws.Lookup(id); !ok {
+		return nil
+	}
+	if s.state.panelGauges == nil {
+		s.state.panelGauges = map[string]string{}
+	}
+	if s.state.panelGauges[id] == "" {
+		s.state.panelGauges[id] = "default"
+	}
+	options := append([]string{"default"}, gaugeStyleNames()...)
+	return &formField{
+		label:        "gauge style",
+		kind:         fieldChoice,
+		choiceMap:    s.state.panelGauges,
+		choiceKey:    id,
+		options:      options,
+		panel:        id,
+		gaugePreview: true,
+	}
+}
+
+// panelSparkField builds a per-panel sparkline style choice. "default" follows
+// the workspace setting; any other value overrides it for this panel.
+func (s *settingsForm) panelSparkField(id string) *formField {
+	if s.ws == nil || id == "" {
+		return nil
+	}
+	if _, ok := s.ws.Lookup(id); !ok {
+		return nil
+	}
+	if s.state.panelSparks == nil {
+		s.state.panelSparks = map[string]string{}
+	}
+	if s.state.panelSparks[id] == "" {
+		s.state.panelSparks[id] = "default"
+	}
+	options := append([]string{"default"}, sparkStyleNames()...)
+	return &formField{
+		label:        "spark style",
+		kind:         fieldChoice,
+		choiceMap:    s.state.panelSparks,
+		choiceKey:    id,
+		options:      options,
+		panel:        id,
+		sparkPreview: true,
+	}
+}
+
+// panelField builds the enable/disable row for a panel, or nil when there is no
+// workspace or the panel cannot be hidden.
+func (s *settingsForm) panelField(id string) *formField {
+	if s.ws == nil || id == "" {
+		return nil
+	}
+	panel, ok := s.ws.Lookup(id)
+	if !ok || !panel.CanHide() {
+		return nil
+	}
+	return &formField{label: "enabled", kind: fieldPanel, panel: id}
 }
 
 func (s *settingsForm) currentFields() []formField {
@@ -325,9 +578,23 @@ func (s *settingsForm) updateCategories(key string) settingsAction {
 func (s *settingsForm) updateFields(key string) settingsAction {
 	fields := s.currentFields()
 	switch key {
-	case "esc", "left", "h", "backspace":
+	case "esc", "backspace":
 		s.view = viewCategories
 		s.editing = false
+	case "left", "h":
+		// Cycle a choice field; otherwise this backs out of the category.
+		if field := s.currentField(); field != nil && field.kind == fieldChoice {
+			field.setChoice(stepChoice(field.choiceValue(), field.options, -1))
+			s.dirty = true
+		} else {
+			s.view = viewCategories
+			s.editing = false
+		}
+	case "right", "l":
+		if field := s.currentField(); field != nil && field.kind == fieldChoice {
+			field.setChoice(stepChoice(field.choiceValue(), field.options, 1))
+			s.dirty = true
+		}
 	case "up", "k", "shift+tab":
 		s.cursor = wrapIndex(s.cursor-1, len(fields))
 	case "down", "j", "tab":
@@ -404,8 +671,35 @@ func (s *settingsForm) activate() settingsAction {
 		if field.action != nil {
 			return field.action()
 		}
+	case fieldPanel:
+		if s.ws != nil {
+			s.ws.TogglePanel(field.panel)
+		}
+	case fieldChoice:
+		field.setChoice(stepChoice(field.choiceValue(), field.options, 1))
+		s.dirty = true
 	}
 	return settingsNone
+}
+
+// stepChoice moves delta options from current, wrapping around.
+func stepChoice(current string, options []string, delta int) string {
+	if len(options) == 0 {
+		return current
+	}
+	index := 0
+	for i, option := range options {
+		if option == current {
+			index = i
+			break
+		}
+	}
+	return options[wrapIndex(index+delta, len(options))]
+}
+
+// panelVisible reports whether a panel's enable row should show a tick.
+func (s settingsForm) panelVisible(id string) bool {
+	return s.ws == nil || !s.ws.Hidden(id)
 }
 
 func (s *settingsForm) save() settingsAction {
@@ -436,6 +730,8 @@ func (s settingsForm) value(field formField) string {
 		if field.text != nil {
 			return *field.text
 		}
+	case fieldChoice:
+		return field.choiceValue()
 	}
 	return ""
 }
@@ -472,7 +768,7 @@ func (s settingsForm) Render(r tideui.Renderer, width, height int) tideui.Overla
 		lines = append(lines, s.renderFields(r, innerWidth, rowsAvailable)...)
 		lines = append(lines, "", r.RenderSoftHints(innerWidth,
 			tideui.SoftHint{Key: "↑/↓", Label: "field"},
-			tideui.SoftHint{Key: "enter", Label: "edit / run"},
+			tideui.SoftHint{Key: "enter", Label: "toggle / edit"},
 			tideui.SoftHint{Key: "esc", Label: "back"},
 			tideui.SoftHint{Key: "ctrl+s", Label: "apply"},
 		))
@@ -493,10 +789,14 @@ func (s settingsForm) renderCategories(r tideui.Renderer, width, rows int) []str
 	}
 	for index := first; index < last; index++ {
 		category := s.categories[index]
+		suffix := fmt.Sprintf("%d", len(category.fields))
+		if category.panelID != "" && !s.panelVisible(category.panelID) {
+			suffix = "off"
+		}
 		lines = append(lines, r.RenderSoftRow(tideui.SoftRow{
 			Prefix:   "  ",
 			Text:     category.name,
-			Suffix:   fmt.Sprintf("%d", len(category.fields)),
+			Suffix:   suffix,
 			Selected: index == s.category,
 		}, width))
 	}
@@ -527,8 +827,34 @@ func (s settingsForm) renderFields(r tideui.Renderer, width, rows int) []string 
 			} else {
 				row.Prefix = "[ ] "
 			}
+		case fieldPanel:
+			if s.panelVisible(field.panel) {
+				row.Prefix = "[x] "
+			} else {
+				row.Prefix = "[ ] "
+			}
+		case fieldChoice:
+			row.Prefix = "    "
+			switch {
+			case field.gaugePreview:
+				style := field.choiceValue()
+				if style == "" || style == "default" {
+					style = s.GaugeStyle()
+				}
+				row.Suffix = r.GaugeSample(tideui.GaugeStyle(style), 8)
+			case field.sparkPreview:
+				style := field.choiceValue()
+				if style == "" || style == "default" {
+					style = s.SparkStyle()
+				}
+				row.Suffix = r.SparkSample(tideui.SparklineStyle(style), 8)
+			default:
+				row.Suffix = "‹ " + s.value(field) + " ›"
+			}
 		case fieldAction:
-			row.Prefix = "  ▸ "
+			row.Prefix = "  "
+			row.Text = "[ " + field.label + " ]"
+			row.Accent = true
 		default:
 			row.Prefix = "    "
 		}

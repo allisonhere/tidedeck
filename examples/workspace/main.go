@@ -68,6 +68,9 @@ type demoState struct {
 
 	weatherUnit  string
 	agendaOffset int
+	clock24      bool
+	gauge        tideui.GaugeStyle
+	spark        tideui.SparklineStyle
 
 	lastStatus string
 	statusAge  int
@@ -110,7 +113,10 @@ func newModel() model {
 	cfg := loadConfig()
 	var source dataSource = feed
 	state := &demoState{
-		theme: tideui.CatppuccinMocha, density: tideui.Dense, now: started, source: source, weatherUnit: "F",
+		theme: tideui.CatppuccinMocha, density: tideui.Dense, now: started, source: source,
+		weatherUnit: "F", clock24: cfg.Clock24,
+		gauge:     tideui.GaugeStyle(gaugeOrDefault(cfg.GaugeStyle)),
+		spark:     tideui.SparklineStyle(sparkOrDefault(cfg.SparkStyle)),
 		tasks:     feed.Tasks(),
 		headlines: feed.Headlines(),
 		services:  feed.Services(),
@@ -149,11 +155,15 @@ func newModel() model {
 	)
 
 	registerPanels(ws, state)
+	applyPanelGauges(ws, cfg)
 	registerPresets(ws)
 
 	ws.Layout(overviewLayout())
 	ws.ApplyPreset("Overview")
 	ws.Focus("agenda")
+
+	settings := newSettingsForm()
+	settings.SetWorkspace(ws)
 
 	return model{
 		state:    state,
@@ -161,12 +171,17 @@ func newModel() model {
 		picker:   tideui.NewThemePicker(tideui.ThemePickerOptions{InitialTheme: state.theme.Name}),
 		cfg:      cfg,
 		feed:     feed,
-		settings: newSettingsForm(),
+		settings: settings,
 	}
 }
 
 // applyConfig switches the data source to match the saved configuration.
 func (m *model) applyConfig() {
+	m.state.clock24 = m.cfg.Clock24
+	m.state.gauge = tideui.GaugeStyle(gaugeOrDefault(m.cfg.GaugeStyle))
+	m.state.spark = tideui.SparklineStyle(sparkOrDefault(m.cfg.SparkStyle))
+	applyPanelGauges(m.ws, m.cfg)
+	applyPanelSparks(m.ws, m.cfg)
 	if m.cfg.Live {
 		m.state.live = newLiveSource(m.cfg)
 		m.state.source = m.state.live
@@ -181,6 +196,53 @@ func (m *model) applyConfig() {
 		m.state.notes = m.feed.Notes()
 		m.state.repos = m.feed.RepoActivity()
 		m.state.mounts = m.feed.Storage()
+	}
+}
+
+// applyStylePreview mirrors the settings form's current metric styles onto the
+// live workspace so the dashboard updates as each style is cycled.
+func (m *model) applyStylePreview() {
+	m.state.gauge = tideui.GaugeStyle(m.settings.GaugeStyle())
+	m.state.spark = tideui.SparklineStyle(m.settings.SparkStyle())
+	for _, panel := range m.ws.Panels() {
+		id := panel.ID()
+		switch style := m.settings.PanelGaugeStyle(id); style {
+		case "", "default":
+			panel.ClearGauge()
+		default:
+			panel.Gauge(tideui.GaugeStyle(style))
+		}
+		switch style := m.settings.PanelSparkStyle(id); style {
+		case "", "default":
+			panel.ClearSparkline()
+		default:
+			panel.Sparkline(tideui.SparklineStyle(style))
+		}
+	}
+}
+
+// applyPanelGauges gives each panel its configured gauge style, falling back to
+// the workspace default for "default" or unset entries.
+func applyPanelGauges(ws *tideui.Workspace, cfg config) {
+	for _, panel := range ws.Panels() {
+		switch style := cfg.PanelGauges[panel.ID()]; style {
+		case "", "default":
+			panel.ClearGauge()
+		default:
+			panel.Gauge(tideui.GaugeStyle(style))
+		}
+	}
+}
+
+// applyPanelSparks gives each panel its configured sparkline style.
+func applyPanelSparks(ws *tideui.Workspace, cfg config) {
+	for _, panel := range ws.Panels() {
+		switch style := cfg.PanelSparks[panel.ID()]; style {
+		case "", "default":
+			panel.ClearSparkline()
+		default:
+			panel.Sparkline(tideui.SparklineStyle(style))
+		}
 	}
 }
 
@@ -464,6 +526,9 @@ func (m model) refreshBadges() {
 func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.settings.Opened() {
 		action := m.settings.Update(msg)
+		// Preview the chosen gauge styles live, so every style is visible as it
+		// is cycled rather than only after ctrl+s.
+		m.applyStylePreview()
 		if query := m.settings.TakeLookup(); query != "" {
 			return m, lookupCmd(query)
 		}
@@ -477,6 +542,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.applyConfig()
 		case settingsCancelled:
+			m.applyConfig()
 			m.state.status = "settings unchanged"
 		}
 		return m, nil
@@ -637,7 +703,8 @@ func (m model) View() string {
 		return ""
 	}
 	renderer := tideui.NewRenderer(m.state.theme, tideui.StyleOptions{
-		Density: m.state.density, PaneCorners: tideui.RoundCorners, ModalShadow: true,
+		Density: m.state.density, PaneCorners: tideui.RoundCorners,
+		Gauge: m.state.gauge, Sparkline: m.state.spark, ModalShadow: true,
 	})
 	wr := tideui.NewWorkspaceRenderer(renderer)
 

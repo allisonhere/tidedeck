@@ -22,7 +22,6 @@ func (r Renderer) RenderWeather(w WeatherData, width int) string {
 		r.weatherHeadline(w, bg),
 		lipgloss.NewStyle().Background(bg).Foreground(ws.BodyMutedFg).
 			Render(weatherRangeText(w)),
-		"",
 		r.dashPair("Rain", fmt.Sprintf("%d%%", w.RainChance), 5, bg),
 		r.dashPair("Wind", fmt.Sprintf("%d %s", w.WindSpeed, w.WindUnit), 5, bg),
 	}
@@ -40,10 +39,10 @@ func (r Renderer) weatherHeadline(w WeatherData, bg lipgloss.Color) string {
 	headline := r.RenderStatValue(StatValue{Value: fmt.Sprintf("%d°", w.Temperature), Unit: w.Unit, Tone: ToneAccent}, bg)
 	if glyph := kind.Glyph(r.Styles.PlainUI); glyph != "" {
 		headline += lipgloss.NewStyle().Background(bg).Render(" ") +
-			lipgloss.NewStyle().Background(bg).Foreground(ws.WeatherColor(kind)).Bold(true).Render(glyph)
+			lipgloss.NewStyle().Background(bg).Foreground(ws.WeatherColor(kind)).Bold(true).Render(glyph+" ")
 	}
 	if w.Condition != "" {
-		headline += lipgloss.NewStyle().Background(bg).Foreground(ws.SubtitleFg).Render(" " + w.Condition)
+		headline += lipgloss.NewStyle().Background(bg).Foreground(ws.SubtitleFg).Render(w.Condition)
 	}
 	return headline
 }
@@ -248,7 +247,7 @@ func (r Renderer) RenderClock(c ClockData, width int) string {
 	ws := r.Styles.Workspace
 	lines := []string{
 		lipgloss.NewStyle().Background(bg).Foreground(ws.FrameActive).Bold(true).
-			Render(c.Local.Format("15:04")),
+			Render(clockTime(c.Local, c.Hour24)),
 		lipgloss.NewStyle().Background(bg).Foreground(ws.SubtitleFg).
 			Render(c.Local.Format("Mon Jan 2")),
 	}
@@ -262,10 +261,18 @@ func (r Renderer) RenderClock(c ClockData, width int) string {
 			if zone.Offset != "" {
 				label = fmt.Sprintf("%s %s", zone.City, zone.Offset)
 			}
-			lines = append(lines, r.dashPair(label, zone.Time.Format("15:04"), 12, bg))
+			lines = append(lines, r.dashPair(label, clockTime(zone.Time, c.Hour24), 12, bg))
 		}
 	}
 	return r.dashBlock(lines, width, bg)
+}
+
+// clockTime formats a time as 24-hour ("15:04") or 12-hour ("3:04 PM").
+func clockTime(t time.Time, hour24 bool) string {
+	if hour24 {
+		return t.Format("15:04")
+	}
+	return t.Format("3:04 PM")
 }
 
 // RenderClockDetail renders the clock with a month calendar.

@@ -5,6 +5,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/allisonhere/tideui"
 	"github.com/allisonhere/tideui/provider"
 )
 
@@ -40,7 +41,13 @@ func TestSettingsFormEditsAndSaves(t *testing.T) {
 	form.Update(tea.KeyMsg{Type: tea.KeyEsc})  // back to categories
 	form.Update(tea.KeyMsg{Type: tea.KeyDown}) // Weather
 	form.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	form.Update(tea.KeyMsg{Type: tea.KeyDown}) // enabled -> latitude
+	fields := form.currentFields()
+	for i := 0; i < len(fields) && form.currentField().label != "latitude"; i++ {
+		form.Update(tea.KeyMsg{Type: tea.KeyDown})
+	}
+	if got := form.currentField().label; got != "latitude" {
+		t.Fatalf("could not navigate to latitude, landed on %q", got)
+	}
 	form.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	form.state.latitude = ""
 	for _, r := range "52.52" {
@@ -181,6 +188,204 @@ var errLookup = &lookupError{}
 type lookupError struct{}
 
 func (*lookupError) Error() string { return "no match" }
+
+func TestSettingsPanelToggles(t *testing.T) {
+	ws := tideui.NewWorkspace()
+	ws.Panel("weather", nil).Title("Weather")
+	form := newSettingsForm()
+	form.SetWorkspace(ws)
+	form.Open(config{})
+
+	// Weather's own settings page opens with an enable/disable toggle.
+	form.Update(tea.KeyMsg{Type: tea.KeyDown}) // General -> Weather
+	if got := form.categories[form.category].name; got != "Weather" {
+		t.Fatalf("category = %q, want Weather", got)
+	}
+	form.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	field := form.currentField()
+	if field == nil || field.kind != fieldPanel || field.panel != "weather" {
+		t.Fatalf("first Weather field = %+v, want the panel toggle", field)
+	}
+	if !form.panelVisible("weather") {
+		t.Fatal("panel should start visible")
+	}
+	form.Update(tea.KeyMsg{Type: tea.KeyEnter}) // hide
+	if !ws.Hidden("weather") {
+		t.Fatal("enter did not hide the panel")
+	}
+	if form.panelVisible("weather") {
+		t.Fatal("tick should be off after hiding")
+	}
+	form.Update(tea.KeyMsg{Type: tea.KeyEnter}) // show
+	if ws.Hidden("weather") {
+		t.Fatal("second enter did not show the panel")
+	}
+	if !form.panelVisible("weather") {
+		t.Fatal("tick should be on after showing")
+	}
+}
+
+func TestSettingsClockHasHourFormat(t *testing.T) {
+	form := newSettingsForm()
+	form.Open(config{Clock24: true})
+	for i, category := range form.categories {
+		if category.name != "Clock" {
+			continue
+		}
+		form.category = i
+		form.Update(tea.KeyMsg{Type: tea.KeyEnter}) // open Clock
+		field := form.currentField()
+		if field == nil || field.label != "24-hour" || field.flag == nil {
+			t.Fatalf("first Clock field = %+v, want the 24-hour toggle", field)
+		}
+		form.Update(tea.KeyMsg{Type: tea.KeyEnter}) // toggle off
+		if action := form.Update(tea.KeyMsg{Type: tea.KeyCtrlS}); action != settingsSaved {
+			t.Fatalf("save action = %v", action)
+		}
+		if form.SavedConfig().Clock24 {
+			t.Fatal("24-hour toggle did not save as off")
+		}
+		return
+	}
+	t.Fatal("no Clock category")
+}
+
+func TestSettingsGaugeStyleChoice(t *testing.T) {
+	form := newSettingsForm()
+	form.Open(config{GaugeStyle: "solid"})
+	form.Update(tea.KeyMsg{Type: tea.KeyEnter}) // open General
+	form.Update(tea.KeyMsg{Type: tea.KeyDown})  // Live data -> gauge style
+	field := form.currentField()
+	if field == nil || field.kind != fieldChoice || field.choice == nil {
+		t.Fatalf("field = %+v, want gauge style choice", field)
+	}
+	if got := form.value(*field); got != "solid" {
+		t.Fatalf("gauge value = %q, want solid", got)
+	}
+	form.Update(tea.KeyMsg{Type: tea.KeyEnter}) // cycle
+	if form.state.gauge == "solid" {
+		t.Fatal("gauge style did not cycle")
+	}
+	if action := form.Update(tea.KeyMsg{Type: tea.KeyCtrlS}); action != settingsSaved {
+		t.Fatalf("save action = %v", action)
+	}
+	if form.SavedConfig().GaugeStyle == "solid" {
+		t.Fatal("gauge style did not save")
+	}
+}
+
+func TestSettingsChoiceArrowKeys(t *testing.T) {
+	form := newSettingsForm()
+	form.Open(config{GaugeStyle: "solid"})
+	form.Update(tea.KeyMsg{Type: tea.KeyEnter}) // open General
+	form.Update(tea.KeyMsg{Type: tea.KeyDown})  // gauge style
+	form.Update(tea.KeyMsg{Type: tea.KeyRight})
+	if got := form.value(*form.currentField()); got != "blocks" {
+		t.Fatalf("right arrow -> %q, want blocks", got)
+	}
+	form.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	if got := form.value(*form.currentField()); got != "solid" {
+		t.Fatalf("left arrow -> %q, want solid", got)
+	}
+}
+
+func TestSettingsSparkStyleChoice(t *testing.T) {
+	form := newSettingsForm()
+	form.Open(config{SparkStyle: "blocks"})
+	form.Update(tea.KeyMsg{Type: tea.KeyEnter}) // open General
+	form.Update(tea.KeyMsg{Type: tea.KeyDown})  // gauge style
+	form.Update(tea.KeyMsg{Type: tea.KeyDown})  // spark style
+	field := form.currentField()
+	if field == nil || field.kind != fieldChoice || !field.sparkPreview {
+		t.Fatalf("field = %+v, want spark style choice", field)
+	}
+	if got := form.value(*field); got != "blocks" {
+		t.Fatalf("spark value = %q, want blocks", got)
+	}
+	form.Update(tea.KeyMsg{Type: tea.KeyRight})
+	if got := form.value(*form.currentField()); got == "blocks" {
+		t.Fatal("spark style did not cycle")
+	}
+	if action := form.Update(tea.KeyMsg{Type: tea.KeyCtrlS}); action != settingsSaved {
+		t.Fatalf("save action = %v", action)
+	}
+	if form.SavedConfig().SparkStyle == "blocks" {
+		t.Fatal("spark style did not save")
+	}
+}
+
+func TestSettingsPanelSparkChoice(t *testing.T) {
+	ws := tideui.NewWorkspace()
+	ws.Panel("network", nil).Title("Network")
+	form := newSettingsForm()
+	form.SetWorkspace(ws)
+	form.Open(config{})
+
+	for i, category := range form.categories {
+		if category.name != "Network" {
+			continue
+		}
+		form.category = i
+		form.Update(tea.KeyMsg{Type: tea.KeyEnter}) // open Network
+		form.Update(tea.KeyMsg{Type: tea.KeyDown})  // enabled -> gauge
+		form.Update(tea.KeyMsg{Type: tea.KeyDown})  // gauge -> spark
+		field := form.currentField()
+		if field == nil || field.kind != fieldChoice || !field.sparkPreview {
+			t.Fatalf("field = %+v, want the spark choice", field)
+		}
+		if got := form.value(*field); got != "default" {
+			t.Fatalf("initial panel spark = %q, want default", got)
+		}
+		form.Update(tea.KeyMsg{Type: tea.KeyRight})
+		if got := form.value(*form.currentField()); got == "default" {
+			t.Fatal("panel spark did not cycle")
+		}
+		if action := form.Update(tea.KeyMsg{Type: tea.KeyCtrlS}); action != settingsSaved {
+			t.Fatalf("save action = %v", action)
+		}
+		if form.SavedConfig().PanelSparks["network"] == "" {
+			t.Fatalf("panel spark not saved: %+v", form.SavedConfig().PanelSparks)
+		}
+		return
+	}
+	t.Fatal("no Network category")
+}
+
+func TestSettingsPanelGaugeChoice(t *testing.T) {
+	ws := tideui.NewWorkspace()
+	ws.Panel("system", nil).Title("System")
+	form := newSettingsForm()
+	form.SetWorkspace(ws)
+	form.Open(config{})
+
+	for i, category := range form.categories {
+		if category.name != "System" {
+			continue
+		}
+		form.category = i
+		form.Update(tea.KeyMsg{Type: tea.KeyEnter}) // open System
+		form.Update(tea.KeyMsg{Type: tea.KeyDown})  // enabled -> gauge style
+		field := form.currentField()
+		if field == nil || field.kind != fieldChoice {
+			t.Fatalf("field = %+v, want the gauge choice", field)
+		}
+		if got := form.value(*field); got != "default" {
+			t.Fatalf("initial panel gauge = %q, want default", got)
+		}
+		form.Update(tea.KeyMsg{Type: tea.KeyEnter}) // cycle
+		if got := form.value(*form.currentField()); got == "default" {
+			t.Fatal("panel gauge choice did not cycle")
+		}
+		if action := form.Update(tea.KeyMsg{Type: tea.KeyCtrlS}); action != settingsSaved {
+			t.Fatalf("save action = %v", action)
+		}
+		if form.SavedConfig().PanelGauges["system"] == "" {
+			t.Fatalf("panel gauge not saved: %+v", form.SavedConfig().PanelGauges)
+		}
+		return
+	}
+	t.Fatal("no System category")
+}
 
 func TestSettingsCategoryNavigation(t *testing.T) {
 	form := newSettingsForm()

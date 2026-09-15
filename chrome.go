@@ -542,35 +542,137 @@ func (r Renderer) RenderSectionDivider(d SectionDivider, bg lipgloss.Color) stri
 }
 
 // RenderProgressBar renders a gauge of exactly width cells using theme tokens.
+// The glyph set follows Styles.Gauge; the marker style draws a track with a
+// single dot at the fill position instead of filling a run of cells.
 func (r Renderer) RenderProgressBar(bar ProgressBar, bg lipgloss.Color) string {
 	width := max(1, bar.Width)
 	fraction := clamp01(bar.Fraction)
 	filled := int(math.Round(fraction * float64(width)))
 	filled = min(width, max(0, filled))
-	full, empty := "█", "░"
-	if r.Styles.PlainUI {
-		full, empty = "#", "-"
-	}
 	fullStyle := lipgloss.NewStyle().Background(bg).Foreground(r.toneColor(bar.Tone))
 	emptyStyle := lipgloss.NewStyle().Background(bg).Foreground(r.Styles.Workspace.MetricTrack)
+	if r.Styles.PlainUI {
+		return fullStyle.Render(strings.Repeat("#", filled)) + emptyStyle.Render(strings.Repeat("-", width-filled))
+	}
+	full, empty, marker, track := gaugeGlyphs(r.Styles.Gauge)
+	if marker != "" {
+		if fraction <= 0 {
+			return emptyStyle.Render(strings.Repeat(track, width))
+		}
+		pos := min(width-1, max(0, filled-1))
+		return emptyStyle.Render(strings.Repeat(track, pos)) +
+			fullStyle.Render(marker) +
+			emptyStyle.Render(strings.Repeat(track, width-pos-1))
+	}
 	return fullStyle.Render(strings.Repeat(full, filled)) + emptyStyle.Render(strings.Repeat(empty, width-filled))
 }
 
-// RenderSparkline renders a trend glyph run of exactly width cells.
+// GaugeSample returns plain sample glyphs for a style, e.g. for previews in a
+// picker. It is unstyled so the caller can colour it to match its own surface.
+func (r Renderer) GaugeSample(style GaugeStyle, width int) string {
+	width = max(1, width)
+	filled := min(width, max(1, width*3/5))
+	if r.Styles.PlainUI {
+		return strings.Repeat("#", filled) + strings.Repeat("-", width-filled)
+	}
+	full, empty, marker, track := gaugeGlyphs(style)
+	if marker != "" {
+		pos := min(width-1, max(0, filled-1))
+		return strings.Repeat(track, pos) + marker + strings.Repeat(track, width-pos-1)
+	}
+	return strings.Repeat(full, filled) + strings.Repeat(empty, width-filled)
+}
+
+// SparkSample returns a plain sample sparkline for a style, e.g. for previews
+// in a picker. It is unstyled so the caller can colour it to match its surface.
+func (r Renderer) SparkSample(style SparklineStyle, width int) string {
+	width = max(1, width)
+	glyphs := sparkGlyphs(style)
+	if r.Styles.PlainUI {
+		glyphs = []rune(".:-=+*#@")
+	}
+	var b strings.Builder
+	for i := 0; i < width; i++ {
+		t := float64(i) / float64(max(1, width-1))
+		value := math.Sin(t * math.Pi) // a crest, so the ramp is visible
+		index := int(math.Round(value * float64(len(glyphs)-1)))
+		b.WriteRune(glyphs[clampIndex(index, len(glyphs))])
+	}
+	return b.String()
+}
+
+// sparkGlyphs returns the low-to-high glyph ramp for a sparkline style.
+func sparkGlyphs(style SparklineStyle) []rune {
+	switch normalizeSparklineStyle(style) {
+	case SparkDots:
+		return []rune("·∘○◉●")
+	case SparkBraille:
+		return []rune("⡀⡄⡆⡇⣇⣧⣷⣿")
+	case SparkBullets:
+		return []rune("∙•●")
+	case SparkTicks:
+		return []rune("ˌˈ│┃")
+	case SparkShades:
+		return []rune("░▒▓█")
+	default:
+		return []rune("▁▂▃▄▅▆▇█")
+	}
+}
+
+// gaugeGlyphs returns the fill, track, and optional marker glyphs for a style.
+func gaugeGlyphs(style GaugeStyle) (full, empty, marker, track string) {
+	switch normalizeGaugeStyle(style) {
+	case GaugeBlocks:
+		return "▰", "▱", "", ""
+	case GaugeCircles:
+		return "●", "○", "", ""
+	case GaugeFisheye:
+		return "◉", "○", "", ""
+	case GaugeMarker:
+		return "", "", "●", "─"
+	case GaugeBars:
+		return "▮", "▯", "", ""
+	default:
+		return "█", "░", "", ""
+	}
+}
+
+// RenderSparkline renders a trend glyph run of exactly width cells. Cells are
+// coloured green through yellow, orange, and red by their position between the
+// run's minimum and maximum, so the shape and the colour agree.
 func (r Renderer) RenderSparkline(spark Sparkline, bg lipgloss.Color) string {
 	width := max(1, spark.Width)
-	glyphs := []rune("▁▂▃▄▅▆▇█")
+	glyphs := sparkGlyphs(r.Styles.Sparkline)
 	if r.Styles.PlainUI {
 		glyphs = []rune(".:-=+*#@")
 	}
 	values := resample(spark.Values, width)
-	style := lipgloss.NewStyle().Background(bg).Foreground(r.toneColor(spark.Tone))
+	low, high := valueRange(values)
+	ws := r.Styles.Workspace
 	var b strings.Builder
 	for _, value := range values {
 		index := int(math.Round(clamp01(value) * float64(len(glyphs)-1)))
-		b.WriteRune(glyphs[clampIndex(index, len(glyphs))])
+		color := r.toneColor(spark.Tone) // flat run: keep the caller's tone
+		if high > low {
+			color = ws.MetricGradient((value - low) / (high - low))
+		}
+		b.WriteString(lipgloss.NewStyle().Background(bg).Foreground(color).
+			Render(string(glyphs[clampIndex(index, len(glyphs))])))
 	}
-	return style.Render(b.String())
+	return b.String()
+}
+
+// valueRange returns the minimum and maximum of a non-empty slice.
+func valueRange(values []float64) (float64, float64) {
+	if len(values) == 0 {
+		return 0, 0
+	}
+	low, high := values[0], values[0]
+	for _, value := range values[1:] {
+		low = math.Min(low, value)
+		high = math.Max(high, value)
+	}
+	return low, high
 }
 
 // RenderMetricRow renders one aligned metric line. When TotalWidth is set the

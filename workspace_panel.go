@@ -194,6 +194,13 @@ type Panel struct {
 	theme     *Theme
 	overrides ThemeOverrides
 
+	// Panel-scoped gauge and sparkline styles. When set, the panel's progress
+	// bars or sparklines use them instead of the workspace default.
+	gauge     GaugeStyle
+	gaugeSet  bool
+	sparkline SparklineStyle
+	sparkSet  bool
+
 	actions   []PanelAction
 	fallbacks []Fallback
 	hidden    bool
@@ -289,6 +296,30 @@ func (p *Panel) PanelOverrides() ThemeOverrides { return p.overrides }
 
 // HasPanelTheme reports whether the panel has any panel-scoped theming.
 func (p *Panel) HasPanelTheme() bool { return p.theme != nil || p.overrides != (ThemeOverrides{}) }
+
+// PanelGauge returns the panel's gauge override, if it has one. The second
+// result is false when the panel follows the workspace gauge style.
+func (p *Panel) PanelGauge() (GaugeStyle, bool) {
+	if !p.gaugeSet {
+		return "", false
+	}
+	return p.gauge, true
+}
+
+// HasPanelGauge reports whether the panel overrides the workspace gauge style.
+func (p *Panel) HasPanelGauge() bool { return p.gaugeSet }
+
+// PanelSparkline returns the panel's sparkline override, if it has one. The
+// second result is false when the panel follows the workspace sparkline style.
+func (p *Panel) PanelSparkline() (SparklineStyle, bool) {
+	if !p.sparkSet {
+		return "", false
+	}
+	return p.sparkline, true
+}
+
+// HasPanelSparkline reports whether the panel overrides the workspace style.
+func (p *Panel) HasPanelSparkline() bool { return p.sparkSet }
 
 // Render asks the panel to render itself for ctx.
 func (p *Panel) Render(ctx PanelContext) string {
@@ -391,6 +422,34 @@ func (p *Panel) Overrides(overrides ThemeOverrides) *Panel {
 func (p *Panel) ClearTheme() *Panel {
 	p.theme = nil
 	p.overrides = ThemeOverrides{}
+	return p
+}
+
+// Gauge overrides the workspace gauge style for this panel's progress bars.
+func (p *Panel) Gauge(style GaugeStyle) *Panel {
+	p.gauge = normalizeGaugeStyle(style)
+	p.gaugeSet = true
+	return p
+}
+
+// ClearGauge makes the panel follow the workspace gauge style again.
+func (p *Panel) ClearGauge() *Panel {
+	p.gauge = ""
+	p.gaugeSet = false
+	return p
+}
+
+// Sparkline overrides the workspace sparkline glyph ramp for this panel.
+func (p *Panel) Sparkline(style SparklineStyle) *Panel {
+	p.sparkline = normalizeSparklineStyle(style)
+	p.sparkSet = true
+	return p
+}
+
+// ClearSparkline makes the panel follow the workspace sparkline style again.
+func (p *Panel) ClearSparkline() *Panel {
+	p.sparkline = ""
+	p.sparkSet = false
 	return p
 }
 

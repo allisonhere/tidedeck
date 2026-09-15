@@ -81,8 +81,8 @@ func TestWeatherKindGlyph(t *testing.T) {
 		if glyph == "" {
 			t.Fatalf("kind %d has no glyph", kind)
 		}
-		if width := ansi.StringWidth(glyph); width != 1 {
-			t.Fatalf("kind %d glyph %q width = %d, want 1", kind, glyph, width)
+		if width := ansi.StringWidth(glyph); width != 2 {
+			t.Fatalf("kind %d glyph %q width = %d, want 2 (emoji presentation)", kind, glyph, width)
 		}
 		if seen[glyph] {
 			t.Fatalf("duplicate glyph %q", glyph)
@@ -162,12 +162,16 @@ func r2() Renderer { return chromeRenderer(Compact) }
 func TestRenderClockAndCalendar(t *testing.T) {
 	r := chromeRenderer(Compact)
 	now := dashboardNow()
-	clock := ClockData{Local: now, Location: "Local", Zones: []WorldClock{{City: "London", Time: now, Offset: "UTC"}, {City: "Tokyo", Time: now.Add(9 * time.Hour), Offset: "+9"}}}
+	clock := ClockData{Local: now, Location: "Local", Hour24: true, Zones: []WorldClock{{City: "London", Time: now, Offset: "UTC"}, {City: "Tokyo", Time: now.Add(9 * time.Hour), Offset: "+9"}}}
 	plain := ansi.Strip(r.RenderClock(clock, 24))
 	for _, want := range []string{"14:42", "Mon Sep 14", "London", "Tokyo"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("clock missing %q:\n%s", want, plain)
 		}
+	}
+	twelve := ansi.Strip(r.RenderClock(ClockData{Local: now, Hour24: false}, 24))
+	if !strings.Contains(twelve, "2:42 PM") {
+		t.Fatalf("12-hour clock = %q, want 2:42 PM", twelve)
 	}
 	calendar := ansi.Strip(r.RenderMiniCalendar(MiniCalendar{Year: 2026, Month: time.September, Highlight: 14, Width: 21}, r.Styles.Workspace.Bg))
 	if !strings.Contains(calendar, "September 2026") || !strings.Contains(calendar, "14") {

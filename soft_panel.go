@@ -29,6 +29,7 @@ type SoftRow struct {
 	Suffix   string
 	Selected bool
 	Muted    bool
+	Accent   bool // foreground uses the modal accent, e.g. for action buttons
 }
 
 type softChrome struct {
@@ -182,6 +183,8 @@ func (r Renderer) RenderSoftRow(row SoftRow, width int) string {
 	case row.Selected:
 		bg = chrome.selectedBg
 		fg = chrome.selectedText
+	case row.Accent:
+		fg = chrome.accent
 	case row.Muted:
 		fg = chrome.muted
 	}

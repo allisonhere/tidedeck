@@ -47,10 +47,46 @@ const (
 	RoundCorners PaneCorners = "round"
 )
 
+// GaugeStyle selects the glyph set used by progress bars and metric gauges.
+type GaugeStyle string
+
+const (
+	GaugeSolid   GaugeStyle = "solid"   // █ fill / ░ track (default)
+	GaugeBlocks  GaugeStyle = "blocks"  // ▰ fill / ▱ track
+	GaugeCircles GaugeStyle = "circles" // ● fill / ○ track
+	GaugeFisheye GaugeStyle = "fisheye" // ◉ fill / ○ track
+	GaugeMarker  GaugeStyle = "marker"  // ─ track with a ● marker
+	GaugeBars    GaugeStyle = "bars"    // ▮ fill / ▯ track
+)
+
+// GaugeStyles lists the available gauge styles in display order.
+func GaugeStyles() []GaugeStyle {
+	return []GaugeStyle{GaugeSolid, GaugeBlocks, GaugeCircles, GaugeFisheye, GaugeMarker, GaugeBars}
+}
+
+// SparklineStyle selects the glyph ramp used by sparklines.
+type SparklineStyle string
+
+const (
+	SparkBlocks  SparklineStyle = "blocks"  // ▁▂▃▄▅▆▇█ (default)
+	SparkDots    SparklineStyle = "dots"    // ·∘○◉●
+	SparkBraille SparklineStyle = "braille" // ⡀⡄⡆⡇⣇⣧⣷⣿
+	SparkBullets SparklineStyle = "bullets" // ∙•●
+	SparkTicks   SparklineStyle = "ticks"   // ˌˈ│┃
+	SparkShades  SparklineStyle = "shades"  // ░▒▓█
+)
+
+// SparklineStyles lists the available sparkline styles in display order.
+func SparklineStyles() []SparklineStyle {
+	return []SparklineStyle{SparkBlocks, SparkDots, SparkBraille, SparkBullets, SparkTicks, SparkShades}
+}
+
 // StyleOptions controls density, pane corner style, and optional theme color replacements.
 type StyleOptions struct {
 	Density     Density
 	PaneCorners PaneCorners
+	Gauge       GaugeStyle
+	Sparkline   SparklineStyle
 	Overrides   ThemeOverrides
 	// ModalShadow draws a small drop shadow behind every modal overlay when
 	// true. Off by default so existing consumers are unaffected unless they
@@ -65,7 +101,9 @@ type Styles struct {
 	Theme       Theme // resolved theme after any ThemeOverrides are applied
 	PlainUI     bool  // true when the theme uses ASCII borders (e.g. VT52)
 	Density     Density
-	PaneCorners PaneCorners // normalized; square unless RoundCorners was requested
+	PaneCorners PaneCorners    // normalized; square unless RoundCorners was requested
+	Gauge       GaugeStyle     // normalized; solid unless another style was requested
+	Sparkline   SparklineStyle // normalized; blocks unless another style was requested
 
 	// ModalShadow and ModalShadowColor control the modal drop shadow drawn
 	// by Renderer.Render. ModalShadowColor is resolved once here (from the
@@ -188,6 +226,8 @@ type WorkspaceStyles struct {
 	MetricWarning lipgloss.Color
 	MetricBad     lipgloss.Color
 	MetricTrack   lipgloss.Color
+	MetricYellow  lipgloss.Color
+	MetricOrange  lipgloss.Color
 
 	// Weather.
 	WeatherSun   lipgloss.Color
@@ -225,6 +265,20 @@ func (ws WorkspaceStyles) WeatherColor(kind WeatherKind) lipgloss.Color {
 	}
 }
 
+// MetricGradient maps a 0..1 fraction onto the conventional metric scale:
+// green at the low end, then yellow, orange, and red at the high end. It is
+// used to colour sparkline cells by their place in the value range.
+func (ws WorkspaceStyles) MetricGradient(fraction float64) lipgloss.Color {
+	stops := [...]lipgloss.Color{ws.MetricGood, ws.MetricYellow, ws.MetricOrange, ws.MetricBad}
+	f := clamp01(fraction)
+	scaled := f * float64(len(stops)-1)
+	low := int(scaled)
+	if low >= len(stops)-1 {
+		return stops[len(stops)-1]
+	}
+	return MixColors(stops[low], stops[low+1], scaled-float64(low))
+}
+
 func buildWorkspaceStyles(t Theme) WorkspaceStyles {
 	accent := t.BorderFocus
 	if accent == "" {
@@ -255,7 +309,7 @@ func buildWorkspaceStyles(t Theme) WorkspaceStyles {
 	muted := mutedText(t.Fg, t.Bg)
 	separator := adjustLightness(idle, dimStep)
 	toneBg := func(c lipgloss.Color) lipgloss.Color { return MixColors(t.Bg, c, 0.22) }
-	weatherSeed := func(c lipgloss.Color) lipgloss.Color { return readableText(c, t.Bg, 3.0) }
+	seedColor := func(c lipgloss.Color) lipgloss.Color { return readableText(c, t.Bg, 3.0) }
 	return WorkspaceStyles{
 		Bg:             t.Bg,
 		SurfaceBg:      surface,
@@ -312,13 +366,15 @@ func buildWorkspaceStyles(t Theme) WorkspaceStyles {
 		MetricWarning: warning,
 		MetricBad:     bad,
 		MetricTrack:   separator,
+		MetricYellow:  seedColor("#e5c07b"),
+		MetricOrange:  seedColor("#d19a66"),
 
-		WeatherSun:   weatherSeed("#e5c07b"),
-		WeatherCloud: weatherSeed("#8b98a5"),
-		WeatherRain:  weatherSeed("#61afef"),
-		WeatherSnow:  weatherSeed("#b8d4f0"),
-		WeatherStorm: weatherSeed("#c678dd"),
-		WeatherFog:   weatherSeed("#9aa5b1"),
+		WeatherSun:   seedColor("#e5c07b"),
+		WeatherCloud: seedColor("#8b98a5"),
+		WeatherRain:  seedColor("#61afef"),
+		WeatherSnow:  seedColor("#b8d4f0"),
+		WeatherStorm: seedColor("#c678dd"),
+		WeatherFog:   seedColor("#9aa5b1"),
 
 		DockColor: readableText(accent, t.Bg, paneFocusMinContrast),
 		DockFill:  MixColors(t.Bg, accent, 0.18),
@@ -341,6 +397,24 @@ func normalizePaneCorners(c PaneCorners) PaneCorners {
 		return RoundCorners
 	}
 	return SquareCorners
+}
+
+func normalizeGaugeStyle(g GaugeStyle) GaugeStyle {
+	for _, known := range GaugeStyles() {
+		if g == known {
+			return g
+		}
+	}
+	return GaugeSolid
+}
+
+func normalizeSparklineStyle(s SparklineStyle) SparklineStyle {
+	for _, known := range SparklineStyles() {
+		if s == known {
+			return s
+		}
+	}
+	return SparkBlocks
 }
 
 // ListItemLineStride returns the terminal-line height expected per rendered row.
@@ -400,6 +474,8 @@ func BuildStyles(base Theme, options StyleOptions) Styles {
 	t := options.Overrides.Apply(base)
 	density := normalizeDensity(options.Density)
 	paneCorners := normalizePaneCorners(options.PaneCorners)
+	gauge := normalizeGaugeStyle(options.Gauge)
+	sparkline := normalizeSparklineStyle(options.Sparkline)
 	plain := t.UsesASCII()
 	itemPadding := func(style lipgloss.Style) lipgloss.Style {
 		if density == Comfortable {
@@ -431,7 +507,7 @@ func BuildStyles(base Theme, options StyleOptions) Styles {
 	modalMuted := mutedText(modalFG, modalBG)
 
 	return Styles{
-		Theme: t, PlainUI: plain, Density: density, PaneCorners: paneCorners,
+		Theme: t, PlainUI: plain, Density: density, PaneCorners: paneCorners, Gauge: gauge, Sparkline: sparkline,
 		ModalShadow: options.ModalShadow, ModalShadowColor: shadowBG,
 		Pane: lipgloss.NewStyle().Background(t.Bg).BorderBackground(t.Bg),
 		PaneHeaderActive: lipgloss.NewStyle().Background(t.BorderFocus).

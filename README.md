@@ -500,6 +500,16 @@ ws.Panel("weather", weatherView).
 panel.ClearTheme() // back to the workspace theme
 ```
 
+Gauge and sparkline styles are panel-scoped too, so one panel can use a
+different glyph set than the workspace:
+
+```go
+panel.Gauge(tideui.GaugeCircles)     // this panel's bars use circles
+panel.Sparkline(tideui.SparkBraille) // and its sparklines use braille
+panel.ClearGauge()                   // back to the workspace gauge
+panel.ClearSparkline()               // back to the workspace sparkline
+```
+
 Panels without a theme keep following the global theme picker. Panel content
 inherits the panel theme automatically because `PanelContext` exposes the
 resolved renderer:
@@ -574,7 +584,7 @@ Reusable, theme-aware components for building panels and dashboards:
 | `KeyHint` / `Renderer.RenderKeyHints` | compact key capsules with label-drop fallback |
 | `ListItem` / `Renderer.RenderListItem` | polished selectable rows with rail, icon, meta, counter |
 | `SectionDivider` | labelled rules for grouping content |
-| `MetricRow` / `ProgressBar` / `Sparkline` | aligned metrics, gauges, and trends |
+| `MetricRow` / `ProgressBar` / `Sparkline` | aligned metrics, gauges, and trends; gauges pick from six glyph sets, sparklines from six ramps, and sparkline cells grade green→yellow→orange→red across the run's min–max |
 | `FocusChrome` | shared "what does focused mean" decisions |
 | `StatusBar` regions / `Renderer.RenderStatusRegions` | three-region status strip with priority degradation |
 
@@ -756,18 +766,31 @@ empty.
 
 Press `s` to open the **settings panel** — every provider setting is edited
 there, nothing requires environment variables or hand-editing a file. The
-panel is organized as a **category list** (`General`, `Weather`, `Clock`,
-`News`, `Calendar`, `Tasks`, `Notes`, `Git`, `Markets`, `Services`, `Network`)
-that opens into a page of fields, so a growing configuration stays readable
-instead of becoming one long scroll:
+panel is organized as a **category list** (`General`, `Weather`, `Agenda`,
+`Clock`, `System`, `Network`, `Storage`, `Services`, `News`, `Calendar`,
+`Tasks`, `Notes`, `Git`, `Markets`) that opens into a page of fields, so a
+growing configuration stays readable instead of becoming one long scroll:
 
-- **Live data** toggles between the deterministic demo feed and real providers.
-- **Weather**: enable, latitude, longitude, location label, Fahrenheit, wind mph.
-  Type a **city name or US ZIP** into "city or ZIP" and choose **Look up
-  coordinates** — it geocodes via Open-Meteo (with a Zippopotam ZIP fallback),
-  fills in latitude, longitude, and the location label, and turns on live data.
+- Each panel's category opens with an **enabled** tick plus **gauge style**
+  and **spark style** choices at the top, so a panel can be hidden or revealed
+  and given its own metric glyphs from its own settings (`default` follows the
+  workspace style). A hidden panel's row shows `off` in the category list; the
+  choices are saved with the layout.
+- **Live data** toggles between the deterministic demo feed and real providers;
+  **gauge style** cycles the glyph set used by every progress bar and metric
+  gauge (`solid`, `blocks`, `circles`, `fisheye`, `marker`, `bars`) and
+  **spark style** the ramp used by sparklines (`blocks`, `dots`, `braille`,
+  `bullets`, `ticks`, `shades`) — set them via `StyleOptions.Gauge`/
+  `StyleOptions.Sparkline`, `tideui.GaugeStyles()`/`tideui.SparklineStyles()`.
+  The picker shows the actual glyphs as its value.
+- **Weather**: enable, city or ZIP, look up coordinates, latitude, longitude,
+  location label, Fahrenheit, wind mph.
+  Type a **city name or US ZIP** into "city or ZIP" and activate the
+  **[ Look up coordinates ]** button just below it — it geocodes via Open-Meteo
+  (with a Zippopotam ZIP fallback), fills in latitude, longitude, and the
+  location label, and turns on live data.
   The panel then shows `unsaved changes — ctrl+s to apply`.
-- **Clock** zones, **News** feed URLs, **Calendar** `.ics` files,
+- **Clock** a 12/24-hour toggle and zones, **News** feed URLs, **Calendar** `.ics` files,
   **Tasks** `todo.txt`, **Notes** paths, **Git** repository paths,
   **Markets** symbols, **Services** systemd units or a Docker socket, and the
   **Network** interface.
@@ -775,8 +798,11 @@ instead of becoming one long scroll:
 On the category list, `↑/↓` choose and `enter` opens a category. Inside a
 category, `↑/↓` move between fields, `enter` toggles a boolean or edits text
 (or runs an action such as the lookup), and `esc` returns to the category list.
-`ctrl+s` applies from anywhere, and `esc` on the category list closes without
-saving. On save the dashboard is rebuilt from the new configuration immediately.
+Choice fields such as **gauge style** step with `←/→` (or `enter`) and show the
+actual glyph set as their value rather than a style name; the dashboard
+previews live as they change. `ctrl+s` applies from anywhere, and `esc` on the
+category list closes without saving (undoing any preview). On save the dashboard
+is rebuilt from the new configuration immediately.
 
 The config is stored at `~/.config/tidedeck/config.json` (application-scoped,
 versionless) and the status strip shows `live` instead of `demo data`. Panels

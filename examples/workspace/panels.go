@@ -13,6 +13,7 @@ import (
 func viewRenderer(state *demoState) tideui.Renderer {
 	return tideui.NewRenderer(state.theme, tideui.StyleOptions{
 		Density: state.density, PaneCorners: tideui.RoundCorners,
+		Gauge: state.gauge, Sparkline: state.spark,
 	})
 }
 
@@ -83,6 +84,7 @@ func clockPanel(state *demoState) tideui.PanelView {
 	return func(ctx tideui.PanelContext) string {
 		r := panelRenderer(state, ctx)
 		c := state.source.Clock(state.now)
+		c.Hour24 = state.clock24
 		if ctx.Zoomed {
 			return r.RenderClockDetail(c, ctx.Width)
 		}
