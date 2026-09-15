@@ -377,15 +377,20 @@ const (
 	DockLeft
 	// DockRight places the moving panel to the right of the target.
 	DockRight
-	// DockAbove places the moving panel above the target.
+	// DockAbove places the moving panel above the target, stacking them.
 	DockAbove
-	// DockBelow places the moving panel below the target.
+	// DockBelow places the moving panel below the target, stacking them.
 	DockBelow
+	// DockRowAbove joins the target's row as another column, placed before it.
+	DockRowAbove
+	// DockRowBelow joins the target's row as another column, placed after it.
+	DockRowBelow
 )
 
-// MovedDock returns the side opposite to a direction: moving a panel in
-// direction d relative to a target docks it on the far side so the panel
-// visually travels that way.
+// MovedDock returns the side a panel docks to when the cursor moves in a
+// direction. Left/right dock beside the target; up/down join the target's row
+// as another column, so a move between rows shares that row instead of
+// stacking a new one.
 func MovedDock(d Direction) DockSide {
 	switch d {
 	case DirLeft:
@@ -393,9 +398,9 @@ func MovedDock(d Direction) DockSide {
 	case DirRight:
 		return DockRight
 	case DirUp:
-		return DockAbove
+		return DockRowAbove
 	case DirDown:
-		return DockBelow
+		return DockRowBelow
 	}
 	return DockCenter
 }
@@ -445,9 +450,11 @@ func mergeIntoStack(root LayoutNode, moving, target string) LayoutNode {
 // insertRelative places moving next to target, creating a split when the
 // target's parent does not already run along the needed axis.
 func insertRelative(root LayoutNode, moving, target string, side DockSide) LayoutNode {
-	horizontal := side == DockLeft || side == DockRight
-	before := side == DockLeft || side == DockAbove
-
+	// Directional docks stack along the dock axis (left/right share a row,
+	// above/below stack a column); row docks always share the target's row as
+	// an extra column, wrapping a lone pane into a row when needed.
+	horizontal := side == DockLeft || side == DockRight || side == DockRowAbove || side == DockRowBelow
+	before := side == DockLeft || side == DockAbove || side == DockRowAbove
 	orientation := orientationFor(horizontal)
 
 	var insert func(LayoutNode) (LayoutNode, bool)
@@ -459,8 +466,8 @@ func insertRelative(root LayoutNode, moving, target string, side DockSide) Layou
 		for i, child := range split.Children {
 			if isPanelNode(child, target) {
 				if split.Orientation == orientation {
-					// The target's parent already runs along the docking
-					// axis: drop the panel in as a sibling next to it.
+					// The target already lives in a container on the wanted
+					// axis: insert as a sibling next to it.
 					children := make([]LayoutNode, 0, len(split.Children)+1)
 					children = append(children, split.Children[:i]...)
 					if before {
@@ -472,10 +479,9 @@ func insertRelative(root LayoutNode, moving, target string, side DockSide) Layou
 					split.Children = children
 					return split, true
 				}
-				// The target's parent runs along the other axis (for example
-				// docking below a pane inside a multi-pane row). Wrap the
-				// target in place so the move lands in the target's slot
-				// instead of skipping the whole row.
+				// The target's container runs the other way: wrap the target
+				// in place so the move lands in the target's slot rather than
+				// skipping the row.
 				setChildWeight(child, 1)
 				wrapped := &SplitNode{Orientation: orientation}
 				if before {
@@ -496,7 +502,7 @@ func insertRelative(root LayoutNode, moving, target string, side DockSide) Layou
 	if next, ok := insert(root); ok {
 		return NormalizeLayout(next)
 	}
-	// Target not found: fall back to wrapping the whole tree.
+	// The target is the root itself (no containing split): wrap the two.
 	if before {
 		return NormalizeLayout(&SplitNode{Orientation: orientation, Children: []LayoutNode{Leaf(moving), root}})
 	}

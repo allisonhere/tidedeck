@@ -382,8 +382,12 @@ ws.SetFocusPresentation(tideui.FocusPresentation{
 Arrange mode moves the real panel: each direction key immediately repositions
 the focused panel against its neighbour, so the layout itself is the preview.
 The gap the panel leaves behind closes, every move is recorded in history, and
-`esc` simply leaves the mode. Panels that are surrounded on all sides are moved
-one step at a time without any docking cursor or overlay.
+`esc` simply leaves the mode.
+
+Left/right dock the panel beside the target; up/down move it **into the
+target's row** as another column, so moving a pane onto a row with one pane
+gives that row two panes instead of stacking a new row. (The responsive
+`MoveBelow` fallback still stacks vertically — that is a different operation.)
 
 Resize mode works on **dividers** — the boundary between two adjacent regions —
 rather than on a panel. Select a divider, then move it in either direction

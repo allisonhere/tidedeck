@@ -296,3 +296,52 @@ func TestMovePanelDocksBesideTargetInsideColumn(t *testing.T) {
 		t.Fatalf("docking beside should preserve the row: x=%+v y=%+v", x, y)
 	}
 }
+
+func TestMovePanelRowDockSharesTargetsRow(t *testing.T) {
+	root := VStack(
+		HStack(Leaf("a"), Leaf("b")),
+		HStack(Leaf("c"), Leaf("d")),
+	)
+	next := MovePanel(root, "a", "c", DockRowBelow)
+	solved := flatSolver(0).Solve(next, 40, 20)
+	a, c, d := solved.Rects["a"], solved.Rects["c"], solved.Rects["d"]
+	if a.Y != c.Y {
+		t.Fatalf("a did not join c's row: a=%+v c=%+v", a, c)
+	}
+	if a.X <= c.X {
+		t.Fatalf("a not placed after c: a=%+v c=%+v", a, c)
+	}
+	if d.X <= a.X {
+		t.Fatalf("d not pushed after a: a=%+v d=%+v", a, d)
+	}
+	if a.Height != c.Height {
+		t.Fatalf("row heights diverged: a=%+v c=%+v", a, c)
+	}
+}
+
+func TestMovePanelRowDockIntoOnePaneRowMakesTwo(t *testing.T) {
+	// Two stacked panels: moving one onto the other shares one row of two.
+	root := VStack(Leaf("a"), Leaf("b"))
+	next := MovePanel(root, "a", "b", DockRowBelow)
+	solved := flatSolver(0).Solve(next, 40, 20)
+	a, b := solved.Rects["a"], solved.Rects["b"]
+	if a.Y != b.Y {
+		t.Fatalf("a should share b's row: a=%+v b=%+v", a, b)
+	}
+	if a.Width == 40 || b.Width == 40 {
+		t.Fatalf("row did not become two columns: a=%+v b=%+v", a, b)
+	}
+	if a.X == b.X {
+		t.Fatalf("panels overlap: a=%+v b=%+v", a, b)
+	}
+}
+
+func TestMovePanelDockBelowStillStacks(t *testing.T) {
+	// Directional DockBelow (used by responsive reflow) must stack, not share.
+	root := HStack(Leaf("main"), Leaf("log"))
+	next := MovePanel(root, "log", "main", DockBelow)
+	solved := flatSolver(0).Solve(next, 40, 20)
+	if solved.Rects["log"].Y <= solved.Rects["main"].Y {
+		t.Fatalf("DockBelow should stack: main=%+v log=%+v", solved.Rects["main"], solved.Rects["log"])
+	}
+}

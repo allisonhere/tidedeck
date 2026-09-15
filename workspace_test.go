@@ -542,3 +542,25 @@ func TestWorkspaceGapsArePerAxis(t *testing.T) {
 		t.Fatalf("horizontal gap should be 1: left=%+v right=%+v", left, right)
 	}
 }
+
+func TestWorkspaceArrangeDownJoinsTargetRow(t *testing.T) {
+	ws := NewWorkspace(WithGap(0))
+	ws.Panel("a", Text("a")).MinWidth(4).MinHeight(3)
+	ws.Panel("b", Text("b")).MinWidth(4).MinHeight(3)
+	ws.Panel("c", Text("c")).MinWidth(4).MinHeight(3)
+	ws.Panel("d", Text("d")).MinWidth(4).MinHeight(3)
+	ws.Layout(VStack(HStack(Leaf("a"), Leaf("b")), HStack(Leaf("c"), Leaf("d"))))
+	ws.Focus("a")
+	ws.Solve(40, 20)
+	ws.EnterArrange()
+	if !ws.ArrangeMove(DirDown) {
+		t.Fatal("ArrangeMove(DirDown) failed")
+	}
+	solved := ws.Solve(40, 20)
+	if solved.Rects["a"].Y != solved.Rects["c"].Y {
+		t.Fatalf("down should join c's row: a=%+v c=%+v", solved.Rects["a"], solved.Rects["c"])
+	}
+	if solved.Rects["a"].X <= solved.Rects["c"].X {
+		t.Fatalf("a not placed beside c: a=%+v c=%+v", solved.Rects["a"], solved.Rects["c"])
+	}
+}
