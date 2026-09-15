@@ -55,6 +55,9 @@ func convertTemperatures(w tideui.WeatherData, convert func(int) int, unit strin
 	w.Temperature = convert(w.Temperature)
 	w.High = convert(w.High)
 	w.Low = convert(w.Low)
+	if w.HasFeelsLike {
+		w.FeelsLike = convert(w.FeelsLike)
+	}
 	w.Unit = unit
 	for i := range w.Hourly {
 		w.Hourly[i].Temperature = convert(w.Hourly[i].Temperature)

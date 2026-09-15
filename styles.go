@@ -189,9 +189,40 @@ type WorkspaceStyles struct {
 	MetricBad     lipgloss.Color
 	MetricTrack   lipgloss.Color
 
+	// Weather.
+	WeatherSun   lipgloss.Color
+	WeatherCloud lipgloss.Color
+	WeatherRain  lipgloss.Color
+	WeatherSnow  lipgloss.Color
+	WeatherStorm lipgloss.Color
+	WeatherFog   lipgloss.Color
+
 	// Arrange / docking.
 	DockColor lipgloss.Color
 	DockFill  lipgloss.Color
+}
+
+// WeatherColor maps a coarse weather kind to its themed colour, falling back to
+// the muted body colour for unknown conditions.
+func (ws WorkspaceStyles) WeatherColor(kind WeatherKind) lipgloss.Color {
+	switch kind {
+	case WeatherClear:
+		return ws.WeatherSun
+	case WeatherPartly:
+		return ws.WeatherSun
+	case WeatherCloudy:
+		return ws.WeatherCloud
+	case WeatherFog:
+		return ws.WeatherFog
+	case WeatherRain:
+		return ws.WeatherRain
+	case WeatherSnow:
+		return ws.WeatherSnow
+	case WeatherStorm:
+		return ws.WeatherStorm
+	default:
+		return ws.BodyMutedFg
+	}
 }
 
 func buildWorkspaceStyles(t Theme) WorkspaceStyles {
@@ -224,6 +255,7 @@ func buildWorkspaceStyles(t Theme) WorkspaceStyles {
 	muted := mutedText(t.Fg, t.Bg)
 	separator := adjustLightness(idle, dimStep)
 	toneBg := func(c lipgloss.Color) lipgloss.Color { return MixColors(t.Bg, c, 0.22) }
+	weatherSeed := func(c lipgloss.Color) lipgloss.Color { return readableText(c, t.Bg, 3.0) }
 	return WorkspaceStyles{
 		Bg:             t.Bg,
 		SurfaceBg:      surface,
@@ -280,6 +312,13 @@ func buildWorkspaceStyles(t Theme) WorkspaceStyles {
 		MetricWarning: warning,
 		MetricBad:     bad,
 		MetricTrack:   separator,
+
+		WeatherSun:   weatherSeed("#e5c07b"),
+		WeatherCloud: weatherSeed("#8b98a5"),
+		WeatherRain:  weatherSeed("#61afef"),
+		WeatherSnow:  weatherSeed("#b8d4f0"),
+		WeatherStorm: weatherSeed("#c678dd"),
+		WeatherFog:   weatherSeed("#9aa5b1"),
 
 		DockColor: readableText(accent, t.Bg, paneFocusMinContrast),
 		DockFill:  MixColors(t.Bg, accent, 0.18),

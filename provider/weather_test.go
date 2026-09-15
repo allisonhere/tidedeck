@@ -8,10 +8,11 @@ import (
 )
 
 const sampleOpenMeteo = `{
-  "current": {"time":"2026-09-14T15:00","temperature_2m":72.4,"weather_code":2,"wind_speed_10m":9.1},
+  "current": {"time":"2026-09-14T15:00","temperature_2m":72.4,"apparent_temperature":70.2,"weather_code":2,"wind_speed_10m":9.1},
   "hourly": {
     "time":["2026-09-14T15:00","2026-09-14T16:00","2026-09-14T17:00","2026-09-14T18:00"],
     "temperature_2m":[72.4,71.0,69.5,66.2],
+    "weather_code":[2,2,3,61],
     "precipitation_probability":[10,15,20,25]
   },
   "daily": {
@@ -48,8 +49,14 @@ func TestWeatherProvider(t *testing.T) {
 	if data.WindSpeed != 9 || data.WindUnit != "mph" {
 		t.Fatalf("wind = %d %s", data.WindSpeed, data.WindUnit)
 	}
+	if !data.HasFeelsLike || data.FeelsLike != 70 {
+		t.Fatalf("feels-like = %d (has=%v), want 70", data.FeelsLike, data.HasFeelsLike)
+	}
 	if len(data.Hourly) == 0 {
 		t.Fatal("no hourly forecast")
+	}
+	if data.Hourly[0].Condition == "" {
+		t.Fatalf("hourly point has no condition: %+v", data.Hourly[0])
 	}
 	if len(data.Daily) != 2 || data.Daily[0].Label != "Today" {
 		t.Fatalf("daily = %+v", data.Daily)

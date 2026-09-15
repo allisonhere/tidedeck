@@ -51,6 +51,85 @@ func TestRenderWeather(t *testing.T) {
 	}
 }
 
+func TestWeatherKindMapping(t *testing.T) {
+	cases := map[string]WeatherKind{
+		"":              WeatherUnknown,
+		"Clear":         WeatherClear,
+		"Sunny":         WeatherClear,
+		"Partly Cloudy": WeatherPartly,
+		"Overcast":      WeatherCloudy,
+		"Fog":           WeatherFog,
+		"Drizzle":       WeatherRain,
+		"Showers":       WeatherRain,
+		"Rain":          WeatherRain,
+		"Snow":          WeatherSnow,
+		"Snow Showers":  WeatherSnow,
+		"Thunderstorm":  WeatherStorm,
+	}
+	for condition, want := range cases {
+		if got := WeatherKindFromCondition(condition); got != want {
+			t.Fatalf("WeatherKindFromCondition(%q) = %d, want %d", condition, got, want)
+		}
+	}
+}
+
+func TestWeatherKindGlyph(t *testing.T) {
+	kinds := []WeatherKind{WeatherClear, WeatherPartly, WeatherCloudy, WeatherFog, WeatherRain, WeatherSnow, WeatherStorm}
+	seen := map[string]bool{}
+	for _, kind := range kinds {
+		glyph := kind.Glyph(false)
+		if glyph == "" {
+			t.Fatalf("kind %d has no glyph", kind)
+		}
+		if width := ansi.StringWidth(glyph); width != 1 {
+			t.Fatalf("kind %d glyph %q width = %d, want 1", kind, glyph, width)
+		}
+		if seen[glyph] {
+			t.Fatalf("duplicate glyph %q", glyph)
+		}
+		seen[glyph] = true
+		if kind.Glyph(true) == "" {
+			t.Fatalf("kind %d has no plain fallback", kind)
+		}
+	}
+}
+
+func TestWeatherFeelsLikeAndGlyphRender(t *testing.T) {
+	r := chromeRenderer(Compact)
+	w := weatherFixture()
+	w.FeelsLike = 70
+	w.HasFeelsLike = true
+	out := ansi.Strip(r.RenderWeather(w, 40))
+	if !strings.Contains(out, "Feels 70°") {
+		t.Fatalf("feels-like missing:\n%s", out)
+	}
+	if !strings.Contains(out, WeatherKindFromCondition(w.Condition).Glyph(false)) {
+		t.Fatalf("condition glyph missing:\n%s", out)
+	}
+	if detail := ansi.Strip(r.RenderWeatherDetail(w, 44)); !strings.Contains(detail, "Feels 70°") {
+		t.Fatalf("detail missing feels-like:\n%s", detail)
+	}
+}
+
+func TestWeatherColorsAreDistinct(t *testing.T) {
+	ws := chromeRenderer(Compact).Styles.Workspace
+	kinds := []WeatherKind{WeatherClear, WeatherCloudy, WeatherFog, WeatherRain, WeatherSnow, WeatherStorm}
+	colors := map[WeatherKind]lipgloss.Color{}
+	for _, kind := range kinds {
+		c := ws.WeatherColor(kind)
+		if c == "" {
+			t.Fatalf("kind %d has no colour", kind)
+		}
+		colors[kind] = c
+	}
+	if colors[WeatherClear] == colors[WeatherCloudy] {
+		t.Fatal("clear and cloudy should have distinct colours")
+	}
+	if colors[WeatherRain] == colors[WeatherSnow] {
+		t.Fatal("rain and snow should have distinct colours")
+	}
+}
+
 func TestRenderAgendaSortsAndGroups(t *testing.T) {
 	now := dashboardNow()
 	out := ansi.Strip(r2().RenderAgenda(agendaFixture(now), now, 44))

@@ -19,9 +19,9 @@ func (r Renderer) RenderWeather(w WeatherData, width int) string {
 	bg := r.Styles.Workspace.Bg
 	ws := r.Styles.Workspace
 	lines := []string{
-		r.RenderStatValue(StatValue{Value: fmt.Sprintf("%d°", w.Temperature), Unit: w.Unit, Label: w.Condition, Tone: ToneAccent}, bg),
+		r.weatherHeadline(w, bg),
 		lipgloss.NewStyle().Background(bg).Foreground(ws.BodyMutedFg).
-			Render(fmt.Sprintf("H %d°   L %d°", w.High, w.Low)),
+			Render(weatherRangeText(w)),
 		"",
 		r.dashPair("Rain", fmt.Sprintf("%d%%", w.RainChance), 5, bg),
 		r.dashPair("Wind", fmt.Sprintf("%d %s", w.WindSpeed, w.WindUnit), 5, bg),
@@ -30,6 +30,43 @@ func (r Renderer) RenderWeather(w WeatherData, width int) string {
 		lines = append(lines, "", r.renderHourly(w.Hourly, bg))
 	}
 	return r.dashBlock(lines, width, bg)
+}
+
+// weatherHeadline renders the current temperature with a condition glyph and
+// label, colouring the glyph by the coarse kind.
+func (r Renderer) weatherHeadline(w WeatherData, bg lipgloss.Color) string {
+	ws := r.Styles.Workspace
+	kind := w.EffectiveKind()
+	headline := r.RenderStatValue(StatValue{Value: fmt.Sprintf("%d°", w.Temperature), Unit: w.Unit, Tone: ToneAccent}, bg)
+	if glyph := kind.Glyph(r.Styles.PlainUI); glyph != "" {
+		headline += lipgloss.NewStyle().Background(bg).Render(" ") +
+			lipgloss.NewStyle().Background(bg).Foreground(ws.WeatherColor(kind)).Bold(true).Render(glyph)
+	}
+	if w.Condition != "" {
+		headline += lipgloss.NewStyle().Background(bg).Foreground(ws.SubtitleFg).Render(" " + w.Condition)
+	}
+	return headline
+}
+
+// weatherRangeText renders the high/low line, appending feels-like when known.
+func weatherRangeText(w WeatherData) string {
+	text := fmt.Sprintf("H %d°   L %d°", w.High, w.Low)
+	if w.HasFeelsLike {
+		text += fmt.Sprintf("   Feels %d°", w.FeelsLike)
+	}
+	return text
+}
+
+// forecastCondition prefixes a condition with its glyph when one is known.
+func (r Renderer) forecastCondition(condition string) string {
+	if condition == "" {
+		return "—"
+	}
+	kind := WeatherKindFromCondition(condition)
+	if kind == WeatherUnknown {
+		return condition
+	}
+	return kind.Glyph(r.Styles.PlainUI) + " " + condition
 }
 
 // renderHourly lays the short forecast out as one grouped strip so it reads as
@@ -44,7 +81,12 @@ func (r Renderer) renderHourly(points []ForecastPoint, bg lipgloss.Color) string
 		label := lipgloss.NewStyle().Background(bg).Foreground(ws.BodyMutedFg).Render(point.Label)
 		temp := lipgloss.NewStyle().Background(bg).Foreground(ws.BodyFg).Bold(true).
 			Render(fmt.Sprintf("%d°", point.Temperature))
-		segments = append(segments, label+" "+temp)
+		segment := label + " " + temp
+		if kind := WeatherKindFromCondition(point.Condition); kind != WeatherUnknown {
+			segment += lipgloss.NewStyle().Background(bg).Render(" ") +
+				lipgloss.NewStyle().Background(bg).Foreground(ws.WeatherColor(kind)).Render(kind.Glyph(r.Styles.PlainUI))
+		}
+		segments = append(segments, segment)
 	}
 	return strings.Join(segments, "   ")
 }
@@ -54,9 +96,9 @@ func (r Renderer) RenderWeatherDetail(w WeatherData, width int) string {
 	bg := r.Styles.Workspace.Bg
 	ws := r.Styles.Workspace
 	lines := []string{
-		r.RenderStatValue(StatValue{Value: fmt.Sprintf("%d°", w.Temperature), Unit: w.Unit, Label: w.Condition, Tone: ToneAccent}, bg),
+		r.weatherHeadline(w, bg),
 		lipgloss.NewStyle().Background(bg).Foreground(ws.BodyMutedFg).
-			Render(fmt.Sprintf("H %d°   L %d°   Rain %d%%   Wind %d %s", w.High, w.Low, w.RainChance, w.WindSpeed, w.WindUnit)),
+			Render(fmt.Sprintf("%s   Rain %d%%   Wind %d %s", weatherRangeText(w), w.RainChance, w.WindSpeed, w.WindUnit)),
 	}
 	if w.Location != "" {
 		lines = append(lines, r.dashPair("Place", w.Location, 6, bg))
@@ -67,11 +109,7 @@ func (r Renderer) RenderWeatherDetail(w WeatherData, width int) string {
 	if len(w.Daily) > 0 {
 		lines = append(lines, r.RenderSectionDivider(SectionDivider{Label: "FORECAST", Width: width}, bg))
 		for _, day := range w.Daily {
-			condition := day.Condition
-			if condition == "" {
-				condition = "—"
-			}
-			lines = append(lines, r.dashPair(day.Label, fmt.Sprintf("%d°  %s", day.Temperature, condition), 6, bg))
+			lines = append(lines, r.dashPair(day.Label, fmt.Sprintf("%d°  %s", day.Temperature, r.forecastCondition(day.Condition)), 6, bg))
 		}
 	}
 	return r.dashBlock(lines, width, bg)

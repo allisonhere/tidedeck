@@ -1,6 +1,9 @@
 package tideui
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // Data models for the first-party dashboard widgets. They are deliberately
 // plain values: renderers consume them, so a real provider can populate them
@@ -14,20 +17,114 @@ type ForecastPoint struct {
 	RainChance  int
 }
 
+// WeatherKind is a coarse condition class used to pick a glyph and colour.
+type WeatherKind int
+
+const (
+	WeatherUnknown WeatherKind = iota
+	WeatherClear
+	WeatherPartly
+	WeatherCloudy
+	WeatherFog
+	WeatherRain
+	WeatherSnow
+	WeatherStorm
+)
+
+// WeatherKindFromCondition maps a free-form condition string to a coarse kind.
+// It matches common words, so provider text and hand-written demo strings both
+// resolve to the same small vocabulary.
+func WeatherKindFromCondition(condition string) WeatherKind {
+	c := strings.ToLower(condition)
+	switch {
+	case strings.Contains(c, "thunder") || strings.Contains(c, "storm") || strings.Contains(c, "lightning"):
+		return WeatherStorm
+	case strings.Contains(c, "snow") || strings.Contains(c, "sleet") || strings.Contains(c, "blizzard") || strings.Contains(c, "flurr"):
+		return WeatherSnow
+	case strings.Contains(c, "rain") || strings.Contains(c, "drizzle") || strings.Contains(c, "shower"):
+		return WeatherRain
+	case strings.Contains(c, "fog") || strings.Contains(c, "mist") || strings.Contains(c, "haze"):
+		return WeatherFog
+	case strings.Contains(c, "partly") || strings.Contains(c, "scattered"):
+		return WeatherPartly
+	case strings.Contains(c, "cloud") || strings.Contains(c, "overcast"):
+		return WeatherCloudy
+	case strings.Contains(c, "clear") || strings.Contains(c, "sun") || strings.Contains(c, "fair"):
+		return WeatherClear
+	default:
+		return WeatherUnknown
+	}
+}
+
+// Glyph returns a single-cell symbol for the kind. Plain UI falls back to
+// ASCII so the widget stays legible in terminals without Unicode.
+func (k WeatherKind) Glyph(plain bool) string {
+	if plain {
+		switch k {
+		case WeatherClear:
+			return "*"
+		case WeatherPartly:
+			return "o"
+		case WeatherCloudy:
+			return "~"
+		case WeatherFog:
+			return "="
+		case WeatherRain:
+			return "/"
+		case WeatherSnow:
+			return "+"
+		case WeatherStorm:
+			return "!"
+		default:
+			return "."
+		}
+	}
+	switch k {
+	case WeatherClear:
+		return "☀"
+	case WeatherPartly:
+		return "🌤"
+	case WeatherCloudy:
+		return "☁"
+	case WeatherFog:
+		return "≡"
+	case WeatherRain:
+		return "☂"
+	case WeatherSnow:
+		return "❄"
+	case WeatherStorm:
+		return "🌩"
+	default:
+		return "·"
+	}
+}
+
 // WeatherData backs the weather widget.
 type WeatherData struct {
-	Location    string
-	Temperature int
-	Unit        string // "F" or "C"
-	Condition   string
-	High        int
-	Low         int
-	RainChance  int
-	WindSpeed   int
-	WindUnit    string
-	Hourly      []ForecastPoint
-	Daily       []ForecastPoint
-	Updated     time.Time
+	Location     string
+	Temperature  int
+	Unit         string // "F" or "C"
+	Condition    string
+	Kind         WeatherKind // optional; derived from Condition when unknown
+	FeelsLike    int
+	HasFeelsLike bool
+	High         int
+	Low          int
+	RainChance   int
+	WindSpeed    int
+	WindUnit     string
+	Hourly       []ForecastPoint
+	Daily        []ForecastPoint
+	Updated      time.Time
+}
+
+// EffectiveKind returns the explicit Kind when set, otherwise the kind implied
+// by the Condition text.
+func (w WeatherData) EffectiveKind() WeatherKind {
+	if w.Kind != WeatherUnknown {
+		return w.Kind
+	}
+	return WeatherKindFromCondition(w.Condition)
 }
 
 // AgendaItem is one calendar event.

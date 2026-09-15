@@ -48,8 +48,8 @@ func Weather(opts WeatherOptions) func(context.Context) (tideui.WeatherData, err
 		query := url.Values{}
 		query.Set("latitude", fmt.Sprintf("%.4f", opts.Latitude))
 		query.Set("longitude", fmt.Sprintf("%.4f", opts.Longitude))
-		query.Set("current", "temperature_2m,weather_code,wind_speed_10m")
-		query.Set("hourly", "temperature_2m,precipitation_probability")
+		query.Set("current", "temperature_2m,apparent_temperature,weather_code,wind_speed_10m")
+		query.Set("hourly", "temperature_2m,weather_code,precipitation_probability")
 		query.Set("daily", "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max")
 		query.Set("temperature_unit", unit)
 		query.Set("wind_speed_unit", windUnit)
@@ -79,14 +79,16 @@ func Weather(opts WeatherOptions) func(context.Context) (tideui.WeatherData, err
 
 type openMeteo struct {
 	Current struct {
-		Time        string  `json:"time"`
-		Temperature float64 `json:"temperature_2m"`
-		WeatherCode int     `json:"weather_code"`
-		WindSpeed   float64 `json:"wind_speed_10m"`
+		Time                string  `json:"time"`
+		Temperature         float64 `json:"temperature_2m"`
+		ApparentTemperature float64 `json:"apparent_temperature"`
+		WeatherCode         int     `json:"weather_code"`
+		WindSpeed           float64 `json:"wind_speed_10m"`
 	} `json:"current"`
 	Hourly struct {
 		Time          []string  `json:"time"`
 		Temperature   []float64 `json:"temperature_2m"`
+		WeatherCode   []int     `json:"weather_code"`
 		Precipitation []int     `json:"precipitation_probability"`
 	} `json:"hourly"`
 	Daily struct {
@@ -100,13 +102,15 @@ type openMeteo struct {
 
 func (p openMeteo) weather(location, unitLabel, windLabel string) tideui.WeatherData {
 	data := tideui.WeatherData{
-		Location:    location,
-		Temperature: int(round(p.Current.Temperature)),
-		Unit:        unitLabel,
-		Condition:   conditionForCode(p.Current.WeatherCode),
-		WindSpeed:   int(round(p.Current.WindSpeed)),
-		WindUnit:    windLabel,
-		Updated:     time.Now(),
+		Location:     location,
+		Temperature:  int(round(p.Current.Temperature)),
+		Unit:         unitLabel,
+		Condition:    conditionForCode(p.Current.WeatherCode),
+		FeelsLike:    int(round(p.Current.ApparentTemperature)),
+		HasFeelsLike: true,
+		WindSpeed:    int(round(p.Current.WindSpeed)),
+		WindUnit:     windLabel,
+		Updated:      time.Now(),
 	}
 	if len(p.Daily.High) > 0 {
 		data.High = int(round(p.Daily.High[0]))
@@ -141,6 +145,9 @@ func (p openMeteo) hourly(start int) []tideui.ForecastPoint {
 		point := tideui.ForecastPoint{Label: hourLabel(p.Hourly.Time[i])}
 		if i < len(p.Hourly.Temperature) {
 			point.Temperature = int(round(p.Hourly.Temperature[i]))
+		}
+		if i < len(p.Hourly.WeatherCode) {
+			point.Condition = conditionForCode(p.Hourly.WeatherCode[i])
 		}
 		if i < len(p.Hourly.Precipitation) {
 			point.RainChance = p.Hourly.Precipitation[i]
