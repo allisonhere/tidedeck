@@ -7,7 +7,6 @@ bars, and overlays. It is deliberately *view-oriented*: your application keeps
 its own Bubble Tea model, key routing, persistence, and viewport state — you
 hand `tideui` strings and dimensions, and it returns a framed, themed view.
 
-![tideui three-pane layout and theme picker](./screen.png)
 
 ## Lineage
 
