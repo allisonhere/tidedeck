@@ -292,6 +292,7 @@ func (r Renderer) RenderClock(c ClockData, width int) string {
 		for _, line := range big {
 			lines = append(lines, bigStyle.Render(strings.TrimRight(line, " ")))
 		}
+		lines = append(lines, "") // spacer below the large clock
 	} else {
 		lines = append(lines, timeStyle.Render(clockTime(c.Local, c.Hour24)))
 	}
