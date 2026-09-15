@@ -437,30 +437,32 @@ func dayFraction(t time.Time) float64 {
 	return clamp01(float64(t.Hour()*60+t.Minute()) / (24 * 60))
 }
 
-// bigClockFont is a 3-row seven-segment-ish font for the large digital time.
-var bigClockFont = map[rune][3]string{
-	'0': {" _ ", "| |", "|_|"},
-	'1': {"   ", "  |", "  |"},
-	'2': {" _ ", " _|", "|_ "},
-	'3': {" _ ", " _|", " _|"},
-	'4': {"   ", "|_|", "  |"},
-	'5': {" _ ", "|_ ", " _|"},
-	'6': {" _ ", "|_ ", "|_|"},
-	'7': {" _ ", "  |", "  |"},
-	'8': {" _ ", "|_|", "|_|"},
-	'9': {" _ ", "|_|", " _|"},
-	':': {"   ", " . ", " . "},
+// bigClockFont is a 5-row block font for the large digital time. Five rows
+// give every digit its proper segments (notably a top-left on "4") that a
+// 3-row seven-segment font cannot.
+var bigClockFont = map[rune][5]string{
+	'0': {"███", "█ █", "█ █", "█ █", "███"},
+	'1': {"  █", "  █", "  █", "  █", "  █"},
+	'2': {"███", "  █", "███", "█  ", "███"},
+	'3': {"███", "  █", "███", "  █", "███"},
+	'4': {"█ █", "█ █", "███", "  █", "  █"},
+	'5': {"███", "█  ", "███", "  █", "███"},
+	'6': {"███", "█  ", "███", "█ █", "███"},
+	'7': {"███", "  █", "  █", "  █", "  █"},
+	'8': {"███", "█ █", "███", "█ █", "███"},
+	'9': {"███", "█ █", "███", "  █", "███"},
+	':': {"   ", " █ ", "   ", " █ ", "   "},
 }
 
-// bigTime renders "14:42" as three rows of large digits.
+// bigTime renders "14:42" as five rows of large digits.
 func bigTime(text string) []string {
-	rows := []string{"", "", ""}
+	rows := make([]string, 5)
 	for i, ch := range text {
 		glyph, ok := bigClockFont[ch]
 		if !ok {
-			glyph = [3]string{"   ", "   ", "   "}
+			glyph = [5]string{"   ", "   ", "   ", "   ", "   "}
 		}
-		for row := 0; row < 3; row++ {
+		for row := 0; row < 5; row++ {
 			if i > 0 {
 				rows[row] += " "
 			}
