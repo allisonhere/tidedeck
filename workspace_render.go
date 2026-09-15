@@ -351,9 +351,9 @@ func (d DockSide) String() string {
 	case DockRight:
 		return "right"
 	case DockAbove:
-		return "above"
+		return "up"
 	case DockBelow:
-		return "below"
+		return "down"
 	case DockCenter:
 		return "stack"
 	default:

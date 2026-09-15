@@ -225,8 +225,8 @@ func TestDirectionAndDockSideStrings(t *testing.T) {
 		t.Fatal("direction helpers wrong")
 	}
 	for side, want := range map[DockSide]string{
-		DockLeft: "left", DockRight: "right", DockAbove: "above",
-		DockBelow: "below", DockCenter: "stack",
+		DockLeft: "left", DockRight: "right", DockAbove: "up",
+		DockBelow: "down", DockCenter: "stack",
 	} {
 		if got := side.String(); got != want {
 			t.Fatalf("side %d = %q, want %q", side, got, want)
