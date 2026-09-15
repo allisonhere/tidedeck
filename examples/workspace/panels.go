@@ -29,7 +29,7 @@ func panelRenderer(state *demoState, ctx tideui.PanelContext) tideui.Renderer {
 func weatherPanel(state *demoState) tideui.PanelView {
 	return func(ctx tideui.PanelContext) string {
 		r := panelRenderer(state, ctx)
-		w := state.feed.Weather(state.now)
+		w := state.source.Weather(state.now)
 		if state.weatherUnit == "C" {
 			w = toCelsius(w)
 		}
@@ -58,7 +58,7 @@ func toCelsius(w tideui.WeatherData) tideui.WeatherData {
 func agendaPanel(state *demoState) tideui.PanelView {
 	return func(ctx tideui.PanelContext) string {
 		r := panelRenderer(state, ctx)
-		items := state.feed.Agenda(state.now, state.agendaOffset)
+		items := state.source.Agenda(state.now, state.agendaOffset)
 		if ctx.Zoomed {
 			return r.RenderAgendaDetail(items, state.now, ctx.Width)
 		}
@@ -69,7 +69,7 @@ func agendaPanel(state *demoState) tideui.PanelView {
 func clockPanel(state *demoState) tideui.PanelView {
 	return func(ctx tideui.PanelContext) string {
 		r := panelRenderer(state, ctx)
-		c := state.feed.Clock(state.now)
+		c := state.source.Clock(state.now)
 		if ctx.Zoomed {
 			return r.RenderClockDetail(c, ctx.Width)
 		}
@@ -80,7 +80,7 @@ func clockPanel(state *demoState) tideui.PanelView {
 func systemPanel(state *demoState) tideui.PanelView {
 	return func(ctx tideui.PanelContext) string {
 		r := panelRenderer(state, ctx)
-		m := state.feed.System(state.now)
+		m := state.source.System(state.now)
 		if ctx.Zoomed {
 			return r.RenderSystemDetail(m, ctx.Width)
 		}
@@ -91,7 +91,7 @@ func systemPanel(state *demoState) tideui.PanelView {
 func networkPanel(state *demoState) tideui.PanelView {
 	return func(ctx tideui.PanelContext) string {
 		r := panelRenderer(state, ctx)
-		m := state.feed.Network(state.now)
+		m := state.source.Network(state.now)
 		if ctx.Zoomed {
 			return r.RenderNetworkDetail(m, ctx.Width)
 		}
@@ -150,6 +150,6 @@ func gitPanel(state *demoState) tideui.PanelView {
 func marketsPanel(state *demoState) tideui.PanelView {
 	return func(ctx tideui.PanelContext) string {
 		r := panelRenderer(state, ctx)
-		return r.RenderMarkets(state.feed.Markets(state.now), ctx.Width)
+		return r.RenderMarkets(state.source.Markets(state.now), ctx.Width)
 	}
 }

@@ -31,6 +31,7 @@ go get github.com/allisonhere/tideui
 - **Workspace system** — a tiny tiling window manager for TUIs: declarative panels, a layout tree, semantic adaptive reflow, live arrange/resize modes, tab stacks, zoom, peek, contextual actions, a panel picker, command palette, presets, undo/redo, mouse support, and versioned persistence.
 - **Visual language** — semantic workspace tokens, reusable chrome primitives (headers, footers, tabs, badges, key capsules, metrics, sparklines, list rows), `Comfortable`/`Compact`/`Dense` density modes, and a configurable focus presentation.
 - **Dashboard widgets** — weather, agenda, clock, system, network, storage, services, news, tasks, notes, git activity, and markets, each driven by a plain data model and backed by a `Renderer` method, with a shared Enter-to-drill-down pattern.
+- **Real data sources** — a standard-library `provider` package: background collectors with per-source intervals and graceful degradation, plus providers for Open-Meteo weather, RSS/Atom, Linux system/network/storage, systemd and Docker, git activity, todo.txt, notes, iCalendar, and markets.
 - **Per-panel themes** — any panel can take its own full theme or color overrides while density, corners, gutters, and global chrome stay workspace-wide; panel content inherits it through `PanelContext.Renderer`.
 - **Full-border pane focus** — every pane renders a 4-sided border colored by focus state, contrast-boosted to a 7:1 floor (square or round corners) so the focused pane is never hard to spot.
 - **List primitives** — single-line `Row` and multi-line `Block` with selected/muted states.
@@ -685,6 +686,80 @@ zoom, so the saved layout is never altered.
 `Developer`, `Minimal`) and a deterministic fake feed that updates over time.
 The feed is a pure function of seed and time, so the demo is live but
 reproducible and testable, and no network is involved.
+
+## Real data sources
+
+`github.com/allisonhere/tideui/provider` contains the live data sources for the
+dashboard widgets. It uses only the standard library. Rendering and acquisition
+stay separate: providers fill the same `tideui` data models the widgets already
+consume.
+
+### Collector
+
+A `Dashboard` holds one background `Fetcher` per source. Each fetch runs off
+the UI goroutine with its own interval and timeout, so a slow network call never
+blocks a render and a cheap local sample can refresh every second while weather
+refreshes every ten minutes. A failing source keeps its previous value and
+records an error; the rest of the dashboard keeps working.
+
+```go
+dashboard := &provider.Dashboard{
+    Weather: provider.NewFetcher(10*time.Minute, provider.Weather(provider.WeatherOptions{
+        Latitude: 52.52, Longitude: 13.405, Fahrenheit: true, WindMPH: true,
+    })),
+    System:  provider.NewFetcher(time.Second, provider.System()),
+    Network: provider.NewFetcher(time.Second, provider.Network("wlan0")),
+    Storage: provider.NewFetcher(2*time.Minute, provider.Storage()),
+    Clock:   provider.NewFetcher(time.Minute, provider.Clock("Local", "Europe/London", "Asia/Tokyo")),
+    // ...
+}
+
+// on the application tick:
+dashboard.Refresh(ctx)
+snapshot := dashboard.Snapshot() // reads cache only, never blocks
+```
+
+### Providers
+
+| Source | Constructor | Backed by |
+|---|---|---|
+| Weather | `provider.Weather(WeatherOptions)` | Open-Meteo (no key) |
+| Clock | `provider.Clock(location, zones...)` | local time + IANA zones |
+| Calendar | `provider.Calendar(paths...)` | local `.ics` files |
+| System | `provider.System()` | `/proc`, `/sys` (Linux) |
+| Network | `provider.Network(iface)` | `/proc/net/dev` (Linux) |
+| Storage | `provider.Storage()` | `/proc/mounts` + `statfs` (Linux) |
+| Services | `provider.Systemd(units...)` / `provider.Docker(socket)` | systemd / Docker Engine API |
+| News / RSS | `provider.Feed(urls...)` | RSS 2.0 and Atom |
+| Tasks | `provider.TodoTxt(path)` | todo.txt |
+| Notes | `provider.Notes(paths...)` | Markdown/text files |
+| Git activity | `provider.Git(repos...)` | the `git` CLI |
+| Markets | `provider.Markets(symbols...)` | Yahoo Finance chart endpoint |
+
+Linux-only sources return an error elsewhere, which simply leaves that panel
+empty.
+
+### Running TideDeck live
+
+Set `TIDEDECK_LIVE=1` to switch the demo from the fake feed to real providers.
+Everything else is optional:
+
+```bash
+TIDEDECK_LIVE=1 \
+TIDEDECK_LAT=52.52 TIDEDECK_LON=13.405 TIDEDECK_LOCATION=Berlin \
+TIDEDECK_ZONES=Europe/London,Asia/Tokyo \
+TIDEDECK_FEEDS=https://lwn.net/headlines/rss \
+TIDEDECK_ICS=~/.local/share/cal.ics \
+TIDEDECK_TODO=~/todo.txt \
+TIDEDECK_NOTES=~/notes \
+TIDEDECK_REPOS=~/Projects/tidedeck,~/Projects/tideui \
+TIDEDECK_SYMBOLS=AMD,NVDA,SPY \
+TIDEDECK_SYSTEMD=sshd,docker \
+go run ./examples/workspace
+```
+
+The status strip shows `live` instead of `demo data`. Unset any variable and the
+corresponding panel simply starts empty.
 
 ## Terminal background
 

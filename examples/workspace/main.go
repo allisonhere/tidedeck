@@ -8,6 +8,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -60,7 +61,8 @@ type demoState struct {
 	theme   tideui.Theme
 	density tideui.Density
 	now     time.Time
-	feed    *demoFeed
+	source  dataSource
+	live    *liveSource // non-nil when TIDEDECK_LIVE is set
 	status  string
 
 	weatherUnit  string
@@ -97,14 +99,25 @@ func tickCmd(rate time.Duration) tea.Cmd {
 func newModel() model {
 	started := time.Now()
 	feed := newDemoFeed(7, started)
+	var source dataSource = feed
 	state := &demoState{
-		theme: tideui.CatppuccinMocha, density: tideui.Dense, now: started, feed: feed, weatherUnit: "F",
+		theme: tideui.CatppuccinMocha, density: tideui.Dense, now: started, source: source, weatherUnit: "F",
 		tasks:     feed.Tasks(),
 		headlines: feed.Headlines(),
 		services:  feed.Services(),
 		notes:     feed.Notes(),
 		repos:     feed.RepoActivity(),
 		mounts:    feed.Storage(),
+	}
+	// TIDEDECK_LIVE switches the dashboard from the deterministic demo feed to
+	// real providers. Static collections start empty and fill from the first
+	// successful snapshot.
+	if os.Getenv("TIDEDECK_LIVE") != "" {
+		state.live = newLiveSource()
+		state.source = state.live
+		state.tasks, state.headlines, state.services = nil, nil, nil
+		state.notes, state.repos, state.mounts = nil, nil, nil
+		state.weatherUnit = "F"
 	}
 
 	store := fileStore{path: filepath.Join(userConfigDir(), "tidedeck", "layout.json")}
@@ -300,6 +313,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 	case tickMsg:
 		m.state.now = time.Now()
+		if m.state.live != nil {
+			m.state.live.refresh(context.Background())
+			snapshot := m.state.live.snapshotCopy()
+			if snapshot.Tasks != nil {
+				m.state.tasks = snapshot.Tasks
+			}
+			if snapshot.Headlines != nil {
+				m.state.headlines = snapshot.Headlines
+			}
+			if snapshot.Services != nil {
+				m.state.services = snapshot.Services
+			}
+			if snapshot.Notes != nil {
+				m.state.notes = snapshot.Notes
+			}
+			if snapshot.Repos != nil {
+				m.state.repos = snapshot.Repos
+			}
+			if snapshot.Storage != nil {
+				m.state.mounts = snapshot.Storage
+			}
+		}
 		m.refreshBadges()
 		if m.ws.Arranging() {
 			target := 1.0
@@ -523,7 +558,11 @@ func (m model) View() string {
 	if preset := m.ws.ActivePreset(); preset != "" {
 		primary += "  ·  " + preset
 	}
-	secondary := "updated " + m.state.now.Format("15:04") + "  ·  demo data"
+	dataLabel := "demo data"
+	if m.state.live != nil {
+		dataLabel = "live"
+	}
+	secondary := "updated " + m.state.now.Format("15:04") + "  ·  " + dataLabel
 	if m.state.status != "" {
 		secondary = m.state.status + "  ·  " + secondary
 	}
