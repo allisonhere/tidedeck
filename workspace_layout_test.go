@@ -7,7 +7,8 @@ import (
 
 func flatSolver(gap int) LayoutSolver {
 	return LayoutSolver{
-		Gap:       gap,
+		HGap:      gap,
+		VGap:      gap,
 		MinWidth:  func(string) int { return 1 },
 		MinHeight: func(string) int { return 1 },
 		Weight:    func(LayoutNode) float64 { return 1 },
@@ -57,7 +58,8 @@ func TestSolverGapReducesContent(t *testing.T) {
 
 func TestSolverHonoursMinimums(t *testing.T) {
 	solver := LayoutSolver{
-		Gap:       0,
+		HGap:      0,
+		VGap:      0,
 		MinWidth:  func(id string) int { return map[string]int{"a": 30, "b": 10}[id] },
 		MinHeight: func(string) int { return 1 },
 		Weight:    func(LayoutNode) float64 { return 1 },

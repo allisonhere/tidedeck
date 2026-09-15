@@ -605,8 +605,10 @@ func (s SolvedLayout) RegionAt(x, y int) (SolvedRegion, bool) {
 // LayoutSolver turns a layout tree into rectangles. It is deliberately free of
 // any terminal or widget state so layout can be tested on its own.
 type LayoutSolver struct {
-	// Gap is the number of blank cells left between sibling regions.
-	Gap int
+	// HGap is the blank cells left between columns of a horizontal split.
+	HGap int
+	// VGap is the blank cells left between rows of a vertical split.
+	VGap int
 	// MinWidth and MinHeight report a panel's minimum drawable size.
 	MinWidth  func(id string) int
 	MinHeight func(id string) int
@@ -654,7 +656,10 @@ func (s LayoutSolver) solve(node LayoutNode, area Rect, out *SolvedLayout) {
 		if !horizontal {
 			available = area.Height
 		}
-		gap := s.Gap
+		gap := s.HGap
+		if !horizontal {
+			gap = s.VGap
+		}
 		if gap < 0 {
 			gap = 0
 		}
@@ -707,7 +712,11 @@ func (s LayoutSolver) minAlong(node LayoutNode, horizontal bool) int {
 			return 1
 		}
 		if (n.Orientation == SplitHorizontal) == horizontal {
-			total := s.Gap * (len(n.Children) - 1)
+			gap := s.HGap
+			if !horizontal {
+				gap = s.VGap
+			}
+			total := max(0, gap) * (len(n.Children) - 1)
 			for _, child := range n.Children {
 				total += s.minAlong(child, horizontal)
 			}

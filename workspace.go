@@ -42,7 +42,8 @@ type Workspace struct {
 	solved        SolvedLayout
 	solvedTree    LayoutNode
 
-	gap      int
+	hGap     int
+	vGap     int
 	adaptive bool
 	policy   ResponsivePolicy
 	rspState map[string]int
@@ -83,9 +84,22 @@ func WithAdaptiveLayout() WorkspaceOption {
 	}
 }
 
-// WithGap sets the blank cells left between regions. Zero uses 1.
+// WithGap sets the blank cells left between regions on both axes.
 func WithGap(gap int) WorkspaceOption {
-	return func(ws *Workspace) { ws.gap = max(0, gap) }
+	return func(ws *Workspace) {
+		ws.hGap = max(0, gap)
+		ws.vGap = max(0, gap)
+	}
+}
+
+// WithGaps sets the horizontal (column) and vertical (row) gaps separately.
+// A vertical gap of zero stacks panels flush, so vertically adjacent borders
+// touch instead of leaving a blank row between them.
+func WithGaps(horizontal, vertical int) WorkspaceOption {
+	return func(ws *Workspace) {
+		ws.hGap = max(0, horizontal)
+		ws.vGap = max(0, vertical)
+	}
 }
 
 // WithFocusPresentation overrides how focus is signalled.
@@ -122,7 +136,8 @@ func NewWorkspace(options ...WorkspaceOption) *Workspace {
 		rspHidden: map[string]bool{},
 		collapsed: map[string]bool{},
 		rspState:  map[string]int{},
-		gap:       1,
+		hGap:      1,
+		vGap:      1,
 		policy:    ResponsivePolicy{Enabled: true, Hysteresis: 2},
 		history:   NewLayoutHistory(64),
 		presets:   map[string]Preset{},
@@ -241,7 +256,8 @@ func (ws *Workspace) Solve(width, height int) SolvedLayout {
 		return ws.solved
 	}
 	solver := LayoutSolver{
-		Gap:       ws.gap,
+		HGap:      ws.hGap,
+		VGap:      ws.vGap,
 		MinWidth:  ws.minWidthFor,
 		MinHeight: ws.minHeightFor,
 		Weight:    ws.weightFor,

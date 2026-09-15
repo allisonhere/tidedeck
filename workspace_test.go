@@ -519,3 +519,26 @@ func TestResizeModeArrowKeysMoveSelectedDivider(t *testing.T) {
 		t.Fatalf("arrow key resize did not grow nav: %d -> %d", before, after)
 	}
 }
+
+func TestWorkspaceGapsArePerAxis(t *testing.T) {
+	// Rows flush, columns guttered.
+	ws := NewWorkspace(WithGaps(1, 0))
+	ws.Panel("top", Text("t")).MinWidth(4).MinHeight(3)
+	ws.Panel("bottom", Text("b")).MinWidth(4).MinHeight(3)
+	ws.Layout(VStack(Leaf("top"), Leaf("bottom")))
+	solved := ws.Solve(40, 20)
+	top, bottom := solved.Rects["top"], solved.Rects["bottom"]
+	if bottom.Y != top.Y+top.Height {
+		t.Fatalf("vertical gap should be zero: top=%+v bottom=%+v", top, bottom)
+	}
+
+	ws2 := NewWorkspace(WithGaps(1, 0))
+	ws2.Panel("left", Text("l")).MinWidth(4).MinHeight(3)
+	ws2.Panel("right", Text("r")).MinWidth(4).MinHeight(3)
+	ws2.Layout(HStack(Leaf("left"), Leaf("right")))
+	solved2 := ws2.Solve(40, 10)
+	left, right := solved2.Rects["left"], solved2.Rects["right"]
+	if right.X != left.X+left.Width+1 {
+		t.Fatalf("horizontal gap should be 1: left=%+v right=%+v", left, right)
+	}
+}

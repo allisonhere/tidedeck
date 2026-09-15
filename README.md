@@ -254,6 +254,7 @@ go run ./examples/workspace
 ws := tideui.NewWorkspace(
     tideui.WithPersistence("tidegit"), // application-scoped layout key
     tideui.WithAdaptiveLayout(),       // semantic responsive reflow
+    tideui.WithGaps(1, 0),             // 1-cell column gutter, rows flush
 )
 
 ws.Panel("repos", reposView).
@@ -275,6 +276,10 @@ ws.Panel("diff", diffView).
 ws.Panel("log", logView).
     Title("Log").Role(tideui.RoleTelemetry).MinWidth(20).HideBelow(90)
 ```
+
+Gaps are per axis: `WithGap(n)` sets both, while `WithGaps(horizontal, vertical)`
+sets them separately. A vertical gap of zero stacks panels flush (their borders
+touch) instead of leaving a blank row between them.
 
 A `PanelView` receives a `PanelContext` with the allocated width/height and
 interaction state, so a panel can adapt its own content:

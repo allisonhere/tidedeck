@@ -124,6 +124,9 @@ func newModel() model {
 	ws := tideui.NewWorkspace(
 		tideui.WithPersistence("tidedeck-demo"),
 		tideui.WithStore(store),
+		// Columns keep a one-cell gutter; stacked panels sit flush so there is
+		// no blank row between rows.
+		tideui.WithGaps(1, 0),
 		tideui.WithAdaptiveLayout(),
 		tideui.WithAnimation(tideui.AnimationOptions{Enabled: true, TickRate: time.Second}),
 		// A dashboard focus language: an accent marker, a soft accent border,
