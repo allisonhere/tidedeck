@@ -106,8 +106,22 @@ func TestWeatherFeelsLikeAndGlyphRender(t *testing.T) {
 	if !strings.Contains(out, WeatherKindFromCondition(w.Condition).Glyph(false)) {
 		t.Fatalf("condition glyph missing:\n%s", out)
 	}
+	if !strings.Contains(out, r.rainGlyph()+" Rain") || !strings.Contains(out, r.windGlyph()+" Wind") {
+		t.Fatalf("rain/wind icons missing:\n%s", out)
+	}
 	if detail := ansi.Strip(r.RenderWeatherDetail(w, 44)); !strings.Contains(detail, "Feels 70°") {
 		t.Fatalf("detail missing feels-like:\n%s", detail)
+	}
+	// A hot feels-like temperature gets the flame; a mild one does not.
+	hot := weatherFixture()
+	hot.FeelsLike = 102
+	hot.HasFeelsLike = true
+	hotOut := ansi.Strip(r.RenderWeather(hot, 44))
+	if !strings.Contains(hotOut, "Feels 102° "+r.hotGlyph()) {
+		t.Fatalf("hot feels-like missing flame:\n%s", hotOut)
+	}
+	if strings.Contains(ansi.Strip(r.RenderWeather(w, 44)), r.hotGlyph()) {
+		t.Fatal("mild feels-like should not show a flame")
 	}
 }
 

@@ -20,10 +20,10 @@ func (r Renderer) RenderWeather(w WeatherData, width int) string {
 	ws := r.Styles.Workspace
 	lines := []string{
 		r.weatherHeadline(w, bg),
-		lipgloss.NewStyle().Background(bg).Foreground(ws.BodyMutedFg).
-			Render(weatherRangeText(w)),
-		r.dashPair("Rain", fmt.Sprintf("%d%%", w.RainChance), 5, bg),
-		r.dashPair("Wind", fmt.Sprintf("%d %s", w.WindSpeed, w.WindUnit), 5, bg),
+		lipgloss.NewStyle().Background(bg).Foreground(ws.BodyFg).
+			Render(r.weatherRangeText(w)),
+		r.dashPair(r.rainGlyph()+" Rain", fmt.Sprintf("%d%%", w.RainChance), 7, bg),
+		r.dashPair(r.windGlyph()+" Wind", fmt.Sprintf("%d %s", w.WindSpeed, w.WindUnit), 7, bg),
 	}
 	if len(w.Hourly) > 0 {
 		lines = append(lines, "", r.renderHourly(w.Hourly, bg))
@@ -47,13 +47,42 @@ func (r Renderer) weatherHeadline(w WeatherData, bg lipgloss.Color) string {
 	return headline
 }
 
-// weatherRangeText renders the high/low line, appending feels-like when known.
-func weatherRangeText(w WeatherData) string {
+// weatherRangeText renders the high/low line, appending feels-like when known
+// and a flame once the feels-like temperature is hot.
+func (r Renderer) weatherRangeText(w WeatherData) string {
 	text := fmt.Sprintf("H %d°   L %d°", w.High, w.Low)
 	if w.HasFeelsLike {
 		text += fmt.Sprintf("   Feels %d°", w.FeelsLike)
+		if w.FeelsLike > 90 {
+			text += " " + r.hotGlyph()
+		}
 	}
 	return text
+}
+
+// hotGlyph marks a hot feels-like temperature. The emoji is two cells wide and
+// the width table agrees, so it does not shift the rest of the line.
+func (r Renderer) hotGlyph() string {
+	if r.Styles.PlainUI {
+		return "!"
+	}
+	return "\U0001F525"
+}
+
+// rainGlyph and windGlyph label the rain and wind lines. Both emoji are two
+// cells wide and the width table agrees, so label padding stays aligned.
+func (r Renderer) rainGlyph() string {
+	if r.Styles.PlainUI {
+		return "*"
+	}
+	return "\U0001F4A7"
+}
+
+func (r Renderer) windGlyph() string {
+	if r.Styles.PlainUI {
+		return "~"
+	}
+	return "\U0001F4A8"
 }
 
 // forecastCondition prefixes a condition with its glyph when one is known.
@@ -96,8 +125,8 @@ func (r Renderer) RenderWeatherDetail(w WeatherData, width int) string {
 	ws := r.Styles.Workspace
 	lines := []string{
 		r.weatherHeadline(w, bg),
-		lipgloss.NewStyle().Background(bg).Foreground(ws.BodyMutedFg).
-			Render(fmt.Sprintf("%s   Rain %d%%   Wind %d %s", weatherRangeText(w), w.RainChance, w.WindSpeed, w.WindUnit)),
+		lipgloss.NewStyle().Background(bg).Foreground(ws.BodyFg).
+			Render(fmt.Sprintf("%s   Rain %d%%   Wind %d %s", r.weatherRangeText(w), w.RainChance, w.WindSpeed, w.WindUnit)),
 	}
 	if w.Location != "" {
 		lines = append(lines, r.dashPair("Place", w.Location, 6, bg))
