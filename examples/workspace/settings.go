@@ -135,6 +135,7 @@ type settingsForm struct {
 	editing bool
 	caret   int
 	problem string
+	dirty   bool
 }
 
 // SavedConfig returns the config produced by the most recent save.
@@ -150,6 +151,7 @@ func (s *settingsForm) Open(cfg config) {
 	s.editing = false
 	s.caret = 0
 	s.problem = ""
+	s.dirty = false
 	s.cursor = 0
 	s.fields = s.buildFields()
 }
@@ -193,12 +195,20 @@ func (s *settingsForm) lookupCoordinates() settingsAction {
 		s.problem = err.Error()
 		return settingsNone
 	}
+	s.applyPlace(place)
+	return settingsNone
+}
+
+// applyPlace writes a geocoding result into the form and enables live data,
+// since looking up a real place clearly means "use it".
+func (s *settingsForm) applyPlace(place provider.Place) {
 	s.state.latitude = formatFloat(place.Latitude)
 	s.state.longitude = formatFloat(place.Longitude)
 	s.state.location = place.Name
 	s.state.weatherEnabled = true
-	s.problem = "found " + place.Label()
-	return settingsNone
+	s.state.live = true
+	s.dirty = true
+	s.problem = "found " + place.Label() + " — ctrl+s to apply"
 }
 
 // Update handles all input while the panel is open.
@@ -263,6 +273,7 @@ func (s *settingsForm) updateEditing(msg tea.KeyMsg, key string) settingsAction 
 			runes = append(runes[:s.caret-1], runes[s.caret:]...)
 			s.caret--
 			*field.text = string(runes)
+			s.dirty = true
 		}
 	default:
 		if msg.Type == tea.KeyRunes {
@@ -273,6 +284,7 @@ func (s *settingsForm) updateEditing(msg tea.KeyMsg, key string) settingsAction 
 			merged = append(merged, runes[s.caret:]...)
 			s.caret += len(insert)
 			*field.text = string(merged)
+			s.dirty = true
 		}
 	}
 	return settingsNone
@@ -288,6 +300,7 @@ func (s *settingsForm) activate() settingsAction {
 	switch field.kind {
 	case fieldBool:
 		*field.flag = !*field.flag
+		s.dirty = true
 	case fieldText:
 		s.editing = true
 		s.caret = len([]rune(*field.text))
@@ -311,6 +324,7 @@ func (s *settingsForm) save() settingsAction {
 	s.problem = ""
 	s.opened = false
 	s.editing = false
+	s.dirty = false
 	s.cfg = cfg
 	return settingsSaved
 }
@@ -337,10 +351,14 @@ func (s settingsForm) Render(r tideui.Renderer, width, height int) tideui.Overla
 	}
 	panelWidth := min(74, max(36, width-4))
 	innerWidth := max(1, panelWidth-4)
-	rowsAvailable := max(1, height-6)
+	rowsAvailable := max(1, height-7)
 	first, last := visibleWindow(len(s.fields), s.cursor, rowsAvailable)
 
 	var lines []string
+	if s.dirty {
+		lines = append(lines, r.Styles.StatusNotice.Width(innerWidth).
+			Render(" unsaved changes — ctrl+s to apply "))
+	}
 	if s.problem != "" {
 		lines = append(lines, r.Styles.StatusError.Width(innerWidth).Render("  "+s.problem))
 	}
@@ -377,8 +395,8 @@ func (s settingsForm) Render(r tideui.Renderer, width, height int) tideui.Overla
 	lines = append(lines, "", r.RenderSoftHints(innerWidth,
 		tideui.SoftHint{Key: "↑/↓", Label: "move"},
 		tideui.SoftHint{Key: "enter", Label: "edit / run"},
-		tideui.SoftHint{Key: "ctrl+s", Label: "save"},
-		tideui.SoftHint{Key: "esc", Label: "close"},
+		tideui.SoftHint{Key: "ctrl+s", Label: "apply"},
+		tideui.SoftHint{Key: "esc", Label: "discard"},
 	))
 	return r.SoftPanelOverlay(tideui.SoftPanel{
 		Prefix:  "tidedeck",

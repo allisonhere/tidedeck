@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/allisonhere/tideui/provider"
 )
 
 func TestWeatherWiredFromConfig(t *testing.T) {
@@ -98,5 +100,29 @@ func TestSettingsLookupValidatesInput(t *testing.T) {
 	}
 	if form.problem == "" {
 		t.Fatal("blank lookup should report a problem")
+	}
+}
+
+func TestLookupAppliesPlaceAndEnablesLive(t *testing.T) {
+	form := newSettingsForm()
+	form.Open(config{})
+	if form.state.live {
+		t.Fatal("live should start off")
+	}
+	form.applyPlace(provider.Place{Name: "Berlin", Latitude: 52.52, Longitude: 13.405, Country: "Germany"})
+	if !form.state.live {
+		t.Fatal("a lookup should enable live data")
+	}
+	if !form.state.weatherEnabled || form.state.latitude != "52.52" {
+		t.Fatalf("place not applied: %+v", form.state)
+	}
+	if !form.dirty {
+		t.Fatal("a lookup should mark the form dirty")
+	}
+	if action := form.Update(tea.KeyMsg{Type: tea.KeyCtrlS}); action != settingsSaved {
+		t.Fatalf("save action = %v", action)
+	}
+	if !form.SavedConfig().Live {
+		t.Fatal("saved config should have live enabled")
 	}
 }
