@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/allisonhere/tideui"
 	"github.com/allisonhere/tideui/dash"
@@ -1128,7 +1129,11 @@ func (s settingsForm) Render(r tideui.Renderer, width, height int) tideui.Overla
 			Render(" unsaved changes — ctrl+s to apply "))
 	}
 	if s.problem != "" {
-		lines = append(lines, r.Styles.StatusError.Width(innerWidth).Render("  "+s.problem))
+		// Truncate to one line: a long reason - a pasted URL, a git error -
+		// must not wrap and push the fields around. The soft body re-truncates
+		// and pads, so no fixed width is set here.
+		lines = append(lines, r.Styles.StatusError.
+			Render(ansi.Truncate("  "+s.problem, innerWidth, "…")))
 	}
 
 	rowsAvailable := max(1, height-8)
@@ -1236,7 +1241,10 @@ func (s settingsForm) renderFields(r tideui.Renderer, width, rows int) []string 
 		default:
 			row.Prefix = "    "
 			if field.input {
-				row.Suffix = inputView(s.value(field), field.placeholder)
+				// Cap the box so a long value cannot squeeze the label away;
+				// the full value is still what the field holds and edits.
+				budget := max(12, width-ansi.StringWidth(row.Text)-8)
+				row.Suffix = inputView(s.value(field), field.placeholder, budget)
 			}
 		}
 		if index == s.cursor && s.editing && field.kind == fieldText && field.text != nil {
@@ -1260,15 +1268,23 @@ func (s settingsForm) renderFields(r tideui.Renderer, width, rows int) []string 
 }
 
 // inputView draws a text field as an input box. An empty field shows its
-// placeholder, so a row meant to be typed into reads as one.
-func inputView(value, placeholder string) string {
-	if value == "" {
-		if placeholder != "" {
-			return "[ " + placeholder + " ]"
-		}
+// placeholder, so a row meant to be typed into reads as one. A long value is
+// truncated to the budget rather than crowding the label off the row.
+func inputView(value, placeholder string, budget int) string {
+	text := value
+	if text == "" {
+		text = placeholder
+	}
+	if budget < 8 {
+		budget = 8
+	}
+	if ansi.StringWidth(text) > budget-4 {
+		text = ansi.Truncate(text, budget-4, "…")
+	}
+	if text == "" {
 		return "[ ]"
 	}
-	return "[ " + value + " ]"
+	return "[ " + text + " ]"
 }
 
 // editingView renders the part of a value around the caret, marking the caret

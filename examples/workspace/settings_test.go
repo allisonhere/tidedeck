@@ -846,11 +846,15 @@ func TestWeatherCategoryMergesFormAndPanelFields(t *testing.T) {
 }
 
 func TestPluginInstallFieldLooksLikeAnInput(t *testing.T) {
-	if got := inputView("", "git URL or local path"); got != "[ git URL or local path ]" {
+	if got := inputView("", "git URL or local path", 40); got != "[ git URL or local path ]" {
 		t.Fatalf("empty input = %q, want the placeholder boxed", got)
 	}
-	if got := inputView("~/Projects/thing", "x"); got != "[ ~/Projects/thing ]" {
+	if got := inputView("~/Projects/thing", "x", 40); got != "[ ~/Projects/thing ]" {
 		t.Fatalf("filled input = %q", got)
+	}
+	// A long value is truncated so the label keeps its room.
+	if got := inputView("https://github.com/you/tidedeck-plugins#calculator", "x", 20); ansi.StringWidth(got) > 20 {
+		t.Fatalf("long input = %q, exceeds its budget", got)
 	}
 
 	// The Plugins page shows that box rather than a bare blank value.

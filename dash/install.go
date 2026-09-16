@@ -209,7 +209,7 @@ func fetchSource(source, workdir, dest string) error {
 	path := expandHome(source)
 	info, err := os.Stat(path)
 	if err != nil || !info.IsDir() {
-		return fmt.Errorf("%q is not an http/git URL or a directory", source)
+		return fmt.Errorf("not a git URL or an existing directory")
 	}
 	return copyTree(path, dest)
 }
@@ -281,27 +281,30 @@ func runGit(dir string, args ...string) error {
 			return fmt.Errorf("git %s timed out after %s", args[0], cloneTimeout)
 		}
 		if message := lastLine(string(output)); message != "" {
-			return fmt.Errorf("git %s: %s%s", args[0], message, gitHint(message))
+			return fmt.Errorf("git %s: %s", args[0], gitReason(message))
 		}
 		return fmt.Errorf("git %s: %w", args[0], err)
 	}
 	return nil
 }
 
-// gitHint explains the two failures a user is most likely to hit. GitHub
-// answers "not found" with the signal for a private repository, so the message
-// on its own reads as a credentials problem rather than a wrong URL.
-func gitHint(message string) string {
+// gitReason turns git's failure into a short reason a one-line settings notice
+// can show. The raw message repeats the URL the user just typed and runs long
+// enough to wrap the settings page.
+func gitReason(message string) string {
 	switch {
 	case strings.Contains(message, "terminal prompts disabled"),
 		strings.Contains(message, "could not read Username"),
 		strings.Contains(message, "Authentication failed"):
-		return " (the repository does not exist, or it is private and git has no credentials)"
+		return "repository private or missing — git has no credentials"
 	case strings.Contains(message, "not found"),
 		strings.Contains(message, "Repository not found"):
-		return " (check the URL, and that the repository is not private)"
+		return "repository not found — check the URL"
+	case strings.Contains(message, "Could not resolve host"),
+		strings.Contains(message, "unable to access"):
+		return "host unreachable — check the URL"
 	default:
-		return ""
+		return message
 	}
 }
 
