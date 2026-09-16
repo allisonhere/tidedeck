@@ -278,11 +278,11 @@ func registerPanels(ws *tideui.Workspace, state *demoState) {
 		)
 
 	ws.Panel("agenda", agendaPanel(state)).
-		Title("Agenda").Role(tideui.RolePrimary).Priority(100).MinWidth(20).MinHeight(7).
+		Title("Calendar").Role(tideui.RolePrimary).Priority(100).MinWidth(20).MinHeight(7).
 		Actions(
-			tideui.Action("next", "n", func(*tideui.Workspace) { state.agendaOffset++; state.status = "agenda: +day" }).Labeled("next"),
-			tideui.Action("prev", "p", func(*tideui.Workspace) { state.agendaOffset--; state.status = "agenda: -day" }).Labeled("prev"),
-			tideui.Action("today", "0", func(*tideui.Workspace) { state.agendaOffset = 0; state.status = "agenda: today" }).Labeled("today"),
+			tideui.Action("next", "n", func(*tideui.Workspace) { state.agendaOffset++; state.status = "calendar: +day" }).Labeled("next"),
+			tideui.Action("prev", "p", func(*tideui.Workspace) { state.agendaOffset--; state.status = "calendar: -day" }).Labeled("prev"),
+			tideui.Action("today", "0", func(*tideui.Workspace) { state.agendaOffset = 0; state.status = "calendar: today" }).Labeled("today"),
 		)
 
 	ws.Panel("clock", clockPanel(state)).
@@ -383,7 +383,7 @@ func registerPanels(ws *tideui.Workspace, state *demoState) {
 }
 
 // overviewLayout balances the dashboard by content density: dense panels
-// (Agenda, News) get taller rows and more width, while the sparse bottom row
+// (Calendar, News) get taller rows and more width, while the sparse bottom row
 // (Tasks, Storage, Clock) is deliberately short so it does not stretch.
 func overviewLayout() tideui.LayoutNode {
 	return tideui.VStack(

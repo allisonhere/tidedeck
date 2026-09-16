@@ -781,10 +781,10 @@ empty.
 
 Press `s` to open the **settings panel** — every provider setting is edited
 there, nothing requires environment variables or hand-editing a file. The
-panel is organized as a **category list** (`General`, `Weather`, `Agenda`,
-`Clock`, `System`, `Network`, `Storage`, `Services`, `News`, `Calendar`,
-`Tasks`, `Notes`, `Git`, `Markets`) that opens into a page of fields, so a
-growing configuration stays readable instead of becoming one long scroll:
+panel is organized as a **category list** (`General`, `Weather`, `Calendar`,
+`Clock`, `System`, `Network`, `Storage`, `Services`, `News`, `Tasks`, `Notes`,
+`Git`, `Markets`) that opens into a page of fields, so a growing configuration
+stays readable instead of becoming one long scroll:
 
 - Each panel's category opens with an **enabled** tick plus **gauge style**
   and **spark style** choices at the top, so a panel can be hidden or revealed

@@ -473,7 +473,9 @@ func (s *settingsForm) buildCategories() []settingsCategory {
 			{label: "fahrenheit", kind: fieldBool, flag: &s.state.fahrenheit},
 			{label: "wind mph", kind: fieldBool, flag: &s.state.windMPH},
 		}},
-		{name: "Agenda", panelID: "agenda", fields: nil},
+		{name: "Calendar", panelID: "agenda", fields: []formField{
+			{label: "sources (.ics or URL)", kind: fieldText, text: &s.state.calendars},
+		}},
 		{name: "Clock", panelID: "clock", fields: []formField{
 			{label: "24-hour", kind: fieldBool, flag: &s.state.clock24},
 			{label: "zones", kind: fieldText, text: &s.state.zones},
@@ -492,9 +494,6 @@ func (s *settingsForm) buildCategories() []settingsCategory {
 			{label: "docker socket", kind: fieldText, text: &s.state.docker},
 		}},
 		{name: "News", panelID: "news", fields: s.newsFields()},
-		{name: "Calendar", fields: []formField{
-			{label: "sources (.ics or URL)", kind: fieldText, text: &s.state.calendars},
-		}},
 		{name: "Tasks", panelID: "tasks", fields: []formField{
 			{label: "todo.txt", kind: fieldText, text: &s.state.todo},
 		}},
