@@ -1,0 +1,96 @@
+// Package dash binds a dashboard panel's three concerns - its data, its
+// rendering and its settings - into one object, so adding a panel means
+// writing one file rather than editing ten.
+//
+// The package sits downstream of both tideui and provider. It has to: the
+// provider package imports tideui, so tideui can never import provider, and a
+// registry that both fetches and draws must therefore live below them. That
+// also keeps tideui's promise to be purely presentational.
+//
+// Nothing in the Panel interface mentions where data comes from, and no
+// panel's model type appears in it. That is deliberate: a panel backed by a
+// local provider and a panel backed by an out-of-process plugin are the same
+// kind of thing to a Deck, so the second can be added later without changing
+// the interface. Keep it that way.
+package dash
+
+import (
+	"context"
+	"time"
+
+	"github.com/allisonhere/tideui"
+)
+
+// Meta is a panel's static identity: what the workspace needs to place it,
+// what the settings screen needs to title its page, and how often it wants
+// fresh data.
+type Meta struct {
+	ID       string // stable identifier, e.g. "gpu"
+	Title    string // shown in the panel header
+	Subtitle string
+
+	Role      tideui.PanelRole
+	Priority  int
+	MinWidth  int
+	MinHeight int
+	HideBelow int // auto-hide under this many columns; 0 never hides
+
+	// Interval is how often Refresh is worth calling. Zero means the panel
+	// has no data of its own, or fetches once and keeps it.
+	Interval time.Duration
+}
+
+// Panel is one dashboard panel. The two required methods are everything the
+// workspace needs; data, settings, demo content and actions are opt-in
+// through the interfaces below, so the smallest panel is two methods.
+type Panel interface {
+	Meta() Meta
+	// View renders the panel body. ctx.Zoomed selects the detail rendering,
+	// and ctx.Renderer carries the resolved theme.
+	View(tideui.PanelContext) string
+}
+
+// Fetcher is implemented by a panel that acquires data. Refresh runs off the
+// UI goroutine under a bounded context; a panel stores the result itself and
+// keeps its last good value on error, so View never has to handle failure.
+type Fetcher interface {
+	Refresh(context.Context) error
+}
+
+// Configurable is implemented by a panel with settings of its own. Schema
+// declares the fields; Configure applies them.
+type Configurable interface {
+	Schema() []Field
+	Configure(Values) error
+}
+
+// Demoable is implemented by a panel that can synthesise sample data, so the
+// dashboard looks alive before anything is configured.
+type Demoable interface {
+	Demo(now time.Time)
+}
+
+// Ticker is implemented by a panel whose rendering changes with the clock
+// between refreshes, such as the clock itself or a day rollover.
+type Ticker interface {
+	Tick(now time.Time)
+}
+
+// Badger is implemented by a panel that advertises a header badge.
+type Badger interface {
+	Badge() (text string, tone tideui.Tone)
+}
+
+// Actor is implemented by a panel offering contextual key actions.
+type Actor interface {
+	Actions() []Action
+}
+
+// Action is one panel action. Run returns the status message to show, so a
+// panel never needs a reference to the workspace.
+type Action struct {
+	ID    string
+	Key   string
+	Label string
+	Run   func() string
+}
