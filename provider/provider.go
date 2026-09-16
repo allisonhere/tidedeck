@@ -31,7 +31,6 @@ type Snapshot struct {
 	Clock     *tideui.ClockData
 	Agenda    []tideui.AgendaItem
 	System    *tideui.SystemMetrics
-	GPU       *tideui.GPUMetrics
 	Network   *tideui.NetworkMetrics
 	Storage   []tideui.StorageMount
 	Services  []tideui.ServiceStatus
@@ -117,7 +116,6 @@ type Dashboard struct {
 	Clock     *Fetcher[tideui.ClockData]
 	Agenda    *Fetcher[[]tideui.AgendaItem]
 	System    *Fetcher[tideui.SystemMetrics]
-	GPU       *Fetcher[tideui.GPUMetrics]
 	Network   *Fetcher[tideui.NetworkMetrics]
 	Storage   *Fetcher[[]tideui.StorageMount]
 	Services  *Fetcher[[]tideui.ServiceStatus]
@@ -138,7 +136,6 @@ func (d *Dashboard) Refresh(ctx context.Context) {
 	d.Clock.Refresh(ctx)
 	d.Agenda.Refresh(ctx)
 	d.System.Refresh(ctx)
-	d.GPU.Refresh(ctx)
 	d.Network.Refresh(ctx)
 	d.Storage.Refresh(ctx)
 	d.Services.Refresh(ctx)
@@ -167,9 +164,6 @@ func (d *Dashboard) Snapshot() Snapshot {
 	}
 	if value, ok := read(d.System, snap.Errors, "system"); ok {
 		snap.System = &value
-	}
-	if value, ok := read(d.GPU, snap.Errors, "gpu"); ok {
-		snap.GPU = &value
 	}
 	if value, ok := read(d.Network, snap.Errors, "network"); ok {
 		snap.Network = &value

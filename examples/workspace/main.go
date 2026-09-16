@@ -18,6 +18,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/allisonhere/tideui"
+	"github.com/allisonhere/tideui/dash"
+	"github.com/allisonhere/tideui/dash/panels"
 	"github.com/allisonhere/tideui/provider"
 )
 
@@ -99,6 +101,10 @@ type model struct {
 	cfg      config
 	feed     *demoFeed
 	settings *settingsForm
+	// deck holds the panels that own their own data, rendering and settings.
+	// Panels are migrated onto it one at a time; everything not yet migrated
+	// still goes through demoState and the provider snapshot below.
+	deck *dash.Deck
 
 	// pickerTarget is "" when the picker is editing the workspace theme, or a
 	// panel id when it is editing that panel's theme. pickerPrev/pickerHad
@@ -164,7 +170,10 @@ func newModel() model {
 		}),
 	)
 
-	registerPanels(ws, state)
+	deck := dash.New()
+	deck.Register(panels.GPU())
+	deck.OnStatus(func(message string) { state.status = message })
+	registerPanels(ws, state, deck)
 	applyPanelGauges(ws, cfg)
 	registerPresets(ws)
 
@@ -177,6 +186,7 @@ func newModel() model {
 
 	return model{
 		state:    state,
+		deck:     deck,
 		ws:       ws,
 		picker:   tideui.NewThemePicker(tideui.ThemePickerOptions{InitialTheme: state.theme.Name}),
 		cfg:      cfg,
@@ -186,6 +196,29 @@ func newModel() model {
 }
 
 // applyConfig switches the data source to match the saved configuration.
+// deckMode maps the live-data setting onto the deck's mode.
+func deckMode(live bool) dash.Mode {
+	if live {
+		return dash.ModeLive
+	}
+	return dash.ModeDemo
+}
+
+// values exposes the saved configuration to panels. Until every panel is
+// migrated the typed config is still the source of truth, so this re-encodes
+// it rather than holding a second copy that could drift.
+func (m *model) values() dash.Values {
+	data, err := json.Marshal(m.cfg)
+	if err != nil {
+		return dash.NewValues()
+	}
+	values, err := dash.LoadValues(data)
+	if err != nil {
+		return dash.NewValues()
+	}
+	return values
+}
+
 func (m *model) applyConfig() {
 	m.state.clock24 = m.cfg.Clock24
 	m.state.gauge = tideui.GaugeStyle(gaugeOrDefault(m.cfg.GaugeStyle))
@@ -194,6 +227,8 @@ func (m *model) applyConfig() {
 	m.state.icons = tideui.IconStyle(iconStyleOrDefault(m.cfg.Icons))
 	applyPanelGauges(m.ws, m.cfg)
 	applyPanelSparks(m.ws, m.cfg)
+	m.deck.SetMode(deckMode(m.cfg.Live))
+	m.deck.Configure(m.values())
 	if m.cfg.Live {
 		m.state.live = newLiveSource(m.cfg)
 		m.state.source = m.state.live
@@ -262,7 +297,7 @@ func applyPanelSparks(ws *tideui.Workspace, cfg config) {
 	}
 }
 
-func registerPanels(ws *tideui.Workspace, state *demoState) {
+func registerPanels(ws *tideui.Workspace, state *demoState, deck *dash.Deck) {
 	ws.Panel("weather", weatherPanel(state)).
 		Title("Weather").Role(tideui.RolePrimary).Priority(90).MinWidth(18).MinHeight(7).
 		Actions(
@@ -294,9 +329,10 @@ func registerPanels(ws *tideui.Workspace, state *demoState) {
 		Badge("healthy").BadgeTone(tideui.ToneGood).
 		Actions(tideui.Action("refresh", "r", func(*tideui.Workspace) { state.status = "system sampled" }).Labeled("refresh"))
 
-	ws.Panel("gpu", gpuPanel(state)).
-		Title("GPU").Role(tideui.RoleSecondary).Priority(72).MinWidth(18).MinHeight(6).HideBelow(104).
-		Actions(tideui.Action("refresh", "r", func(*tideui.Workspace) { state.status = "gpu sampled" }).Labeled("refresh"))
+	// Registered panels keep their declared order, so the deck attaches here
+	// rather than before or after the block, leaving the picker and settings
+	// lists unchanged.
+	deck.Attach(ws)
 
 	ws.Panel("updates", updatesPanel(state)).
 		Title("Updates").Subtitle("system").Role(tideui.RoleOptional).Priority(50).MinWidth(20).MinHeight(5).HideBelow(120).
@@ -438,6 +474,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 	case tickMsg:
 		m.state.now = time.Now()
+		// Panels on the deck fetch on their own intervals and hold their own
+		// data; the snapshot copying below is the path not yet migrated.
+		m.deck.Refresh(context.Background(), m.state.now)
+		m.deck.Tick(m.state.now)
 		if m.state.live != nil {
 			m.state.live.refresh(context.Background())
 			snapshot := m.state.live.snapshotCopy()

@@ -118,23 +118,6 @@ func (f *demoFeed) Clock(now time.Time) tideui.ClockData {
 	}
 }
 
-func (f *demoFeed) GPU(now time.Time) tideui.GPUMetrics {
-	t := f.elapsed(now)
-	busy := clampRange(24+18*wave(t, 11, 1), 2, 99)
-	return tideui.GPUMetrics{
-		Name:         "amdgpu",
-		BusyPercent:  busy,
-		BusySpark:    series(t, 18, 6, 1, 0.3, 0.45),
-		MemoryUsed:   "5.4 GB",
-		MemoryTotal:  "8.0 GB",
-		MemoryLabel:  "VRAM",
-		MemoryFrac:   0.67,
-		TemperatureC: int(clampRange(58+7*wave(t, 30, 2), 40, 92)),
-		PowerWatts:   clampRange(42+16*wave(t, 13, 3), 8, 140),
-		ClockMHz:     int(clampRange(1800+300*wave(t, 8, 4), 300, 2600)),
-	}
-}
-
 func (f *demoFeed) System(now time.Time) tideui.SystemMetrics {
 	t := f.elapsed(now)
 	cpu := clampRange(18+10*wave(t, 9, 0)+4*wave(t, 3, 1), 3, 98)

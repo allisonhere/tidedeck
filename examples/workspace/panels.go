@@ -183,17 +183,6 @@ func newsPanel(state *demoState) tideui.PanelView {
 	}
 }
 
-func gpuPanel(state *demoState) tideui.PanelView {
-	return func(ctx tideui.PanelContext) string {
-		r := panelRenderer(state, ctx)
-		metrics := state.source.GPU(state.now)
-		if ctx.Zoomed {
-			return r.RenderGPUDetail(metrics, ctx.Width)
-		}
-		return r.RenderGPU(metrics, ctx.Width)
-	}
-}
-
 func updatesPanel(state *demoState) tideui.PanelView {
 	return func(ctx tideui.PanelContext) string {
 		r := panelRenderer(state, ctx)
