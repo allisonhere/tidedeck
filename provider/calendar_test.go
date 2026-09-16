@@ -188,11 +188,41 @@ func TestNormalizeCalendarSource(t *testing.T) {
 		{"webcal://example.com/a.ics", "https://example.com/a.ics", true},
 		{"/home/me/cal.ics", "/home/me/cal.ics", false},
 		{"~/cal.ics", "~/cal.ics", false},
+		// The embed link is HTML; it maps to the calendar's public iCal feed.
+		{
+			"https://calendar.google.com/calendar/embed?src=drbayless%40gmail.com&ctz=America%2FChicago",
+			"https://calendar.google.com/calendar/ical/drbayless@gmail.com/public/basic.ics",
+			true,
+		},
+		// A group calendar id keeps its characters escaped in the path.
+		{
+			"https://calendar.google.com/calendar/embed?src=en.usa%23holiday%40group.v.calendar.google.com",
+			"https://calendar.google.com/calendar/ical/en.usa%23holiday@group.v.calendar.google.com/public/basic.ics",
+			true,
+		},
+		// An iCal address is already in the right shape.
+		{
+			"https://calendar.google.com/calendar/ical/me%40gmail.com/private-abc/basic.ics",
+			"https://calendar.google.com/calendar/ical/me%40gmail.com/private-abc/basic.ics",
+			true,
+		},
 	}
 	for _, c := range cases {
 		got, isURL := normalizeCalendarSource(c.in)
 		if got != c.want || isURL != c.isURL {
 			t.Fatalf("normalize(%q) = %q,%v want %q,%v", c.in, got, isURL, c.want, c.isURL)
 		}
+	}
+}
+
+func TestIsGoogleCalendar(t *testing.T) {
+	if !isGoogleCalendar("https://calendar.google.com/calendar/ical/me%40gmail.com/public/basic.ics") {
+		t.Fatal("google iCal feed not recognised")
+	}
+	if isGoogleCalendar("https://example.com/calendar/ical/x/basic.ics") {
+		t.Fatal("non-Google host recognised as Google")
+	}
+	if isGoogleCalendar("https://calendar.google.com/calendar/embed?src=me%40gmail.com") {
+		t.Fatal("embed link should not count as the iCal feed")
 	}
 }

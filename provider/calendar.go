@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -46,17 +47,51 @@ func Calendar(sources ...string) func(context.Context) ([]tideui.AgendaItem, err
 }
 
 // normalizeCalendarSource maps webcal:// - an https URL wearing a different
-// scheme - to https://, and reports whether the source is a URL rather than a
-// local path.
+// scheme - to https://, rewrites a Google Calendar share link to its iCal feed,
+// and reports whether the source is a URL rather than a local path.
 func normalizeCalendarSource(source string) (string, bool) {
 	source = strings.TrimSpace(source)
 	if rest, ok := strings.CutPrefix(source, "webcal://"); ok {
 		source = "https://" + rest
 	}
+	if feed, ok := googleCalendarFeed(source); ok {
+		source = feed
+	}
 	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") {
 		return source, true
 	}
 	return source, false
+}
+
+// googleCalendarFeed rewrites a Google Calendar share link to the iCal feed the
+// provider can parse. The embed link ("/calendar/embed?src=...") and the
+// address bar link both serve HTML, so they are mapped to the calendar's public
+// iCal address. A calendar that is not shared publicly still returns an error:
+// its owner must use the private "secret address in iCal format" instead.
+func googleCalendarFeed(source string) (string, bool) {
+	parsed, err := url.Parse(source)
+	if err != nil || !strings.EqualFold(parsed.Hostname(), "calendar.google.com") {
+		return source, false
+	}
+	if strings.Contains(parsed.Path, "/ical/") {
+		return source, true
+	}
+	if !strings.Contains(parsed.Path, "/embed") {
+		return source, false
+	}
+	id := parsed.Query().Get("src")
+	if id == "" {
+		return source, false
+	}
+	return "https://calendar.google.com/calendar/ical/" + url.PathEscape(id) + "/public/basic.ics", true
+}
+
+// isGoogleCalendar reports whether a source is a Google iCal feed, so a failed
+// fetch can point its owner at the secret address.
+func isGoogleCalendar(source string) bool {
+	parsed, err := url.Parse(source)
+	return err == nil && strings.EqualFold(parsed.Hostname(), "calendar.google.com") &&
+		strings.Contains(parsed.Path, "/ical/")
 }
 
 // readCalendar fetches a calendar URL or reads a local file.
@@ -77,6 +112,9 @@ func readCalendar(ctx context.Context, source string) (string, error) {
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
+		if isGoogleCalendar(source) && (response.StatusCode == http.StatusNotFound || response.StatusCode == http.StatusUnauthorized) {
+			return "", fmt.Errorf("provider: calendar %s: status %d (a private Google Calendar needs its secret iCal address)", source, response.StatusCode)
+		}
 		return "", fmt.Errorf("provider: calendar %s: status %d", source, response.StatusCode)
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, 8<<20))

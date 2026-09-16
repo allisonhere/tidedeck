@@ -762,7 +762,7 @@ snapshot := dashboard.Snapshot() // reads cache only, never blocks
 |---|---|---|
 | Weather | `provider.Weather(WeatherOptions)` | Open-Meteo (no key) |
 | Clock | `provider.Clock(location, zones...)` | local time + IANA zones |
-| Calendar | `provider.Calendar(sources...)` | local `.ics` files and `https`/`webcal` iCal URLs (TZID, all-day, 90-day window) |
+| Calendar | `provider.Calendar(sources...)` | local `.ics` files, `https`/`webcal` iCal URLs, and Google Calendar embed/share links (TZID, all-day, 90-day window) |
 | System | `provider.System()` | `/proc`, `/sys` (Linux) |
 | Network | `provider.Network(iface)` | `/proc/net/dev` (Linux) |
 | Storage | `provider.Storage()` | `/proc/mounts` + `statfs` (Linux) |
@@ -810,8 +810,9 @@ stays readable instead of becoming one long scroll:
   location label, and turns on live data.
   The panel then shows `unsaved changes — ctrl+s to apply`.
 - **Clock** a 12/24-hour toggle and zones, **News** a tick list of curated
-  sources plus a row for any other feed URL, **Calendar** `.ics` paths or
-  `https`/`webcal` URLs (comma-separated),
+  sources plus a row for any other feed URL, **Calendar** `.ics` paths,
+  `https`/`webcal` URLs, or a Google Calendar embed link (comma-separated;
+  a private Google calendar needs its secret iCal address),
   **Tasks** `todo.txt`, **Notes** paths, **Git** repository paths,
   **Markets** symbols, **Updates** the AUR helper to count with,
   **Services** systemd units or a Docker socket, and the
