@@ -106,8 +106,8 @@ func TestParseFeedRDF(t *testing.T) {
 	if items[0].headline.Age != "1h" {
 		t.Fatalf("age = %q, want 1h (dc:date not parsed?)", items[0].headline.Age)
 	}
-	if items[0].link != "https://example.org/a" {
-		t.Fatalf("link = %q", items[0].link)
+	if items[0].headline.Link != "https://example.org/a" {
+		t.Fatalf("link = %q", items[0].headline.Link)
 	}
 }
 

@@ -87,9 +87,6 @@ func Feed(urls ...string) func(context.Context) ([]tideui.Headline, error) {
 type feedItem struct {
 	headline  tideui.Headline
 	published time.Time
-	// link identifies the story across feeds. It is not shown anywhere, so it
-	// stays off the public Headline model until something renders it.
-	link string
 }
 
 // feedLink covers both spellings of a link: RSS puts the URL in the element
@@ -191,7 +188,7 @@ func dedupeItems(items []feedItem) []feedItem {
 	seen := make(map[string]bool, len(items))
 	out := items[:0]
 	for _, item := range items {
-		key := item.link
+		key := item.headline.Link
 		if key == "" {
 			key = strings.ToLower(item.headline.Title) + "\x00" + item.headline.Source
 		}
@@ -210,8 +207,10 @@ func newFeedItem(entry feedEntry, source string, now time.Time) feedItem {
 		clean = "(untitled)"
 	}
 	item := feedItem{
-		headline: tideui.Headline{Title: clean, Source: source, Unread: true, Tone: tideui.ToneAccent},
-		link:     strings.TrimSpace(entry.identity()),
+		headline: tideui.Headline{
+			Title: clean, Source: source, Link: strings.TrimSpace(entry.identity()),
+			Unread: true, Tone: tideui.ToneAccent,
+		},
 	}
 	if parsed, ok := parseFeedTime(entry.date()); ok {
 		item.published = parsed

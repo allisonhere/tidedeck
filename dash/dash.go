@@ -97,6 +97,29 @@ type Copier interface {
 	Copy() (string, bool)
 }
 
+// Cursor is implemented by a panel with a moveable selection, so the arrow
+// keys can drive it without the application knowing what a "row" is. Move
+// changes the selection by delta (-1 up, +1 down) and reports whether the
+// panel took the key; a panel with nothing to select returns false so the key
+// still moves focus.
+type Cursor interface {
+	Move(delta int) bool
+}
+
+// Activator is implemented by a panel whose current selection has a primary
+// action - copy a link and mark it read. Activate returns the text to copy
+// (empty when there is none) and a status message for the strip.
+type Activator interface {
+	Activate() (copy, status string)
+}
+
+// Clicker is implemented by a panel that maps a click inside its content area
+// to an item, with x and y relative to the body. It returns the text to copy
+// and a status message, and whether the click hit an item.
+type Clicker interface {
+	Click(x, y int) (copy, status string, hit bool)
+}
+
 // Configurable is implemented by a panel with settings of its own. Schema
 // declares the fields; Configure applies them.
 type Configurable interface {

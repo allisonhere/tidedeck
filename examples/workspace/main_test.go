@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -575,6 +576,85 @@ func TestSaveLayoutChooserOverwritesTheChosenSlot(t *testing.T) {
 	}
 	if m.slotSaved[0] {
 		t.Fatal("slot 1 should still be empty")
+	}
+}
+
+// Enter on the news list copies the selected story's link and marks it read.
+func TestNewsEnterCopiesLinkAndMarksRead(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := newModel()
+	m.width, m.height = 150, 44
+	m = update(t, m, tickMsg(time.Now())) // demo headlines, with links
+	m.ws.Focus("news")
+	if got := m.ws.Focused(); got != "news" {
+		t.Fatalf("focus = %q, want news", got)
+	}
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(model)
+	if m.state.clipboard == "" {
+		t.Fatal("enter copied nothing")
+	}
+	if !strings.Contains(m.state.status, "marked read") {
+		t.Fatalf("status = %q", m.state.status)
+	}
+	// The copy rides in the frame rather than a separate write.
+	if frame := m.View(); !strings.Contains(frame, "\x1b]52;c;") {
+		t.Fatal("the frame did not carry the copy sequence")
+	}
+}
+
+// A click on a story row copies its link and marks it read.
+func TestNewsClickCopiesLink(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := newModel()
+	m.width, m.height = 150, 44
+	m = update(t, m, tickMsg(time.Now()))
+	m.ws.Focus("news")
+	_ = m.View() // the panel records its row map while rendering
+
+	rect, ok := m.ws.PanelRect("news")
+	if !ok {
+		t.Fatal("news has no panel rectangle")
+	}
+	// The first content row sits just inside the top border.
+	msg := tea.MouseMsg{X: rect.X + 2, Y: rect.Y + 1, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}
+	if !m.handlePanelClick(msg) {
+		t.Fatal("the click was not routed to the news panel")
+	}
+	if m.state.clipboard == "" {
+		t.Fatal("the click copied nothing")
+	}
+	if !strings.Contains(m.state.status, "marked read") {
+		t.Fatalf("status = %q", m.state.status)
+	}
+}
+
+// The arrow keys move the news cursor instead of focus while the list is
+// focused.
+func TestArrowsMoveNewsCursor(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := newModel()
+	m.width, m.height = 150, 44
+	m = update(t, m, tickMsg(time.Now()))
+	m.ws.Focus("news")
+	focus := m.ws.Focused()
+
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	if m.ws.Focused() != focus {
+		t.Fatalf("down moved focus from %q to %q", focus, m.ws.Focused())
+	}
+	panel, ok := m.deck.Lookup("news")
+	if !ok {
+		t.Fatal("no news panel")
+	}
+	copier, ok := panel.(dash.Copier)
+	if !ok {
+		t.Fatal("news does not offer a selection to copy")
+	}
+	if link, ok := copier.Copy(); !ok || link == "" {
+		t.Fatalf("no link selected after down: %q %v", link, ok)
 	}
 }
 

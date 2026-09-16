@@ -38,6 +38,34 @@ func (ws *Workspace) HandleMouse(msg tea.MouseMsg) bool {
 	return false
 }
 
+// PanelRect returns the screen rectangle a visible panel occupies. It is the
+// inverse of PanelAt, so a caller can place a click or a test can find the
+// panel to aim one at.
+func (ws *Workspace) PanelRect(id string) (Rect, bool) {
+	for _, region := range ws.solved.Regions {
+		if region.ActivePanel() == id {
+			return region.Rect, true
+		}
+	}
+	return Rect{}, false
+}
+
+// PanelAt returns the panel under a screen coordinate along with the point
+// relative to that panel's content area (inside its frame), so a panel that
+// maps clicks to its own rows can resolve one. ok is false outside any panel.
+func (ws *Workspace) PanelAt(x, y int) (id string, contentX, contentY int, ok bool) {
+	region, found := ws.solved.RegionAt(x, y)
+	if !found {
+		return "", 0, 0, false
+	}
+	id = region.ActivePanel()
+	if id == "" {
+		return "", 0, 0, false
+	}
+	rect := region.Rect
+	return id, x - rect.X - 1, y - rect.Y - 1, true
+}
+
 func (ws *Workspace) beginRender() { ws.tabHits = ws.tabHits[:0] }
 
 func (ws *Workspace) recordTabHit(rect Rect, panel string) {

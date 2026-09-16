@@ -518,6 +518,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// The panel's State changed off the UI goroutine; re-render it.
 		return m, nil
 	case tea.MouseMsg:
+		if m.handlePanelClick(msg) {
+			return m, nil
+		}
 		if m.ws.HandleMouse(msg) {
 			return m, nil
 		}
@@ -747,6 +750,71 @@ func (m *model) handlePanelInput(msg tea.KeyMsg) (tea.Cmd, bool) {
 	return m.refreshFocusedCmd(), true
 }
 
+// moveSelection hands a move to the focused panel's cursor, if it has one. It
+// reports whether the panel took it, so the arrows still move focus otherwise.
+func (m *model) moveSelection(delta int) bool {
+	panel, ok := m.deck.Lookup(m.ws.Focused())
+	if !ok {
+		return false
+	}
+	cursor, ok := panel.(dash.Cursor)
+	if !ok {
+		return false
+	}
+	return cursor.Move(delta)
+}
+
+// activateFocused runs the focused panel's primary action - for the news list,
+// mark the selected story read and copy its link. It reports whether the panel
+// has such an action, so Enter still zooms everywhere else.
+func (m *model) activateFocused() bool {
+	panel, ok := m.deck.Lookup(m.ws.Focused())
+	if !ok {
+		return false
+	}
+	activator, ok := panel.(dash.Activator)
+	if !ok {
+		return false
+	}
+	copied, status := activator.Activate()
+	if copied != "" {
+		m.state.clipboard = copied
+	}
+	m.state.status = status
+	return true
+}
+
+// handlePanelClick routes a left click inside a panel's content to its Clicker,
+// so a panel can act on the row under the pointer. It reports whether a panel
+// handled the click; otherwise the workspace gets it to focus a panel.
+func (m *model) handlePanelClick(msg tea.MouseMsg) bool {
+	if msg.Action != tea.MouseActionPress || msg.Button != tea.MouseButtonLeft {
+		return false
+	}
+	id, x, y, ok := m.ws.PanelAt(msg.X, msg.Y)
+	if !ok {
+		return false
+	}
+	panel, ok := m.deck.Lookup(id)
+	if !ok {
+		return false
+	}
+	clicker, ok := panel.(dash.Clicker)
+	if !ok {
+		return false
+	}
+	copied, status, hit := clicker.Click(x, y)
+	if !hit {
+		return false
+	}
+	m.ws.Focus(id)
+	if copied != "" {
+		m.state.clipboard = copied
+	}
+	m.state.status = status
+	return true
+}
+
 func (m model) refreshBadges() {
 	// Panels on the deck advertise their own badges.
 	for id, badge := range m.deck.Badges() {
@@ -821,8 +889,12 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.state.density = nextDensity(m.state.density)
 			return m, nil
 		case "enter":
-			// Drill-down pattern: Enter zooms the focused panel into detail,
-			// Esc (handled by the workspace) returns.
+			// A panel with a primary action (the news list copying and marking
+			// the selected story) takes Enter; every other panel zooms into its
+			// detail rendering, with Esc returning.
+			if m.activateFocused() {
+				return m, nil
+			}
 			if m.ws.Zoomed() != "" {
 				m.ws.Unzoom()
 			} else {
@@ -854,11 +926,27 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "up":
+			// A panel with a cursor (the news list) takes the arrows to move
+			// its selection; otherwise they move focus between panels.
+			if m.moveSelection(-1) {
+				return m, nil
+			}
 			m.ws.FocusDirection(tideui.DirUp)
 			return m, nil
 		case "down":
+			if m.moveSelection(1) {
+				return m, nil
+			}
 			m.ws.FocusDirection(tideui.DirDown)
 			return m, nil
+		case "j":
+			if m.moveSelection(1) {
+				return m, nil
+			}
+		case "k":
+			if m.moveSelection(-1) {
+				return m, nil
+			}
 		case "left":
 			m.ws.FocusDirection(tideui.DirLeft)
 			return m, nil

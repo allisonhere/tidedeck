@@ -716,7 +716,10 @@ ASCII fallback), a semantic tone, and a word.
 
 Every panel supports the same interaction: `Enter` zooms the focused panel and
 the widget switches to its detail rendering; `Esc` returns. Detail is a plain
-zoom, so the saved layout is never altered.
+zoom, so the saved layout is never altered. A panel with a primary action takes
+`Enter` instead: the news list keeps a cursor (`↑`/`↓` or `j`/`k`), and `Enter`
+— or a click on a story — copies its link and marks it read. `Shift+Space`
+still zooms it.
 
 ### Presets and the demo
 

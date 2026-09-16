@@ -1054,25 +1054,104 @@ func serviceAge(item ServiceStatus) string {
 // RenderHeadlines renders each headline as its source followed by the title
 // wrapped as a sentence, with unread stories brightest.
 func (r Renderer) RenderHeadlines(items []Headline, width int) string {
-	return r.renderHeadlines(items, width, false)
+	out, _ := r.renderHeadlines(items, width, false)
+	return out
 }
 
 // RenderHeadlinesDetail renders more headlines than the compact list, in the
 // same source-then-wrapped-sentence shape.
 func (r Renderer) RenderHeadlinesDetail(items []Headline, width int) string {
-	return r.renderHeadlines(items, width, true)
+	out, _ := r.renderHeadlines(items, width, true)
+	return out
 }
 
-func (r Renderer) renderHeadlines(items []Headline, width int, detail bool) string {
-	if len(items) == 0 {
-		return ""
-	}
-	bg := r.Styles.Workspace.Bg
-	ws := r.Styles.Workspace
+// RenderHeadlinesRows renders the headline list and also reports the story
+// drawn on each content row (-1 for the blank row between stories), so a panel
+// can map a mouse click back to a story.
+func (r Renderer) RenderHeadlinesRows(items []Headline, width int, detail bool) (string, []int) {
+	return r.renderHeadlines(items, width, detail)
+}
+
+// headlineRow is one rendered row of the headline list: the story drawn on it
+// (negative for a blank separator), and the source and title text that share
+// the row.
+type headlineRow struct {
+	story  int
+	source string
+	text   string
+}
+
+// headlinePlan lays out the headline list at a width, as the renderer draws it
+// but without styling, so the same wrapping can drive hit-testing.
+func headlinePlan(items []Headline, width int, detail bool) []headlineRow {
 	limit := 6
 	if detail {
 		limit = 12
 	}
+	var rows []headlineRow
+	for i, item := range items {
+		if i >= limit {
+			break
+		}
+		// A blank row between stories keeps each source-and-sentence block
+		// readable now that there is no bullet to mark where one begins.
+		if i > 0 {
+			rows = append(rows, headlineRow{story: -1})
+		}
+		source := headlineSource(item)
+		avail := width - lipgloss.Width(source) - 2
+		// A long source with no room beside it gets its own line, so the
+		// sentence still has the full width to wrap into.
+		if avail < 8 {
+			rows = append(rows, headlineRow{story: i, source: source})
+			for _, part := range strings.Split(ansi.Wordwrap(item.Title, width, ""), "\n") {
+				rows = append(rows, headlineRow{story: i, text: part})
+			}
+			continue
+		}
+		head, rest := wrapFirst(item.Title, avail)
+		rows = append(rows, headlineRow{story: i, source: source, text: head})
+		if rest != "" {
+			for _, part := range strings.Split(ansi.Wordwrap(rest, width, ""), "\n") {
+				rows = append(rows, headlineRow{story: i, text: part})
+			}
+		}
+	}
+	return rows
+}
+
+// HeadlineRows reports, for the headline list at a width, the story index on
+// each content row (-1 for the blank row between stories). It shares the
+// renderer's wrapping so a panel can map a click back to a story without
+// rendering.
+func HeadlineRows(items []Headline, width int, detail bool) []int {
+	plan := headlinePlan(items, width, detail)
+	rows := make([]int, len(plan))
+	for i, row := range plan {
+		rows[i] = row.story
+	}
+	return rows
+}
+
+// headlineSource is the muted attribution drawn before a title: its source and
+// age, or a fallback so a story is never unattributed.
+func headlineSource(item Headline) string {
+	source := item.Source
+	if source == "" {
+		source = "news"
+	}
+	if item.Age != "" {
+		source += " · " + item.Age
+	}
+	return source
+}
+
+func (r Renderer) renderHeadlines(items []Headline, width int, detail bool) (string, []int) {
+	if len(items) == 0 {
+		return "", nil
+	}
+	bg := r.Styles.Workspace.Bg
+	ws := r.Styles.Workspace
 	// A read headline dims; an unread one stays bright. The source is the
 	// item's anchor rather than a right-aligned afterthought: the sentence
 	// starts beside it and wraps underneath it at the left margin, so the
@@ -1081,46 +1160,47 @@ func (r Renderer) renderHeadlines(items []Headline, width int, detail bool) stri
 	readStyle := lipgloss.NewStyle().Background(bg).Foreground(ws.BodyDimmedFg)
 	unreadStyle := lipgloss.NewStyle().Background(bg).Foreground(ws.BodyFg)
 	sourceStyle := lipgloss.NewStyle().Background(bg).Foreground(ws.SubtitleFg)
+	selectedStyle := lipgloss.NewStyle().Background(ws.SelectionBg).Foreground(ws.SelectionFg).Width(width)
+
 	var lines []string
-	for i, item := range items {
-		if i >= limit {
-			break
-		}
-		// A blank row between stories keeps each source-and-sentence block
-		// readable now that there is no bullet to mark where one begins.
-		if i > 0 {
+	var rows []int
+	for _, row := range headlinePlan(items, width, detail) {
+		rows = append(rows, row.story)
+		if row.story < 0 {
 			lines = append(lines, "")
-		}
-		style := readStyle
-		if item.Unread {
-			style = unreadStyle
-		}
-		source := item.Source
-		if source == "" {
-			source = "news"
-		}
-		if item.Age != "" {
-			source += " · " + item.Age
-		}
-		avail := width - lipgloss.Width(source) - 2
-		// A long source with no room beside it gets its own line, so the
-		// sentence still has the full width to wrap into.
-		if avail < 8 {
-			lines = append(lines, sourceStyle.Render(source))
-			for _, part := range strings.Split(ansi.Wordwrap(item.Title, width, ""), "\n") {
-				lines = append(lines, style.Render(part))
-			}
 			continue
 		}
-		head, rest := wrapFirst(item.Title, avail)
-		lines = append(lines, sourceStyle.Render(source)+sourceStyle.Render("  ")+style.Render(head))
-		if rest != "" {
-			for _, part := range strings.Split(ansi.Wordwrap(rest, width, ""), "\n") {
-				lines = append(lines, style.Render(part))
+		// The cursor is a highlighted block. The whole row takes the selection
+		// colours so it reads as one, and is padded to the pane so the block
+		// spans the panel rather than stopping at the last word.
+		if items[row.story].Selected {
+			text := row.source
+			if row.text != "" {
+				if text != "" {
+					text += "  "
+				}
+				text += row.text
+			}
+			lines = append(lines, selectedStyle.Render(ansi.Truncate(text, width, "…")))
+			continue
+		}
+		style := readStyle
+		if items[row.story].Unread {
+			style = unreadStyle
+		}
+		rendered := ""
+		if row.source != "" {
+			rendered = sourceStyle.Render(row.source)
+			if row.text != "" {
+				rendered += sourceStyle.Render("  ")
 			}
 		}
+		if row.text != "" {
+			rendered += style.Render(row.text)
+		}
+		lines = append(lines, rendered)
 	}
-	return r.dashBlock(lines, width, bg)
+	return r.dashBlock(lines, width, bg), rows
 }
 
 // wrapFirst takes the words of s that fit in limit as the first line and

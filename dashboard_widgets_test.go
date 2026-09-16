@@ -2,6 +2,7 @@ package tideui
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -449,6 +450,50 @@ func TestHeadlinesSeparatedByBlankRow(t *testing.T) {
 		}
 	}
 	t.Fatalf("expected a blank row between stories:\n%s", out)
+}
+
+// The row map a panel uses for hit-testing must line up with what the renderer
+// drew, at every width.
+func TestHeadlineRowsMatchRender(t *testing.T) {
+	r := chromeRenderer(Dense)
+	items := []Headline{
+		{Title: "One long enough to wrap a little", Source: "a", Age: "1m", Unread: true},
+		{Title: "Two", Source: "b"},
+		{Title: "Three from a much longer source name", Source: "blog.example.org", Age: "4h"},
+	}
+	for _, width := range []int{12, 20, 40, 60} {
+		out, rows := r.RenderHeadlinesRows(items, width, false)
+		lines := strings.Split(ansi.Strip(out), "\n")
+		if len(lines) != len(rows) {
+			t.Fatalf("width %d: %d lines but %d mapped rows", width, len(lines), len(rows))
+		}
+		if got := HeadlineRows(items, width, false); !reflect.DeepEqual(got, rows) {
+			t.Fatalf("width %d: HeadlineRows = %v, renderer rows = %v", width, got, rows)
+		}
+	}
+}
+
+// Selecting a story highlights it without changing the layout or the bounds.
+func TestHeadlineSelectionRendersBounded(t *testing.T) {
+	r := chromeRenderer(Dense)
+	items := []Headline{
+		{Title: "One", Source: "a"},
+		{Title: "Two is a longer headline that wraps", Source: "b", Selected: true},
+	}
+	out := ansi.Strip(r.RenderHeadlines(items, 24))
+	if !strings.Contains(out, "Two is a longer") {
+		t.Fatalf("selected story text missing:\n%s", out)
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if w := lipgloss.Width(line); w > 24 {
+			t.Fatalf("line too wide (%d): %q", w, line)
+		}
+	}
+	// The selected story still maps to its own row.
+	_, rows := r.RenderHeadlinesRows(items, 24, false)
+	if len(HeadlineRows(items, 24, false)) != len(rows) {
+		t.Fatal("selection changed the row map")
+	}
 }
 
 func TestRenderTasksNotesGitMarkets(t *testing.T) {

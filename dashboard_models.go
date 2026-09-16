@@ -267,8 +267,13 @@ type Headline struct {
 	Title  string
 	Source string
 	Age    string
-	Unread bool
-	Tone   Tone
+	// Link is the story's URL, so a panel can copy it or open it.
+	Link string
+	// Selected marks the story under the panel's cursor, so the renderer can
+	// highlight it.
+	Selected bool
+	Unread   bool
+	Tone     Tone
 }
 
 // Task is one task-list item.

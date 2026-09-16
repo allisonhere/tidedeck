@@ -96,11 +96,11 @@ func TestNewsReadStateSurvivesRefresh(t *testing.T) {
 		{Title: "First story", Source: "BBC World", Unread: true},
 		{Title: "Second story", Source: "BBC World", Unread: true},
 	})
-	if got := panel.markRead(); got != "marked read" {
-		t.Fatalf("markRead = %q", got)
+	if _, got := panel.markReadAt(0); got != "marked read" {
+		t.Fatalf("markReadAt = %q", got)
 	}
 	if panel.Load()[0].Unread {
-		t.Fatal("markRead did not clear the first unread story")
+		t.Fatal("markReadAt did not clear the selected story")
 	}
 
 	// A later fetch hands back both stories as unread, plus a new one.
@@ -120,6 +120,93 @@ func TestNewsReadStateSurvivesRefresh(t *testing.T) {
 	other := panel.applyRead([]tideui.Headline{{Title: "First story", Source: "NPR News", Unread: true}})
 	if !other[0].Unread {
 		t.Fatal("read state leaked across sources")
+	}
+}
+
+// The cursor moves over the stories and clamps at both ends.
+func TestNewsCursorMovesAndClamps(t *testing.T) {
+	panel := &news{}
+	panel.Store([]tideui.Headline{
+		{Title: "One", Link: "https://one"},
+		{Title: "Two", Link: "https://two"},
+	})
+	if !panel.Move(1) {
+		t.Fatal("Move should take the key when there are stories")
+	}
+	if got, ok := panel.Copy(); !ok || got != "https://two" {
+		t.Fatalf("copy after down = %q %v", got, ok)
+	}
+	panel.Move(1) // already at the last: stays
+	panel.Move(-5)
+	if got, _ := panel.Copy(); got != "https://one" {
+		t.Fatalf("copy after clamping up = %q", got)
+	}
+	// An empty list does not take the key, so the arrows still move focus.
+	if (&news{}).Move(1) {
+		t.Fatal("an empty list should not take the key")
+	}
+}
+
+// Activating a story copies its link and marks it read, and a refresh must not
+// resurrect it.
+func TestNewsActivateMarksReadAndCopies(t *testing.T) {
+	panel := &news{}
+	panel.Store([]tideui.Headline{
+		{Title: "First", Source: "BBC", Link: "https://bbc/1", Unread: true},
+		{Title: "Second", Source: "BBC", Link: "https://bbc/2", Unread: true},
+	})
+	panel.Move(1)
+	copied, status := panel.Activate()
+	if copied != "https://bbc/2" || !strings.Contains(status, "marked read") {
+		t.Fatalf("activate = %q %q", copied, status)
+	}
+	if panel.Load()[1].Unread {
+		t.Fatal("activate did not mark the selected story read")
+	}
+	fresh := panel.applyRead([]tideui.Headline{
+		{Title: "First", Source: "BBC", Link: "https://bbc/1", Unread: true},
+		{Title: "Second", Source: "BBC", Link: "https://bbc/2", Unread: true},
+	})
+	if fresh[1].Unread {
+		t.Fatal("a refresh resurrected a story marked read by activate")
+	}
+	if !fresh[0].Unread {
+		t.Fatal("an unselected story should stay unread")
+	}
+}
+
+// A click resolves to the story on that content row and activates it.
+func TestNewsClickSelectsAndActivates(t *testing.T) {
+	panel := &news{}
+	panel.Store([]tideui.Headline{
+		{Title: "First story", Source: "BBC", Link: "https://bbc/1", Unread: true},
+		{Title: "Second story", Source: "BBC", Link: "https://bbc/2", Unread: true},
+	})
+	_ = panel.View(tideui.PanelContext{ID: "news", Width: 40, Renderer: renderer()})
+
+	rows := tideui.HeadlineRows(panel.Load(), 40, false)
+	target := -1
+	for i, story := range rows {
+		if story == 1 {
+			target = i
+			break
+		}
+	}
+	if target < 0 {
+		t.Fatalf("no row for the second story: %v", rows)
+	}
+	copied, status, hit := panel.Click(0, target)
+	if !hit {
+		t.Fatal("click missed the story")
+	}
+	if copied != "https://bbc/2" || !strings.Contains(status, "marked read") {
+		t.Fatalf("click = %q %q", copied, status)
+	}
+	if panel.Load()[1].Unread {
+		t.Fatal("click did not mark the story read")
+	}
+	if _, _, hit := panel.Click(0, len(rows)+5); hit {
+		t.Fatal("a click past the list should miss")
 	}
 }
 
@@ -165,7 +252,7 @@ func TestNewsThroughTheDeck(t *testing.T) {
 	for _, action := range registered.ActionList() {
 		keys[action.Key] = true
 	}
-	for _, want := range []string{"r", "m"} {
+	for _, want := range []string{"r", "enter"} {
 		if !keys[want] {
 			t.Fatalf("missing %q action; got %v", want, keys)
 		}
@@ -178,9 +265,19 @@ func TestNewsThroughTheDeck(t *testing.T) {
 	if badge, ok := deck.Badges()["news"]; !ok || badge.Text != "2" {
 		t.Fatalf("news badge = %#v, want 2", badge)
 	}
-	mark, _ := actionByKey(registered, "m")
-	mark.Handler(ws)
+	// The primary action marks the selected story read and offers its link.
+	panel, ok := deck.Lookup("news")
+	if !ok {
+		t.Fatal("news is not on the deck")
+	}
+	activator, ok := panel.(dash.Activator)
+	if !ok {
+		t.Fatal("news does not implement Activator")
+	}
+	if copied, _ := activator.Activate(); copied == "" {
+		t.Fatal("activate should offer the selected story's link")
+	}
 	if badge, _ := deck.Badges()["news"]; badge.Text != "1" {
-		t.Fatalf("news badge after mark = %#v, want 1", badge)
+		t.Fatalf("news badge after activate = %#v, want 1", badge)
 	}
 }
