@@ -30,13 +30,12 @@ const defaultTimeout = 12 * time.Second
 // nil until the first successful fetch; Errors carries the most recent failure
 // keyed by source name.
 type Snapshot struct {
-	Network   *tideui.NetworkMetrics
-	Storage   []tideui.StorageMount
-	Services  []tideui.ServiceStatus
-	Headlines []tideui.Headline
-	Tasks     []tideui.Task
-	Notes     []tideui.Note
-	Markets   []tideui.MarketQuote
+	Network  *tideui.NetworkMetrics
+	Storage  []tideui.StorageMount
+	Services []tideui.ServiceStatus
+	Tasks    []tideui.Task
+	Notes    []tideui.Note
+	Markets  []tideui.MarketQuote
 
 	Updated time.Time
 	Errors  map[string]error
@@ -109,13 +108,12 @@ func (f *Fetcher[T]) Value() (T, error, bool) {
 
 // Dashboard bundles the available sources. Any field may be nil.
 type Dashboard struct {
-	Network   *Fetcher[tideui.NetworkMetrics]
-	Storage   *Fetcher[[]tideui.StorageMount]
-	Services  *Fetcher[[]tideui.ServiceStatus]
-	Headlines *Fetcher[[]tideui.Headline]
-	Tasks     *Fetcher[[]tideui.Task]
-	Notes     *Fetcher[[]tideui.Note]
-	Markets   *Fetcher[[]tideui.MarketQuote]
+	Network  *Fetcher[tideui.NetworkMetrics]
+	Storage  *Fetcher[[]tideui.StorageMount]
+	Services *Fetcher[[]tideui.ServiceStatus]
+	Tasks    *Fetcher[[]tideui.Task]
+	Notes    *Fetcher[[]tideui.Note]
+	Markets  *Fetcher[[]tideui.MarketQuote]
 }
 
 // Refresh kicks off any stale fetches. Call it from the application tick.
@@ -126,7 +124,6 @@ func (d *Dashboard) Refresh(ctx context.Context) {
 	d.Network.Refresh(ctx)
 	d.Storage.Refresh(ctx)
 	d.Services.Refresh(ctx)
-	d.Headlines.Refresh(ctx)
 	d.Tasks.Refresh(ctx)
 	d.Notes.Refresh(ctx)
 	d.Markets.Refresh(ctx)
@@ -146,9 +143,6 @@ func (d *Dashboard) Snapshot() Snapshot {
 	}
 	if value, ok := read(d.Services, snap.Errors, "services"); ok {
 		snap.Services = value
-	}
-	if value, ok := read(d.Headlines, snap.Errors, "headlines"); ok {
-		snap.Headlines = value
 	}
 	if value, ok := read(d.Tasks, snap.Errors, "tasks"); ok {
 		snap.Tasks = value

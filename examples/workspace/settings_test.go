@@ -585,38 +585,6 @@ func TestSettingsNewsTicksSurviveTogether(t *testing.T) {
 	}
 }
 
-// A refresh returns fresh Headline values with Unread set, so read state has
-// to be re-applied or the mark read action is undone a second later.
-func TestReadHeadlinesSurviveRefresh(t *testing.T) {
-	state := &demoState{headlines: []tideui.Headline{
-		{Title: "First story", Source: "BBC World", Unread: true},
-		{Title: "Second story", Source: "BBC World", Unread: true},
-	}}
-	state.headlines[0].Unread = false
-	state.markHeadlineRead(state.headlines[0])
-
-	// A later fetch hands back both stories as unread, plus a new one.
-	state.headlines = []tideui.Headline{
-		{Title: "Brand new", Source: "BBC World", Unread: true},
-		{Title: "First story", Source: "BBC World", Unread: true},
-		{Title: "Second story", Source: "BBC World", Unread: true},
-	}
-	state.applyReadHeadlines()
-
-	if state.headlines[1].Unread {
-		t.Fatal("a story marked read came back unread after a refresh")
-	}
-	if !state.headlines[0].Unread || !state.headlines[2].Unread {
-		t.Fatalf("unrelated stories should stay unread: %+v", state.headlines)
-	}
-	// The same title from a different source is a different story.
-	state.headlines = []tideui.Headline{{Title: "First story", Source: "NPR News", Unread: true}}
-	state.applyReadHeadlines()
-	if !state.headlines[0].Unread {
-		t.Fatal("read state leaked across sources")
-	}
-}
-
 // Both panels need a settings category, or their enabled/gauge/spark rows
 // never appear and they cannot be toggled from the UI. Both now declare
 // themselves through the deck rather than being listed by hand.

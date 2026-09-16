@@ -104,19 +104,6 @@ func (f *demoFeed) Services() []tideui.ServiceStatus {
 	}
 }
 
-func (f *demoFeed) Headlines() []tideui.Headline {
-	return []tideui.Headline{
-		{Title: "Linux 6.12 released", Source: "kernel.org", Age: "18m", Unread: true, Tone: tideui.ToneAccent},
-		{Title: "New Rust TUI framework", Source: "GitHub", Age: "42m", Unread: true, Tone: tideui.ToneAccent},
-		{Title: "Arch update lands", Source: "archlinux.org", Age: "1h", Tone: tideui.ToneMuted},
-		{Title: "SQLite 3.47 ships", Source: "sqlite.org", Age: "2h", Tone: tideui.ToneMuted},
-		{Title: "Go 1.24 beta available", Source: "go.dev", Age: "3h", Tone: tideui.ToneMuted},
-		{Title: "Rust 1.83 released", Source: "blog.rust-lang.org", Age: "4h", Tone: tideui.ToneMuted},
-		{Title: "Wayland 1.24 planned", Source: "phoronix", Age: "5h", Tone: tideui.ToneMuted},
-		{Title: "Kubernetes 1.32 ships", Source: "k8s.io", Age: "7h", Tone: tideui.ToneMuted},
-	}
-}
-
 func (f *demoFeed) Tasks() []tideui.Task {
 	return []tideui.Task{
 		{Title: "Finish TideDeck", Due: "today", Tone: tideui.ToneWarning, Tags: []string{"#tide"}},

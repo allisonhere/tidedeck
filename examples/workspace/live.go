@@ -35,9 +35,6 @@ func newLiveSource(cfg config) *liveSource {
 		Network: provider.NewFetcher(time.Second, provider.Network(strings.TrimSpace(cfg.Interface))),
 		Storage: provider.NewFetcher(2*time.Minute, provider.Storage()),
 	}
-	if feeds := list(cfg.Feeds); len(feeds) > 0 {
-		dashboard.Headlines = provider.NewFetcher(5*time.Minute, provider.Feed(feeds...))
-	}
 	if todo := expandPath(strings.TrimSpace(cfg.Todo)); todo != "" {
 		dashboard.Tasks = provider.NewFetcher(30*time.Second, provider.TodoTxt(todo))
 	}

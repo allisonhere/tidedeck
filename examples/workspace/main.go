@@ -76,15 +76,10 @@ type demoState struct {
 	lastStatus string
 	statusAge  int
 
-	tasks     []tideui.Task
-	headlines []tideui.Headline
-	// readHeadlines remembers what has been marked read. Every refresh returns
-	// fresh Headline values with Unread set, so without this the mark read
-	// action is undone by the next tick and the badge never clears.
-	readHeadlines map[string]bool
-	services      []tideui.ServiceStatus
-	notes         []tideui.Note
-	mounts        []tideui.StorageMount
+	tasks    []tideui.Task
+	services []tideui.ServiceStatus
+	notes    []tideui.Note
+	mounts   []tideui.StorageMount
 }
 
 type model struct {
@@ -127,7 +122,6 @@ func newModel() model {
 		clockFont: tideui.ClockFont(clockFontOrDefault(cfg.ClockFont)),
 		icons:     tideui.IconStyle(iconStyleOrDefault(cfg.Icons)),
 		tasks:     feed.Tasks(),
-		headlines: feed.Headlines(),
 		services:  feed.Services(),
 		notes:     feed.Notes(),
 		mounts:    feed.Storage(),
@@ -156,7 +150,7 @@ func newModel() model {
 	// Panels are registered in the order the hand-written registrations used to
 	// sit, so the deck attaches them — and the settings list orders them — the
 	// way the dashboard always did.
-	deck.Register(panels.Agenda(), panels.System(), panels.Weather(), panels.GPU(), panels.Updates(), panels.Clock(), panels.Git())
+	deck.Register(panels.Agenda(), panels.System(), panels.Weather(), panels.GPU(), panels.Updates(), panels.Clock(), panels.Git(), panels.News())
 	deck.OnStatus(func(message string) { state.status = message })
 	registerPanels(ws, state, deck)
 	registerPresets(ws)
@@ -221,13 +215,12 @@ func (m *model) applyConfig() {
 	if m.cfg.Live {
 		m.state.live = newLiveSource(m.cfg)
 		m.state.source = m.state.live
-		m.state.tasks, m.state.headlines, m.state.services = nil, nil, nil
+		m.state.tasks, m.state.services = nil, nil
 		m.state.notes, m.state.mounts = nil, nil
 	} else {
 		m.state.live = nil
 		m.state.source = m.feed
 		m.state.tasks = m.feed.Tasks()
-		m.state.headlines = m.feed.Headlines()
 		m.state.services = m.feed.Services()
 		m.state.notes = m.feed.Notes()
 		m.state.mounts = m.feed.Storage()
@@ -321,23 +314,6 @@ func registerPanels(ws *tideui.Workspace, state *demoState, deck *dash.Deck) {
 				state.status = "all services healthy"
 			}).Labeled("restart"),
 			tideui.Action("logs", "l", func(*tideui.Workspace) { state.status = "opening service logs" }).Labeled("logs"),
-		)
-
-	ws.Panel("news", newsPanel(state)).
-		Title("News").Subtitle("feeds").Role(tideui.RoleSecondary).Priority(68).MinWidth(22).MinHeight(6).HideBelow(78).
-		Actions(
-			tideui.Action("refresh", "r", func(*tideui.Workspace) { state.status = "feeds refreshed" }).Labeled("refresh"),
-			tideui.Action("mark", "m", func(*tideui.Workspace) {
-				for i := range state.headlines {
-					if state.headlines[i].Unread {
-						state.headlines[i].Unread = false
-						state.markHeadlineRead(state.headlines[i])
-						state.status = "marked read"
-						return
-					}
-				}
-				state.status = "nothing unread"
-			}).Labeled("mark read"),
 		)
 
 	ws.Panel("tasks", tasksPanel(state)).
@@ -439,10 +415,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if snapshot.Tasks != nil {
 				m.state.tasks = snapshot.Tasks
 			}
-			if snapshot.Headlines != nil {
-				m.state.headlines = snapshot.Headlines
-				m.state.applyReadHeadlines()
-			}
 			if snapshot.Services != nil {
 				m.state.services = snapshot.Services
 			}
@@ -500,51 +472,11 @@ func lookupCmd(query string) tea.Cmd {
 	}
 }
 
-// headlineKey identifies a story across refreshes. Headline carries no link,
-// so title and source are what there is to go on; a repeat of both is the
-// same story for this purpose.
-func headlineKey(h tideui.Headline) string {
-	return h.Source + "\x00" + h.Title
-}
-
-// markHeadlineRead records a story as read so a refresh cannot resurrect it.
-func (s *demoState) markHeadlineRead(h tideui.Headline) {
-	if s.readHeadlines == nil {
-		s.readHeadlines = make(map[string]bool)
-	}
-	s.readHeadlines[headlineKey(h)] = true
-}
-
-// applyReadHeadlines re-applies what has been read to a freshly fetched list.
-func (s *demoState) applyReadHeadlines() {
-	if len(s.readHeadlines) == 0 {
-		return
-	}
-	for i := range s.headlines {
-		if s.readHeadlines[headlineKey(s.headlines[i])] {
-			s.headlines[i].Unread = false
-		}
-	}
-}
-
 func (m model) refreshBadges() {
-	unread := 0
-	for _, h := range m.state.headlines {
-		if h.Unread {
-			unread++
-		}
-	}
 	// Panels on the deck advertise their own badges.
 	for id, badge := range m.deck.Badges() {
 		if panel, ok := m.ws.Lookup(id); ok {
 			panel.Badge(badge.Text).BadgeTone(badge.Tone)
-		}
-	}
-	if panel, ok := m.ws.Lookup("news"); ok {
-		if unread > 0 {
-			panel.Badge(fmt.Sprintf("%d", unread)).BadgeTone(tideui.ToneMuted)
-		} else {
-			panel.Badge("")
 		}
 	}
 	open := 0
