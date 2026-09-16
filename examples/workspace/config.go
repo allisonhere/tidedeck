@@ -93,6 +93,11 @@ func configPath() string {
 	return filepath.Join(userConfigDir(), "tidedeck", "config.json")
 }
 
+// pluginsDir is where installed plugins live: one subdirectory each.
+func pluginsDir() string {
+	return filepath.Join(userConfigDir(), "tidedeck", "plugins")
+}
+
 // loadConfig reads the config file, falling back to defaults when it is
 // missing or unreadable so the app always starts.
 func loadConfig() config {

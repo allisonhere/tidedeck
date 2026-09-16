@@ -106,25 +106,58 @@ func (d *Deck) Attach(ws *tideui.Workspace) {
 		return
 	}
 	for _, panel := range d.order {
-		meta := panel.Meta()
-		view := panel.View // captured per panel, not per loop iteration
-		builder := ws.Panel(meta.ID, func(ctx tideui.PanelContext) string { return view(ctx) }).
-			Title(meta.Title).Role(meta.Role).Priority(meta.Priority).
-			MinWidth(meta.MinWidth).MinHeight(meta.MinHeight)
-		if meta.Subtitle != "" {
-			builder = builder.Subtitle(meta.Subtitle)
-		}
-		if meta.HideBelow > 0 {
-			builder = builder.HideBelow(meta.HideBelow)
-		}
-		if meta.Theme.Name != "" {
-			builder = builder.Theme(meta.Theme)
-		}
-		if meta.Hidden {
-			builder = builder.Hide()
-		}
-		if actor, ok := panel.(Actor); ok {
-			builder.Actions(d.actions(meta.ID, actor)...)
+		d.attachOne(ws, panel)
+	}
+}
+
+// AttachPanel attaches a single panel, for one that was added or replaced at
+// runtime - a plugin installed while the app is running. A panel that already
+// exists has its view and metadata refreshed in place. Do not attach a panel
+// that advertises actions twice: Actions appends, so a second attach would
+// duplicate them. Plugins declare no actions, so this is safe for them.
+func (d *Deck) AttachPanel(ws *tideui.Workspace, panel Panel) {
+	if ws == nil || panel == nil {
+		return
+	}
+	d.attachOne(ws, panel)
+}
+
+func (d *Deck) attachOne(ws *tideui.Workspace, panel Panel) {
+	meta := panel.Meta()
+	view := panel.View // captured per panel, not per loop iteration
+	builder := ws.Panel(meta.ID, func(ctx tideui.PanelContext) string { return view(ctx) }).
+		Title(meta.Title).Role(meta.Role).Priority(meta.Priority).
+		MinWidth(meta.MinWidth).MinHeight(meta.MinHeight)
+	if meta.Subtitle != "" {
+		builder = builder.Subtitle(meta.Subtitle)
+	}
+	if meta.HideBelow > 0 {
+		builder = builder.HideBelow(meta.HideBelow)
+	}
+	if meta.Theme.Name != "" {
+		builder = builder.Theme(meta.Theme)
+	}
+	if meta.Hidden {
+		builder = builder.Hide()
+	}
+	if actor, ok := panel.(Actor); ok {
+		builder.Actions(d.actions(meta.ID, actor)...)
+	}
+}
+
+// Unregister removes a panel from the deck, so it is no longer refreshed,
+// configured, listed or badged. The workspace panel is removed separately.
+func (d *Deck) Unregister(id string) {
+	if _, ok := d.index[id]; !ok {
+		return
+	}
+	delete(d.index, id)
+	delete(d.last, id)
+	delete(d.errs, id)
+	for i, panel := range d.order {
+		if panel.Meta().ID == id {
+			d.order = append(d.order[:i], d.order[i+1:]...)
+			break
 		}
 	}
 }

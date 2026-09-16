@@ -2,8 +2,11 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/allisonhere/tideui"
 	"github.com/allisonhere/tideui/dash"
@@ -117,4 +120,87 @@ func TestStartupAppliesTheSavedConfig(t *testing.T) {
 	})); !strings.Contains(got, "Loading") {
 		t.Fatalf("weather was not configured at startup: %q", got)
 	}
+}
+
+// Installing a plugin from the settings screen registers its panel hidden,
+// adds its own settings category, and removing it takes the panel away again.
+// The install is a local directory, so nothing reaches the network.
+func TestInstallAndRemovePluginFromSettings(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	source := t.TempDir()
+	manifest := `{"schemaVersion":1,"id":"author.thing","name":"Thing","version":"1.0.0",` +
+		`"author":"author","description":"does a thing","kinds":["panel"],` +
+		`"entryPoints":{"panel":["./run.sh"]}}`
+	if err := os.WriteFile(filepath.Join(source, "manifest.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "run.sh"), []byte("#!/bin/sh\necho '{}'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	m := newModel()
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	openCategory(t, m.settings, "Plugins")
+	m.settings.state.pluginSource = source
+
+	// The Install button queues the operation; the model runs it.
+	install := fieldByLabel(t, m.settings, "Install")
+	install.action()
+	op, ok := m.settings.TakePluginOp()
+	if !ok || op.kind != "install" {
+		t.Fatalf("queued op = %+v, ok = %v", op, ok)
+	}
+	msg := pluginOpCmd(op)().(pluginOpMsg)
+	m.applyPluginOp(msg)
+	if msg.err != nil {
+		t.Fatalf("install failed: %v", msg.err)
+	}
+
+	if _, ok := m.ws.Lookup("author.thing"); !ok {
+		t.Fatal("installed plugin was not registered")
+	}
+	if !m.ws.Hidden("author.thing") {
+		t.Fatal("an installed plugin should start hidden")
+	}
+	if !hasCategory(m.settings, "Thing") {
+		t.Fatalf("plugin category missing: %+v", m.settings.categories)
+	}
+
+	// Remove it again.
+	openCategory(t, m.settings, "Plugins")
+	remove := fieldByLabel(t, m.settings, "remove Thing 1.0.0")
+	remove.action()
+	op, _ = m.settings.TakePluginOp()
+	msg = pluginOpCmd(op)().(pluginOpMsg)
+	m.applyPluginOp(msg)
+	if msg.err != nil {
+		t.Fatalf("remove failed: %v", msg.err)
+	}
+	if _, ok := m.ws.Lookup("author.thing"); ok {
+		t.Fatal("plugin is still registered after removal")
+	}
+	if hasCategory(m.settings, "Thing") {
+		t.Fatal("plugin category survived removal")
+	}
+}
+
+// fieldByLabel finds a settings row by its label.
+func fieldByLabel(t *testing.T, form *settingsForm, label string) formField {
+	t.Helper()
+	for _, field := range form.currentFields() {
+		if field.label == label {
+			return field
+		}
+	}
+	t.Fatalf("no field labelled %q in %+v", label, form.currentFields())
+	return formField{}
+}
+
+func hasCategory(form *settingsForm, name string) bool {
+	for _, category := range form.categories {
+		if category.name == name {
+			return true
+		}
+	}
+	return false
 }

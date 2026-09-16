@@ -105,6 +105,38 @@ func TestRefreshInDemoRunsOnlyAlwaysLive(t *testing.T) {
 	}
 }
 
+// A panel added at runtime is attached on its own, without re-attaching (and
+// so re-adding the actions of) the panels already there.
+func TestAttachPanelAddsOne(t *testing.T) {
+	deck := New()
+	deck.Register(newFake("a", 0))
+	ws := tideui.NewWorkspace()
+	deck.Attach(ws)
+
+	plugin := newFake("author.plugin", 0)
+	deck.Register(plugin)
+	deck.AttachPanel(ws, plugin)
+	if _, ok := ws.Lookup("author.plugin"); !ok {
+		t.Fatal("runtime panel was not attached")
+	}
+}
+
+func TestUnregisterRemovesAPanel(t *testing.T) {
+	deck := New()
+	a, b := newFake("a", 0), newFake("b", 0)
+	deck.Register(a, b)
+	ws := tideui.NewWorkspace()
+	deck.Attach(ws)
+
+	deck.Unregister("a")
+	if _, ok := deck.Lookup("a"); ok {
+		t.Fatal("unregistered panel is still in the deck")
+	}
+	if _, ok := deck.Lookup("b"); !ok {
+		t.Fatal("unregistering a removed another panel")
+	}
+}
+
 func newFake(id string, interval time.Duration) *fake {
 	return &fake{meta: Meta{ID: id, Title: id, Interval: interval, MinWidth: 10, MinHeight: 4}}
 }

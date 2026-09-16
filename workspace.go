@@ -500,6 +500,38 @@ func (ws *Workspace) Show(id string) bool {
 	return true
 }
 
+// RemovePanel unregisters a panel entirely: it leaves the panel list, the
+// layout tree and the view state. Unlike Hide, it cannot be shown again, so it
+// is for a panel that no longer exists - an uninstalled plugin.
+func (ws *Workspace) RemovePanel(id string) bool {
+	if _, ok := ws.panels[id]; !ok {
+		return false
+	}
+	delete(ws.panels, id)
+	delete(ws.hidden, id)
+	for i, existing := range ws.order {
+		if existing == id {
+			ws.order = append(ws.order[:i], ws.order[i+1:]...)
+			break
+		}
+	}
+	if ws.root != nil {
+		ws.root, _ = RemovePanel(ws.root, id)
+	}
+	if ws.solvedTree != nil {
+		ws.solvedTree, _ = RemovePanel(ws.solvedTree, id)
+	}
+	if ws.zoomed == id {
+		ws.zoomed = ""
+	}
+	if ws.peeked == id {
+		ws.peeked = ""
+	}
+	ws.ensureFocus()
+	ws.commit()
+	return true
+}
+
 // TogglePanel flips a panel's manual visibility.
 func (ws *Workspace) TogglePanel(id string) bool {
 	if ws.isHidden(id) {

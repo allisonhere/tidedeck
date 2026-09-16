@@ -424,6 +424,30 @@ func TestWorkspaceArrangeDownJoinsTargetRow(t *testing.T) {
 	}
 }
 
+// Removing a panel takes it out of the workspace entirely, tree included, so an
+// uninstalled plugin leaves no empty split behind.
+func TestRemovePanelRemovesItEntirely(t *testing.T) {
+	ws := NewWorkspace(WithGap(0))
+	ws.Panel("a", Text("a")).MinWidth(4).MinHeight(3)
+	ws.Panel("b", Text("b")).MinWidth(4).MinHeight(3)
+	ws.Layout(HStack(Leaf("a"), Leaf("b")))
+	ws.Solve(40, 10)
+
+	if !ws.RemovePanel("a") {
+		t.Fatal("RemovePanel reported nothing removed")
+	}
+	if _, ok := ws.Lookup("a"); ok {
+		t.Fatal("a is still registered")
+	}
+	solved := ws.Solve(40, 10)
+	if _, ok := solved.Rects["a"]; ok {
+		t.Fatal("a is still in the layout")
+	}
+	if _, ok := solved.Rects["b"]; !ok {
+		t.Fatal("removing a removed b too")
+	}
+}
+
 // A panel declared hidden stays hidden in a preset that does not name it, so a
 // plugin does not drop into every preset just by being installed. It can still
 // be enabled, and once shown it stays shown.

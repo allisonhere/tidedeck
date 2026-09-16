@@ -142,7 +142,7 @@ func newModel() model {
 	// manifest that does not validate is skipped with its reason rather than
 	// failing the rest, and a plugin starts hidden until it is enabled from
 	// the panel picker or settings.
-	plugins, problems := dash.LoadPlugins(filepath.Join(userConfigDir(), "tidedeck", "plugins"))
+	plugins, problems := dash.LoadPlugins(pluginsDir())
 	deck.Register(plugins...)
 	deck.OnStatus(func(message string) { state.status = message })
 	switch {
@@ -349,6 +349,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.settings.ApplyLookup(msg.place, msg.err)
 		}
 		return m, nil
+	case pluginOpMsg:
+		m.applyPluginOp(msg)
+		return m, nil
 	case tea.MouseMsg:
 		if m.ws.HandleMouse(msg) {
 			return m, nil
@@ -375,6 +378,74 @@ func lookupCmd(query string) tea.Cmd {
 	}
 }
 
+type pluginOpMsg struct {
+	op       pluginOp
+	manifest dash.Manifest
+	err      error
+}
+
+// pluginOpCmd runs a plugin install, update or removal off the UI goroutine: a
+// clone is a network call, so it must not run in Update.
+func pluginOpCmd(op pluginOp) tea.Cmd {
+	return func() tea.Msg {
+		switch op.kind {
+		case "install":
+			manifest, err := dash.Install(pluginsDir(), op.value)
+			return pluginOpMsg{op: op, manifest: manifest, err: err}
+		case "update":
+			manifest, err := dash.Update(pluginsDir(), op.value)
+			return pluginOpMsg{op: op, manifest: manifest, err: err}
+		case "remove":
+			return pluginOpMsg{op: op, err: dash.Remove(pluginsDir(), op.value)}
+		default:
+			return pluginOpMsg{op: op, err: fmt.Errorf("unknown plugin operation %q", op.kind)}
+		}
+	}
+}
+
+// applyPluginOp registers, replaces or removes the panel for a finished plugin
+// operation, then rebuilds the settings pages so the Plugins list and the
+// plugin's own category are current.
+func (m *model) applyPluginOp(msg pluginOpMsg) {
+	if msg.err != nil {
+		m.state.status = "plugin: " + msg.err.Error()
+		if m.settings.Opened() {
+			m.settings.ApplyPluginOp("", msg.err)
+		}
+		return
+	}
+	switch msg.op.kind {
+	case "install", "update":
+		panel := dash.Exec(msg.manifest)
+		m.deck.Register(panel)
+		m.deck.AttachPanel(m.ws, panel)
+		m.deck.Configure(m.values())
+		m.refreshBadges()
+		if msg.op.kind == "install" {
+			m.state.status = "installed " + msg.manifest.Name + " — enable it to run"
+			if m.settings.Opened() {
+				m.settings.ApplyPluginOp("installed "+msg.manifest.Name+" — enable it above", nil)
+			}
+		} else {
+			m.state.status = "updated " + msg.manifest.Name
+			if m.settings.Opened() {
+				m.settings.ApplyPluginOp("updated "+msg.manifest.Name, nil)
+			}
+		}
+	case "remove":
+		m.deck.Unregister(msg.op.value)
+		m.ws.RemovePanel(msg.op.value)
+		m.refreshBadges()
+		m.state.status = "plugin removed"
+		if m.settings.Opened() {
+			m.settings.ApplyPluginOp("plugin removed", nil)
+		}
+	}
+	if m.settings.Opened() {
+		m.settings.Reload(m.cfg)
+	}
+}
+
 func (m model) refreshBadges() {
 	// Panels on the deck advertise their own badges.
 	for id, badge := range m.deck.Badges() {
@@ -392,6 +463,9 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.applyStylePreview()
 		if query := m.settings.TakeLookup(); query != "" {
 			return m, lookupCmd(query)
+		}
+		if op, ok := m.settings.TakePluginOp(); ok {
+			return m, pluginOpCmd(op)
 		}
 		switch action {
 		case settingsSaved:

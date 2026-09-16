@@ -193,7 +193,9 @@ func LoadPlugins(dir string) ([]Panel, []error) {
 	var panels []Panel
 	var problems []error
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		// A dot-prefixed directory is a staging or editor directory, not a
+		// plugin.
+		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
 			continue
 		}
 		manifest, err := LoadManifest(filepath.Join(dir, entry.Name()))

@@ -1069,6 +1069,12 @@ reason rather than stopping the others from loading, and a missing plugin
 directory is the normal case, not an error. `dash.Exec(manifest)` builds a
 single one.
 
+To install one at runtime, `dash.Install(dir, source)` clones (or copies) a
+source into staging, validates it, and moves it into `dir`; `dash.Installed(dir)`
+lists what is there, and `dash.Remove`/`dash.Update` delete or `git pull` one.
+A panel added while the app is running is attached with `deck.AttachPanel(ws,
+panel)` and removed with `deck.Unregister(id)` plus `ws.RemovePanel(id)`.
+
 Failure of any kind — a non-zero exit, unparseable output, a timeout, more than
 1 MB printed, or a `schemaVersion` this build does not know — keeps the last
 good document and records the error, exactly as a failing provider does.
@@ -1078,11 +1084,15 @@ that leaves a child holding the output pipe is bounded too.
 
 #### Installing and removing one
 
-Plugins are discovered once, at startup: **drop a directory into
-`~/.config/tidedeck/plugins/` to add one, delete it to remove one**, then
-restart. There is no in-process watcher, so nothing reloads mid-session. A
-manifest that does not validate is skipped and its reason is shown in the
-status strip; the others still load.
+Open settings (`s`) → **Plugins**. Paste a plugin's repository URL — or a local
+directory, useful while writing one — and press **Install**. The app clones
+into `~/.config/tidedeck/plugins/` off the UI thread, validates the manifest,
+and registers the panel. Each installed plugin is listed with an **update**
+(`git pull`) and a **remove** row. The same can be done by hand: drop a
+directory into `~/.config/tidedeck/plugins/` and restart.
+
+A manifest that does not validate is skipped and its reason is shown in the
+status strip (or on its row in the Plugins page); the others still load.
 
 A plugin **starts hidden**, so installing one does not rearrange every preset.
 Enable it from the panel picker (`space`) or from its page in settings, which
@@ -1091,6 +1101,10 @@ demo/live setting says: a plugin is a real program, not the sample data demo
 mode stands in for. Its settings live under `plugins.<id>.<key>` in the
 configuration document, and those keys are preserved when the plugin is
 removed, so reinstalling it restores its settings.
+
+**Installing runs no plugin code**: a clone does not execute anything the
+repository ships. The program first runs when the panel is enabled and
+refreshed, which is the moment to trust it.
 
 **Plugins run unsandboxed, with your user permissions.** This is an extension
 mechanism for a single-user dashboard, not a security boundary, and there is no

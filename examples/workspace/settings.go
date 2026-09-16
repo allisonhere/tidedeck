@@ -101,6 +101,9 @@ type formState struct {
 	panelSparks map[string]string
 	feeds       string // custom URLs only; catalogue URLs live in feedPresets
 	feedPresets []bool // one per provider.NewsSources(), same order
+	// pluginSource is the plugin install field. It is transient: the value is
+	// acted on, not stored, so it is not a configuration key.
+	pluginSource string
 }
 
 func formFromConfig(cfg config) formState {
@@ -295,6 +298,17 @@ type settingsForm struct {
 
 	pendingLookup string
 	lookingUp     bool
+
+	// pendingPlugin is a plugin install, update or removal the model runs off
+	// the UI goroutine, the way pendingLookup is a geocoding request.
+	pendingPlugin pluginOp
+}
+
+// pluginOp is a queued plugin operation. value is the source for an install,
+// or the plugin id for an update or removal.
+type pluginOp struct {
+	kind  string // "install", "update" or "remove"
+	value string
 }
 
 // SavedConfig returns the config produced by the most recent save.
@@ -383,6 +397,7 @@ func (s *settingsForm) buildCategories() []settingsCategory {
 			{label: "clock font", kind: fieldChoice, choice: &s.state.clockFont, options: clockFontNames()},
 			{label: "icons", kind: fieldChoice, choice: &s.state.icons, options: iconStyleNames()},
 		}},
+		{name: "Plugins", fields: s.pluginFields()},
 		{name: "Weather", panelID: "weather", fields: []formField{
 			{label: "city or ZIP", kind: fieldText, text: &s.state.place},
 			{label: "Look up coordinates", kind: fieldAction, action: s.lookupCoordinates},
@@ -665,6 +680,119 @@ func (s formState) applyPanelFields(document dash.Values, deck *dash.Deck) (dash
 		}
 	}
 	return out, nil
+}
+
+// pluginFields builds the Plugins page: a field to paste a source into, an
+// Install button, and a row per installed plugin for updating or removing it.
+// Enabling a plugin is its own category's visibility toggle, so it is not
+// duplicated here.
+func (s *settingsForm) pluginFields() []formField {
+	fields := []formField{
+		{label: "install from URL or path", kind: fieldText, text: &s.state.pluginSource},
+		{label: "Install", kind: fieldAction, action: s.installPlugin},
+	}
+	for _, info := range dash.Installed(pluginsDir()) {
+		if info.Problem != nil {
+			problem := info.Problem
+			name := info.DisplayName()
+			fields = append(fields, formField{label: "broken: " + name, kind: fieldAction, action: func() settingsAction {
+				s.problem = problem.Error()
+				return settingsNone
+			}})
+			continue
+		}
+		id := info.Manifest.ID
+		label := info.DisplayName() + " " + info.Manifest.Version
+		fields = append(fields,
+			formField{label: "update " + label, kind: fieldAction, action: func() settingsAction {
+				s.beginPluginOp("update", id)
+				return settingsNone
+			}},
+			formField{label: "remove " + label, kind: fieldAction, action: func() settingsAction {
+				s.beginPluginOp("remove", id)
+				return settingsNone
+			}},
+		)
+	}
+	return fields
+}
+
+// installPlugin queues an install for the URL or path in the field. The clone
+// runs off the UI goroutine, like the geocoder: the model takes the queued
+// operation and reports the result back.
+func (s *settingsForm) installPlugin() settingsAction {
+	source := strings.TrimSpace(s.state.pluginSource)
+	if source == "" {
+		s.problem = "paste a plugin URL or path first"
+		return settingsNone
+	}
+	s.beginPluginOp("install", source)
+	return settingsNone
+}
+
+// beginPluginOp queues a plugin operation and shows it as in progress.
+func (s *settingsForm) beginPluginOp(kind, value string) {
+	s.pendingPlugin = pluginOp{kind: kind, value: value}
+	switch kind {
+	case "install":
+		s.problem = "installing " + value + "…"
+	case "update":
+		s.problem = "updating " + value + "…"
+	case "remove":
+		s.problem = "removing " + value + "…"
+	default:
+		s.problem = kind + " " + value + "…"
+	}
+}
+
+// TakePluginOp returns and clears a queued plugin operation, if any.
+func (s *settingsForm) TakePluginOp() (pluginOp, bool) {
+	if s.pendingPlugin.kind == "" {
+		return pluginOp{}, false
+	}
+	op := s.pendingPlugin
+	s.pendingPlugin = pluginOp{}
+	return op, true
+}
+
+// ApplyPluginOp records the result of a plugin operation. On success the
+// install field is cleared, so a second Enter does not try the same source
+// again.
+func (s *settingsForm) ApplyPluginOp(message string, err error) {
+	if err != nil {
+		s.problem = err.Error()
+		return
+	}
+	s.problem = message
+	if s.state != nil && strings.TrimSpace(s.state.pluginSource) != "" {
+		s.state.pluginSource = ""
+	}
+}
+
+// Reload rebuilds the form from the configuration after the set of panels
+// changed - a plugin was installed or removed - keeping the open category.
+// Panel edit buffers are re-seeded from the saved document, so unsaved edits to
+// other fields are dropped; installing or removing is a deliberate enough act
+// that this is the predictable behaviour.
+func (s *settingsForm) Reload(cfg config) {
+	if !s.opened {
+		return
+	}
+	current := ""
+	if s.category >= 0 && s.category < len(s.categories) {
+		current = s.categories[s.category].name
+	}
+	s.loadPanelFields(cfg)
+	s.categories = s.buildCategories()
+	for i, category := range s.categories {
+		if category.name == current {
+			s.category = i
+			break
+		}
+	}
+	if s.cursor >= len(s.currentFields()) {
+		s.cursor = 0
+	}
 }
 
 func (s *settingsForm) panelField(id string) *formField {

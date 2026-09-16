@@ -201,11 +201,7 @@ func TestSettingsPanelToggles(t *testing.T) {
 	form.Open(config{})
 
 	// Weather's own settings page opens with an enable/disable toggle.
-	form.Update(tea.KeyMsg{Type: tea.KeyDown}) // General -> Weather
-	if got := form.categories[form.category].name; got != "Weather" {
-		t.Fatalf("category = %q, want Weather", got)
-	}
-	form.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	openCategory(t, form, "Weather")
 	field := form.currentField()
 	if field == nil || field.kind != fieldPanel || field.panel != "weather" {
 		t.Fatalf("first Weather field = %+v, want the panel toggle", field)
@@ -458,11 +454,7 @@ func TestSettingsCategoryNavigation(t *testing.T) {
 	if form.view != viewCategories {
 		t.Fatal("esc did not return to the categories")
 	}
-	form.Update(tea.KeyMsg{Type: tea.KeyDown})
-	form.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if got := form.categories[form.category].name; got != "Weather" {
-		t.Fatalf("category = %q, want Weather", got)
-	}
+	openCategory(t, form, "Weather")
 	found := false
 	for _, field := range form.currentFields() {
 		if field.label == "Look up coordinates" {
