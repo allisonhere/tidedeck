@@ -74,12 +74,16 @@ func TestCalculatorClearAction(t *testing.T) {
 	for _, r := range "7+7" {
 		c.Type(r)
 	}
-	actions := c.Actions()
-	// Clear cannot be "c" any more: "c" is the copy key.
-	if len(actions) != 1 || actions[0].Key != "x" {
-		t.Fatalf("actions = %#v", actions)
+	byID := map[string]dash.Action{}
+	for _, action := range c.Actions() {
+		byID[action.ID] = action
 	}
-	actions[0].Run()
+	// Clear cannot be "c" any more: "c" is the copy key, advertised as a hint
+	// because the application performs it.
+	if byID["copy"].Key != "c" || byID["clear"].Key != "x" {
+		t.Fatalf("actions = %#v", c.Actions())
+	}
+	byID["clear"].Run()
 	if got := c.Load().expr; got != "" {
 		t.Fatalf("clear left %q", got)
 	}

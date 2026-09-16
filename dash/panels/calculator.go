@@ -65,13 +65,15 @@ func (c *calculator) Backspace() bool {
 // reset clears the pad, for the panel's own "clear" action.
 func (c *calculator) reset() { c.Store(calcState{}) }
 
-// Actions offers a clear key. "c" is reserved for copy, which the application
-// handles, so clearing lives on "x".
+// Actions advertises the two keys on the panel's footer. "c" is performed by
+// the application, which owns the clipboard, so its action is a hint only;
+// clearing is the panel's own and lives on "x".
 func (c *calculator) Actions() []dash.Action {
-	return []dash.Action{{
-		ID: "clear", Key: "x", Label: "clear",
-		Run: func() string { c.reset(); return "calculator cleared" },
-	}}
+	return []dash.Action{
+		{ID: "copy", Key: "c", Label: "copy"},
+		{ID: "clear", Key: "x", Label: "clear",
+			Run: func() string { c.reset(); return "calculator cleared" }},
+	}
 }
 
 // Copy returns the result, so "c" puts the value on the clipboard. A pad that

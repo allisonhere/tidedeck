@@ -362,13 +362,21 @@ func TestCopyFromCalculator(t *testing.T) {
 			m = update(t, m, cmd())
 		}
 	}
-	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
 	m = next.(model)
-	if cmd == nil {
-		t.Fatal("c produced no copy command")
-	}
 	if !strings.Contains(m.state.status, "96") {
 		t.Fatalf("status = %q, want the copied value", m.state.status)
+	}
+	if m.state.clipboard != "96" {
+		t.Fatalf("clipboard = %q, want 96", m.state.clipboard)
+	}
+	// The sequence rides in the frame, so the renderer cannot split it, and it
+	// is cleared once it has been sent.
+	if frame := m.View(); !strings.Contains(frame, "OTY=") {
+		t.Fatal("the frame does not carry the OSC 52 sequence")
+	}
+	if m.state.clipboard != "" {
+		t.Fatalf("clipboard not cleared after a frame: %q", m.state.clipboard)
 	}
 }
 

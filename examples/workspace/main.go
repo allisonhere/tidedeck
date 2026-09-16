@@ -67,6 +67,10 @@ type demoState struct {
 	density tideui.Density
 	now     time.Time
 	status  string
+	// clipboard is text to write as an OSC 52 sequence in the next frame. It is
+	// carried through the View rather than written from a command, so it goes
+	// out in the same buffered write as the frame and cannot be split by it.
+	clipboard string
 
 	gauge     tideui.GaugeStyle
 	spark     tideui.SparklineStyle
@@ -483,19 +487,6 @@ func (m model) focusedCopy() (string, bool) {
 	return copier.Copy()
 }
 
-type copiedMsg struct{ text string }
-
-// copyToClipboardCmd puts text on the terminal clipboard. It uses OSC 52, which
-// the terminal answers itself, so copying works over SSH and needs no clipboard
-// program. The write goes to the terminal directly; the clipboard is set even
-// though the next frame repaints over it.
-func copyToClipboardCmd(text string) tea.Cmd {
-	return func() tea.Msg {
-		fmt.Fprint(os.Stdout, osc52(text))
-		return copiedMsg{text: text}
-	}
-}
-
 // osc52 is the escape sequence that sets the system clipboard.
 func osc52(text string) string {
 	encoded := base64.StdEncoding.EncodeToString([]byte(text))
@@ -603,7 +594,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "c":
 			if text, ok := m.focusedCopy(); ok {
 				m.state.status = "copied: " + summarize(text)
-				return m, copyToClipboardCmd(text)
+				m.state.clipboard = text
 			}
 			return m, nil
 		case "d":
@@ -772,21 +763,33 @@ func (m model) View() string {
 	// when the secondary metadata is truncated on a narrow terminal.
 	wr.Options.StatusNotice = m.state.status
 	base := wr.Render(m.ws, m.width, m.height)
-
+	out := ""
 	if m.settings.Opened() {
-		overlay := m.settings.Render(renderer, m.width, m.height)
-		if overlay.Visible {
-			return renderer.OverlayModal(base, overlay.Content, m.width, m.height)
+		if overlay := m.settings.Render(renderer, m.width, m.height); overlay.Visible {
+			out = renderer.OverlayModal(base, overlay.Content, m.width, m.height)
 		}
 	}
-	if overlay := m.ws.Overlay(renderer); overlay != nil && overlay.Visible {
-		return renderer.OverlayModal(base, overlay.Content, m.width, m.height)
+	if out == "" {
+		if overlay := m.ws.Overlay(renderer); overlay != nil && overlay.Visible {
+			out = renderer.OverlayModal(base, overlay.Content, m.width, m.height)
+		}
 	}
-	if m.picker.Opened() {
+	if out == "" && m.picker.Opened() {
 		overlay := m.picker.SoftModal(renderer, min(48, m.width-4), m.height, "tidedeck")
-		return renderer.OverlayModal(base, overlay.Content, m.width, m.height)
+		out = renderer.OverlayModal(base, overlay.Content, m.width, m.height)
 	}
-	return base
+	if out == "" {
+		out = base
+	}
+	// A copy rides in the frame rather than being written from a command: the
+	// renderer writes frames on its own goroutine, so a separate write could be
+	// split by one and the terminal would drop the malformed sequence. Clearing
+	// here sends it exactly once.
+	if m.state.clipboard != "" {
+		out = osc52(m.state.clipboard) + out
+		m.state.clipboard = ""
+	}
+	return out
 }
 
 func main() {
