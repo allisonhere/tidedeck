@@ -776,11 +776,12 @@ panel is organized as a **category list** (`General`, `Weather`, `Calendar`,
 `Git`, `Markets`) that opens into a page of fields, so a growing configuration
 stays readable instead of becoming one long scroll:
 
-- Each panel's category opens with an **enabled** tick plus **gauge style**
-  and **spark style** choices at the top, so a panel can be hidden or revealed
-  and given its own metric glyphs from its own settings (`default` follows the
-  workspace style). A hidden panel's row shows `off` in the category list; the
-  choices are saved with the layout.
+- Each panel's category opens with an **enabled** tick, and then a **gauge
+  style** and/or **spark style** choice *only for the metric styles that panel
+  actually draws* (`Meta.Gauge`/`Meta.Spark`), so a list panel is not asked to
+  pick a gauge it never renders. `default` follows the workspace style. A
+  hidden panel's row shows `off` in the category list; the choices are saved
+  with the layout.
 - **Live data** toggles between the deterministic demo feed and real providers;
   **gauge style** cycles the glyph set used by every progress bar and metric
   gauge (`solid`, `blocks`, `circles`, `fisheye`, `marker`, `bars`) and
@@ -992,6 +993,7 @@ arguments, and exits; there is nothing to supervise, restart, or leak.
     "category": "AI",
     "refreshSeconds": 300,
     "minWidth": 22, "minHeight": 5, "priority": 45,
+    "gauge": true, "spark": true,
     "schema": [
       { "key": "binary", "type": "string", "label": "ai-usagebar binary",
         "defaultValue": "ai-usagebar" }
@@ -1006,6 +1008,10 @@ working directory the dashboard was started in. `refreshSeconds` has a floor of
 two seconds: a program that wants to be sampled faster than that is the wrong
 shape for a subprocess. `Manifest.Validate` reports everything wrong at once,
 rather than one problem per run.
+
+`gauge` and `spark` claim whether the document prints gauge or spark rows, so
+the plugin's settings page offers only the metric styles it uses and not the
+other. A plugin that only prints text leaves both off.
 
 Declared settings reach the program as environment variables —
 `TIDEDECK_PLUGIN_<KEY>`, uppercased, non-alphanumerics replaced with `_` — and

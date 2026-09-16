@@ -61,6 +61,10 @@ func (e *execPanel) Meta() Meta {
 		// A freshly installed plugin should not rearrange the dashboard, so
 		// it starts hidden and is enabled from the panel picker or settings.
 		Hidden: true,
+		// The plugin claims which metric rows it prints, so its settings page
+		// offers only the styles it uses.
+		Gauge: panel.Gauge,
+		Spark: panel.Spark,
 	}
 	if meta.Priority == 0 {
 		meta.Priority = 30

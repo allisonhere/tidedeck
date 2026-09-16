@@ -43,6 +43,8 @@ func (n *network) Meta() dash.Meta {
 		Role: tideui.RoleSecondary, Priority: 70,
 		MinWidth: 18, MinHeight: 7, HideBelow: 104,
 		Interval: time.Second,
+		// Sparklines, not gauges.
+		Spark: true,
 	}
 }
 

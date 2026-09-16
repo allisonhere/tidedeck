@@ -56,6 +56,12 @@ type PanelManifest struct {
 	HideBelow      int            `json:"hideBelow"`
 	Schema         []SchemaField  `json:"schema"`
 	Defaults       map[string]any `json:"defaults"`
+
+	// Gauge and Spark say whether the document this plugin prints contains
+	// gauge or spark rows, so its settings page offers the matching style and
+	// not the other. A plugin that only prints text leaves both off.
+	Gauge bool `json:"gauge"`
+	Spark bool `json:"spark"`
 }
 
 // SchemaField is one declared setting, in the shape shell plugin manifests

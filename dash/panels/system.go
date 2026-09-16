@@ -31,6 +31,8 @@ func (s *system) Meta() dash.Meta {
 		Role: tideui.RolePrimary, Priority: 95,
 		MinWidth: 20, MinHeight: 7,
 		Interval: time.Second,
+		Gauge:    true,
+		Spark:    true,
 	}
 }
 

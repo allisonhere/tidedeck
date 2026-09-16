@@ -266,6 +266,10 @@ type settingsCategory struct {
 	name    string
 	fields  []formField
 	panelID string
+	// gauge and spark say whether the panel draws each metric style, so its
+	// page offers only the styles it uses.
+	gauge bool
+	spark bool
 }
 
 type settingsView int
@@ -428,11 +432,17 @@ func (s *settingsForm) buildCategories() []settingsCategory {
 		if field := s.panelField(id); field != nil {
 			prepend = append(prepend, *field)
 		}
-		if gauge := s.panelGaugeField(id); gauge != nil {
-			prepend = append(prepend, *gauge)
+		// Only offer a metric style the panel actually draws, so a list panel
+		// is not asked to pick a gauge it never renders.
+		if categories[i].gauge {
+			if gauge := s.panelGaugeField(id); gauge != nil {
+				prepend = append(prepend, *gauge)
+			}
 		}
-		if spark := s.panelSparkField(id); spark != nil {
-			prepend = append(prepend, *spark)
+		if categories[i].spark {
+			if spark := s.panelSparkField(id); spark != nil {
+				prepend = append(prepend, *spark)
+			}
 		}
 		if len(prepend) > 0 {
 			categories[i].fields = append(prepend, categories[i].fields...)
@@ -561,6 +571,9 @@ func mergeCategories(existing, declared []settingsCategory) []settingsCategory {
 	for _, category := range declared {
 		if index, ok := at[category.panelID]; ok {
 			existing[index].fields = append(existing[index].fields, category.fields...)
+			// The panel is what knows whether it draws a gauge or sparkline.
+			existing[index].gauge = category.gauge
+			existing[index].spark = category.spark
 			continue
 		}
 		existing = append(existing, category)
@@ -641,7 +654,10 @@ func (s *settingsForm) panelCategories() []settingsCategory {
 			}
 			rows = append(rows, row)
 		}
-		out = append(out, settingsCategory{name: category.Name, panelID: category.PanelID, fields: rows})
+		out = append(out, settingsCategory{
+			name: category.Name, panelID: category.PanelID, fields: rows,
+			gauge: category.Gauge, spark: category.Spark,
+		})
 	}
 	return out
 }

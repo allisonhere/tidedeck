@@ -296,7 +296,7 @@ func (d *Deck) Schema() []Category {
 	out := make([]Category, 0, len(d.order))
 	for _, panel := range d.order {
 		meta := panel.Meta()
-		category := Category{PanelID: meta.ID, Name: meta.Title}
+		category := Category{PanelID: meta.ID, Name: meta.Title, Gauge: meta.Gauge, Spark: meta.Spark}
 		if configurable, ok := panel.(Configurable); ok {
 			category.Fields = configurable.Schema()
 		}

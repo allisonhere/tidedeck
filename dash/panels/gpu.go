@@ -30,6 +30,8 @@ func (g *gpu) Meta() dash.Meta {
 		Role: tideui.RoleSecondary, Priority: 72,
 		MinWidth: 18, MinHeight: 6, HideBelow: 104,
 		Interval: time.Second,
+		Gauge:    true,
+		Spark:    true,
 	}
 }
 

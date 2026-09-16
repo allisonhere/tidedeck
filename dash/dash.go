@@ -44,6 +44,12 @@ type Meta struct {
 	// installing one should not rearrange the dashboard.
 	Hidden bool
 
+	// Gauge and Spark say whether the panel draws progress bars or sparklines.
+	// The settings screen offers that metric style only when it is used, so a
+	// list panel is not asked to pick a gauge it never renders.
+	Gauge bool
+	Spark bool
+
 	// Interval is how often Refresh is worth calling. Zero means the panel
 	// has no data of its own, or fetches once and keeps it.
 	Interval time.Duration

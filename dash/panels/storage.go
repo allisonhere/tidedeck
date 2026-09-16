@@ -25,6 +25,8 @@ func (s *storage) Meta() dash.Meta {
 		Role: tideui.RoleSecondary, Priority: 55,
 		MinWidth: 18, MinHeight: 6, HideBelow: 120,
 		Interval: 2 * time.Minute,
+		// Progress bars, not sparklines.
+		Gauge: true,
 	}
 }
 

@@ -41,9 +41,13 @@ type Field struct {
 
 // Category is one page of the settings screen: a panel's fields under its
 // title. A panel with no settings still gets a page, because the screen adds
-// the visibility toggle and metric styles to every panel.
+// the visibility toggle and, when the panel uses them, the metric styles.
 type Category struct {
 	PanelID string
 	Name    string
 	Fields  []Field
+	// Gauge and Spark mirror the panel's Meta, so the settings screen knows
+	// whether to offer that style for this panel.
+	Gauge bool
+	Spark bool
 }

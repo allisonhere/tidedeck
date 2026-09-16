@@ -15,6 +15,8 @@
     "minWidth": 22,
     "minHeight": 5,
     "priority": 45,
+    "gauge": true,
+    "spark": true,
     "schema": [
       { "key": "binary", "type": "string", "label": "ai-usagebar binary",
         "defaultValue": "ai-usagebar" }

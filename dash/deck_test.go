@@ -83,6 +83,19 @@ func TestPluginPanelStartsHidden(t *testing.T) {
 	}
 }
 
+// A plugin claims which metric rows it prints, so its settings page offers
+// only the styles it uses.
+func TestPluginClaimsMetricStyles(t *testing.T) {
+	panel := Exec(Manifest{
+		ID: "author.plugin", Name: "Plugin",
+		Panel: PanelManifest{Gauge: true, Spark: false},
+	})
+	meta := panel.Meta()
+	if !meta.Gauge || meta.Spark {
+		t.Fatalf("plugin metric styles = gauge:%v spark:%v", meta.Gauge, meta.Spark)
+	}
+}
+
 // alwaysLive wraps a fake so it reports itself as real regardless of mode.
 type alwaysLive struct{ *fake }
 
@@ -134,6 +147,28 @@ func TestUnregisterRemovesAPanel(t *testing.T) {
 	}
 	if _, ok := deck.Lookup("b"); !ok {
 		t.Fatal("unregistering a removed another panel")
+	}
+}
+
+// Schema carries each panel's declared metric styles, which is how the
+// settings screen knows whether to offer a gauge or a sparkline for it.
+func TestSchemaCarriesMetricStyles(t *testing.T) {
+	gauge := newFake("gauge", 0)
+	gauge.meta.Gauge = true
+	spark := newFake("spark", 0)
+	spark.meta.Spark = true
+	deck := New()
+	deck.Register(gauge, spark)
+
+	byID := map[string]Category{}
+	for _, category := range deck.Schema() {
+		byID[category.PanelID] = category
+	}
+	if !byID["gauge"].Gauge || byID["gauge"].Spark {
+		t.Fatalf("gauge category = %#v", byID["gauge"])
+	}
+	if byID["spark"].Gauge || !byID["spark"].Spark {
+		t.Fatalf("spark category = %#v", byID["spark"])
 	}
 }
 

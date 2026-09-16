@@ -34,6 +34,24 @@ func weatherForm(t *testing.T) *settingsForm {
 	return form
 }
 
+// gpuForm opens a settings form with the GPU panel registered, which draws both
+// a gauge and a sparkline, so both metric-style rows appear on its page.
+func gpuForm(t *testing.T) *settingsForm {
+	t.Helper()
+	ws := tideui.NewWorkspace()
+	deck := dash.New()
+	deck.Register(panels.GPU())
+	deck.Attach(ws)
+
+	form := newSettingsForm()
+	form.SetWorkspace(ws)
+	form.SetDeck(deck)
+	cfg := defaultConfig()
+	cfg.doc = dash.NewValues()
+	form.Open(cfg)
+	return form
+}
+
 func TestSettingsFormEditsAndSaves(t *testing.T) {
 	form := weatherForm(t)
 
@@ -335,40 +353,27 @@ func TestSettingsSparkStyleChoice(t *testing.T) {
 }
 
 func TestSettingsPanelSparkChoice(t *testing.T) {
-	ws := tideui.NewWorkspace()
-	ws.Panel("gpu", nil).Title("GPU")
-	form := newSettingsForm()
-	form.SetWorkspace(ws)
-	form.Open(config{})
-
-	for i, category := range form.categories {
-		if category.name != "GPU" {
-			continue
-		}
-		form.category = i
-		form.Update(tea.KeyMsg{Type: tea.KeyEnter}) // open GPU
-		form.Update(tea.KeyMsg{Type: tea.KeyDown})  // enabled -> gauge
-		form.Update(tea.KeyMsg{Type: tea.KeyDown})  // gauge -> spark
-		field := form.currentField()
-		if field == nil || field.kind != fieldChoice || !field.sparkPreview {
-			t.Fatalf("field = %+v, want the spark choice", field)
-		}
-		if got := form.value(*field); got != "default" {
-			t.Fatalf("initial panel spark = %q, want default", got)
-		}
-		form.Update(tea.KeyMsg{Type: tea.KeyRight})
-		if got := form.value(*form.currentField()); got == "default" {
-			t.Fatal("panel spark did not cycle")
-		}
-		if action := form.Update(tea.KeyMsg{Type: tea.KeyCtrlS}); action != settingsSaved {
-			t.Fatalf("save action = %v", action)
-		}
-		if form.SavedConfig().PanelSparks["gpu"] == "" {
-			t.Fatalf("panel spark not saved: %+v", form.SavedConfig().PanelSparks)
-		}
-		return
+	form := gpuForm(t)
+	openCategory(t, form, "GPU")
+	form.Update(tea.KeyMsg{Type: tea.KeyDown}) // enabled -> gauge
+	form.Update(tea.KeyMsg{Type: tea.KeyDown}) // gauge -> spark
+	field := form.currentField()
+	if field == nil || field.kind != fieldChoice || !field.sparkPreview {
+		t.Fatalf("field = %+v, want the spark choice", field)
 	}
-	t.Fatal("no GPU category")
+	if got := form.value(*field); got != "default" {
+		t.Fatalf("initial panel spark = %q, want default", got)
+	}
+	form.Update(tea.KeyMsg{Type: tea.KeyRight})
+	if got := form.value(*form.currentField()); got == "default" {
+		t.Fatal("panel spark did not cycle")
+	}
+	if action := form.Update(tea.KeyMsg{Type: tea.KeyCtrlS}); action != settingsSaved {
+		t.Fatalf("save action = %v", action)
+	}
+	if form.SavedConfig().PanelSparks["gpu"] == "" {
+		t.Fatalf("panel spark not saved: %+v", form.SavedConfig().PanelSparks)
+	}
 }
 
 func TestSettingsClockFontChoice(t *testing.T) {
@@ -398,39 +403,26 @@ func TestSettingsClockFontChoice(t *testing.T) {
 }
 
 func TestSettingsPanelGaugeChoice(t *testing.T) {
-	ws := tideui.NewWorkspace()
-	ws.Panel("gpu", nil).Title("GPU")
-	form := newSettingsForm()
-	form.SetWorkspace(ws)
-	form.Open(config{})
-
-	for i, category := range form.categories {
-		if category.name != "GPU" {
-			continue
-		}
-		form.category = i
-		form.Update(tea.KeyMsg{Type: tea.KeyEnter}) // open GPU
-		form.Update(tea.KeyMsg{Type: tea.KeyDown})  // enabled -> gauge style
-		field := form.currentField()
-		if field == nil || field.kind != fieldChoice {
-			t.Fatalf("field = %+v, want the gauge choice", field)
-		}
-		if got := form.value(*field); got != "default" {
-			t.Fatalf("initial panel gauge = %q, want default", got)
-		}
-		form.Update(tea.KeyMsg{Type: tea.KeyEnter}) // cycle
-		if got := form.value(*form.currentField()); got == "default" {
-			t.Fatal("panel gauge choice did not cycle")
-		}
-		if action := form.Update(tea.KeyMsg{Type: tea.KeyCtrlS}); action != settingsSaved {
-			t.Fatalf("save action = %v", action)
-		}
-		if form.SavedConfig().PanelGauges["gpu"] == "" {
-			t.Fatalf("panel gauge not saved: %+v", form.SavedConfig().PanelGauges)
-		}
-		return
+	form := gpuForm(t)
+	openCategory(t, form, "GPU")
+	form.Update(tea.KeyMsg{Type: tea.KeyDown}) // enabled -> gauge style
+	field := form.currentField()
+	if field == nil || field.kind != fieldChoice {
+		t.Fatalf("field = %+v, want the gauge choice", field)
 	}
-	t.Fatal("no GPU category")
+	if got := form.value(*field); got != "default" {
+		t.Fatalf("initial panel gauge = %q, want default", got)
+	}
+	form.Update(tea.KeyMsg{Type: tea.KeyEnter}) // cycle
+	if got := form.value(*form.currentField()); got == "default" {
+		t.Fatal("panel gauge choice did not cycle")
+	}
+	if action := form.Update(tea.KeyMsg{Type: tea.KeyCtrlS}); action != settingsSaved {
+		t.Fatalf("save action = %v", action)
+	}
+	if form.SavedConfig().PanelGauges["gpu"] == "" {
+		t.Fatalf("panel gauge not saved: %+v", form.SavedConfig().PanelGauges)
+	}
 }
 
 func TestSettingsCategoryNavigation(t *testing.T) {
@@ -834,8 +826,10 @@ func TestWeatherCategoryMergesFormAndPanelFields(t *testing.T) {
 	for _, field := range form.currentFields() {
 		labels = append(labels, field.label)
 	}
+	// The weather panel draws neither a gauge nor a sparkline, so its page
+	// shows only the visibility toggle the screen adds to every panel.
 	want := []string{
-		"enabled", "gauge style", "spark style", // added to every panel's page
+		"enabled",
 		"city or ZIP", "Look up coordinates", // the form's geocoder
 		"live weather", "latitude", "longitude", "location", "fahrenheit", "wind mph",
 	}
@@ -867,5 +861,40 @@ func TestPluginInstallFieldLooksLikeAnInput(t *testing.T) {
 	rendered := ansi.Strip(strings.Join(form.renderFields(renderer, 80, 20), "\n"))
 	if !strings.Contains(rendered, "[ git URL or local path ]") {
 		t.Fatalf("Plugins page has no input box:\n%s", rendered)
+	}
+}
+
+// A panel's page offers only the metric styles it actually draws: no gauge for
+// a sparkline panel, no spark for a gauge panel, and neither for a list.
+func TestMetricStylesOnlyForPanelsThatUseThem(t *testing.T) {
+	cases := []struct {
+		panel        dash.Panel
+		category     string
+		gauge, spark bool
+	}{
+		{panels.Clock(), "Clock", true, false},
+		{panels.Network(), "Network", false, true},
+		{panels.Storage(), "Storage", true, false},
+		{panels.News(), "News", false, false},
+	}
+	for _, c := range cases {
+		ws := tideui.NewWorkspace()
+		deck := dash.New()
+		deck.Register(c.panel)
+		deck.Attach(ws)
+
+		form := newSettingsForm()
+		form.SetWorkspace(ws)
+		form.SetDeck(deck)
+		form.Open(defaultConfig())
+		openCategory(t, form, c.category)
+
+		labels := map[string]bool{}
+		for _, field := range form.currentFields() {
+			labels[field.label] = true
+		}
+		if labels["gauge style"] != c.gauge || labels["spark style"] != c.spark {
+			t.Fatalf("%s: gauge=%v spark=%v, got %v", c.category, c.gauge, c.spark, labels)
+		}
 	}
 }
