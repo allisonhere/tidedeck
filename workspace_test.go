@@ -471,3 +471,22 @@ func TestPresetRespectsStartsHidden(t *testing.T) {
 		t.Fatal("show did not reveal the panel")
 	}
 }
+
+// Revealing a panel gives it focus: a panel that takes typing (a calculator)
+// would otherwise get nothing while the previously focused panel kept the
+// keyboard.
+func TestShowFocusesTheRevealedPanel(t *testing.T) {
+	ws := NewWorkspace(WithGap(0))
+	ws.Panel("a", Text("a")).MinWidth(4).MinHeight(3)
+	ws.Panel("b", Text("b")).MinWidth(4).MinHeight(3).Hide()
+	ws.Layout(HStack(Leaf("a")))
+	ws.Focus("a")
+	ws.Solve(40, 10)
+
+	if !ws.Show("b") {
+		t.Fatal("Show reported nothing revealed")
+	}
+	if got := ws.Focused(); got != "b" {
+		t.Fatalf("focus after Show = %q, want b", got)
+	}
+}

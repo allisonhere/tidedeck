@@ -496,6 +496,12 @@ func (ws *Workspace) Show(id string) bool {
 	if ws.root != nil && !LayoutContainsPanel(ws.root, id) {
 		ws.root = insertPanelIntoTallStack(ws.root, id)
 	}
+	// Revealing a panel moves focus to it. You turned it on to use it, and
+	// without this a panel that takes typing (a calculator) would receive
+	// nothing while whatever was focused before kept the keyboard.
+	if panel.focusable {
+		ws.focus.Set(id)
+	}
 	ws.commit()
 	return true
 }

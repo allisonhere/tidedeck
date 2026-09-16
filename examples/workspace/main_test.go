@@ -229,8 +229,11 @@ func TestCalculatorTakesTypedInput(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	m := newModel()
 	m.width, m.height = 120, 40
+	// Showing the panel should focus it by itself.
 	m.ws.Show("calculator")
-	m.ws.Focus("calculator")
+	if got := m.ws.Focused(); got != "calculator" {
+		t.Fatalf("showing the calculator left focus on %q", got)
+	}
 	preset := m.ws.ActivePreset()
 
 	for _, r := range "12*8" {
@@ -284,7 +287,6 @@ func TestPluginInputRefresh(t *testing.T) {
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyEsc}) // close settings
 
 	m.ws.Show("test.input")
-	m.ws.Focus("test.input")
 
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
 	m = next.(model)
@@ -300,5 +302,49 @@ func TestPluginInputRefresh(t *testing.T) {
 	body := ansi.Strip(panel.Render(tideui.PanelContext{ID: "test.input", Width: 30, Renderer: viewRenderer(m.state)}))
 	if !strings.Contains(body, "a") {
 		t.Fatalf("typed input did not reach the plugin:\n%s", body)
+	}
+}
+
+// The whole user path: open the panel picker, reveal the calculator, close the
+// picker, and type. This is how a panel is enabled in practice.
+func TestCalculatorTypingAfterPickerReveal(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := newModel()
+	m.width, m.height = 150, 44
+
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("w")})
+	if !m.ws.PanelPicker().Opened() {
+		t.Fatal("w did not open the panel picker")
+	}
+	index := 0
+	for i, id := range m.ws.PanelIDs() {
+		if id == "calculator" {
+			index = i
+		}
+	}
+	for i := 0; i < index; i++ {
+		m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	}
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(" ")}) // toggle it on
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyEsc})                       // close the picker
+
+	if m.ws.Hidden("calculator") {
+		t.Fatal("the picker did not reveal the calculator")
+	}
+	if got := m.ws.Focused(); got != "calculator" {
+		t.Fatalf("focus after revealing = %q, want calculator", got)
+	}
+
+	for _, r := range "12*8" {
+		next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = next.(model)
+		if cmd != nil {
+			m = update(t, m, cmd())
+		}
+	}
+	panel, _ := m.ws.Lookup("calculator")
+	body := ansi.Strip(panel.Render(tideui.PanelContext{ID: "calculator", Width: 30, Renderer: viewRenderer(m.state)}))
+	if !strings.Contains(body, "= 96") {
+		t.Fatalf("calculator after typing:\n%s", body)
 	}
 }
