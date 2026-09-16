@@ -138,6 +138,9 @@ type AgendaItem struct {
 	Category string
 	Tone     Tone
 	Done     bool
+	// AllDay marks an event with no time of day. Its Start is midnight local,
+	// so rendering it as "00:00" would be misleading.
+	AllDay bool
 }
 
 // WorldClock is one city in the clock widget.
