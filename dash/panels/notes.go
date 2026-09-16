@@ -25,7 +25,7 @@ func (n *notes) Meta() dash.Meta {
 	return dash.Meta{
 		ID: "notes", Title: "Notes",
 		Role: tideui.RoleOptional, Priority: 45,
-		MinWidth: 18, MinHeight: 5, HideBelow: 130,
+		MinWidth: 18, MinHeight: 5, HideBelow: 80,
 		Interval: 30 * time.Second,
 	}
 }

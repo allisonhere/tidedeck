@@ -25,7 +25,9 @@ func (r Renderer) RenderWeather(w WeatherData, width int) string {
 			Render(r.weatherRangeText(w, width)),
 	}
 	lines = append(lines, r.weatherMetricRows(w, width, bg)...)
-	if len(w.Hourly) > 0 {
+	// Hourly detail is useful on a roomy card, but it is the first thing to
+	// remove when the workspace has reflowed into narrow columns.
+	if len(w.Hourly) > 0 && width >= 28 {
 		lines = append(lines, "", r.renderHourly(w.Hourly, width, bg))
 	}
 	return r.dashBlock(lines, width, bg)
@@ -734,6 +736,7 @@ func (r Renderer) analogClock(t time.Time) []string {
 // RenderSystem renders the system-health summary.
 func (r Renderer) RenderSystem(m SystemMetrics, width int) string {
 	bg := r.Styles.Workspace.Bg
+	compact := width < 28
 	total := metricTotal(width, 5, 5, width)
 	rows := []MetricRow{
 		{Label: "CPU", Value: fmt.Sprintf("%.0f%%", m.CPUPercent), Fraction: m.CPUPercent / 100,
@@ -746,8 +749,10 @@ func (r Renderer) RenderSystem(m SystemMetrics, width int) string {
 		lines = append(lines, r.RenderMetricRow(row, bg))
 	}
 	lines = append(lines, r.dashPair("TEMP", fmt.Sprintf("%d°C", m.TemperatureC), 5, bg))
-	lines = append(lines, r.dashPair("LOAD", fmt.Sprintf("%.1f %.1f %.1f", m.Load[0], m.Load[1], m.Load[2]), 5, bg))
-	lines = append(lines, r.dashPair("UP", formatUptime(m.Uptime), 5, bg))
+	if !compact {
+		lines = append(lines, r.dashPair("LOAD", fmt.Sprintf("%.1f %.1f %.1f", m.Load[0], m.Load[1], m.Load[2]), 5, bg))
+		lines = append(lines, r.dashPair("UP", formatUptime(m.Uptime), 5, bg))
+	}
 	return r.dashBlock(lines, width, bg)
 }
 
@@ -755,7 +760,7 @@ func (r Renderer) RenderSystem(m SystemMetrics, width int) string {
 func (r Renderer) RenderSystemDetail(m SystemMetrics, width int) string {
 	bg := r.Styles.Workspace.Bg
 	lines := strings.Split(r.RenderSystem(m, width), "\n")
-	if len(m.Cores) > 0 {
+	if len(m.Cores) > 0 && width >= 24 {
 		lines = append(lines, r.RenderSectionDivider(SectionDivider{Label: "CORES", Width: width}, bg))
 		barWidth := max(4, width-10)
 		for i, core := range m.Cores {
@@ -791,6 +796,9 @@ func (r Renderer) RenderGPU(m GPUMetrics, width int) string {
 		LabelWidth: 5, ValueWidth: 5, TotalWidth: total,
 	}, bg)}
 	lines = append(lines, r.gpuMemoryLine(m, total, bg)...)
+	if width < 30 {
+		return r.dashBlock(lines, width, bg)
+	}
 	if m.TemperatureC > 0 {
 		lines = append(lines, r.dashPair("TEMP", fmt.Sprintf("%d°C", m.TemperatureC), 5, bg))
 	}
@@ -972,6 +980,9 @@ func (r Renderer) renderTrendBlock(label string, values []float64, width int, to
 	low, high := valueRange(values)
 	current := values[len(values)-1]
 	stats := fmt.Sprintf("low %.1f   now %.1f   high %.1f", low, current, high)
+	if width < 30 {
+		stats = fmt.Sprintf("now %.1f", current)
+	}
 	muted := lipgloss.NewStyle().Background(bg).Foreground(r.Styles.Workspace.BodyMutedFg)
 	return strings.Join([]string{
 		r.RenderSectionDivider(SectionDivider{Label: label, Width: width}, bg),
@@ -1033,6 +1044,7 @@ func (r Renderer) renderServices(items []ServiceStatus, width int, detail bool) 
 	nameWidth = min(nameWidth, max(4, width/3))
 	stateWidth = min(stateWidth, 9)
 	ageWidth = min(ageWidth, 5)
+	compact := width < 32
 
 	var lines []string
 	for _, item := range items {
@@ -1043,11 +1055,18 @@ func (r Renderer) renderServices(items []ServiceStatus, width int, detail bool) 
 			Render(padRight(ansi.Truncate(item.Name, nameWidth, "…"), nameWidth))
 		state := lipgloss.NewStyle().Background(bg).Foreground(r.toneColor(tone)).
 			Render(padRight(ansi.Truncate(label, stateWidth, "…"), stateWidth))
-		age := lipgloss.NewStyle().Background(bg).Foreground(ws.BodyMutedFg).
-			Render(padRight(ansi.Truncate(serviceAge(item), ageWidth, "…"), ageWidth))
+		age := ""
+		if !compact {
+			age = lipgloss.NewStyle().Background(bg).Foreground(ws.BodyMutedFg).
+				Render(padRight(ansi.Truncate(serviceAge(item), ageWidth, "…"), ageWidth))
+		}
 		// Keep name, state, and age as one grouped column set rather than
 		// flinging the age to the far edge of a wide panel.
-		lines = append(lines, dot+" "+name+" "+state+"  "+age)
+		line := dot + " " + name + " " + state
+		if age != "" {
+			line += "  " + age
+		}
+		lines = append(lines, line)
 		if detail && item.Detail != "" {
 			extra := item.Detail
 			if item.Uptime != "" {
@@ -1471,6 +1490,17 @@ func elideMiddle(value string, width int) string {
 
 // RenderMarkets renders an aligned watchlist.
 func (r Renderer) RenderMarkets(items []MarketQuote, width int) string {
+	return r.renderMarkets(items, width, false)
+}
+
+// RenderMarketsDetail renders the watchlist with high/low facts. The compact
+// view keeps those facts on a second line when needed; the detail view always
+// gives them their own readable line.
+func (r Renderer) RenderMarketsDetail(items []MarketQuote, width int) string {
+	return r.renderMarkets(items, width, true)
+}
+
+func (r Renderer) renderMarkets(items []MarketQuote, width int, detail bool) string {
 	if len(items) == 0 {
 		return ""
 	}
@@ -1491,6 +1521,25 @@ func (r Renderer) RenderMarkets(items []MarketQuote, width int) string {
 		right := lipgloss.NewStyle().Background(bg).Foreground(ws.BodyFg).Render(price) +
 			lipgloss.NewStyle().Background(bg).Render("  ") + r.RenderTrend(item.ChangePct, "%", bg)
 		lines = append(lines, alignRow(left, "", right, width))
+		if item.High != 0 || item.Low != 0 {
+			facts := ""
+			if item.High != 0 {
+				facts = fmt.Sprintf("H %.2f", item.High)
+			}
+			if item.Low != 0 {
+				if facts != "" {
+					facts += "  "
+				}
+				facts += fmt.Sprintf("L %.2f", item.Low)
+			}
+			if detail || width < 52 {
+				lines = append(lines, lipgloss.NewStyle().Background(bg).Foreground(ws.BodyMutedFg).
+					Render("  "+facts))
+			} else {
+				lines[len(lines)-1] = alignRow(left, "", right+"  "+
+					lipgloss.NewStyle().Background(bg).Foreground(ws.BodyMutedFg).Render(facts), width)
+			}
+		}
 	}
 	return r.dashBlock(lines, width, bg)
 }

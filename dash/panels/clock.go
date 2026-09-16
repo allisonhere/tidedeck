@@ -53,7 +53,7 @@ func (c *clock) Meta() dash.Meta {
 	return dash.Meta{
 		ID: "clock", Title: "Clock",
 		Role: tideui.RoleSecondary, Priority: 50,
-		MinWidth: 16, MinHeight: 7, HideBelow: 96,
+		MinWidth: 16, MinHeight: 7, HideBelow: 80,
 		// No Interval: this panel has nothing to fetch. It draws the day
 		// progress gauge but no sparkline.
 		Gauge: true,

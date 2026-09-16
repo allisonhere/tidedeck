@@ -48,6 +48,12 @@ type yahooChart struct {
 				ChartPreviousClose float64 `json:"chartPreviousClose"`
 				PreviousClose      float64 `json:"previousClose"`
 			} `json:"meta"`
+			Indicators struct {
+				Quote []struct {
+					High []float64 `json:"high"`
+					Low  []float64 `json:"low"`
+				} `json:"quote"`
+			} `json:"indicators"`
 		} `json:"result"`
 	} `json:"chart"`
 }
@@ -87,9 +93,21 @@ func fetchQuote(ctx context.Context, symbol string) (tideui.MarketQuote, error) 
 	if quoteSymbol == "" {
 		quoteSymbol = symbol
 	}
+	var high, low float64
+	if len(payload.Chart.Result[0].Indicators.Quote) > 0 {
+		quote := payload.Chart.Result[0].Indicators.Quote[0]
+		if len(quote.High) > 0 {
+			high = quote.High[len(quote.High)-1]
+		}
+		if len(quote.Low) > 0 {
+			low = quote.Low[len(quote.Low)-1]
+		}
+	}
 	return tideui.MarketQuote{
 		Symbol:    quoteSymbol,
 		Price:     meta.RegularMarketPrice,
+		High:      high,
+		Low:       low,
 		ChangePct: change,
 		Currency:  meta.Currency,
 	}, nil

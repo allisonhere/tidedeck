@@ -16,7 +16,7 @@ func TestMarketsPanelMeta(t *testing.T) {
 	if meta.ID != "markets" || meta.Title != "Markets" {
 		t.Fatalf("meta = %#v", meta)
 	}
-	if meta.MinWidth != 18 || meta.MinHeight != 6 || meta.HideBelow != 120 || meta.Priority != 50 {
+	if meta.MinWidth != 18 || meta.MinHeight != 6 || meta.HideBelow != 80 || meta.Priority != 50 {
 		t.Fatalf("sizing changed: %#v", meta)
 	}
 	if meta.Interval != time.Minute {

@@ -41,6 +41,29 @@ func TestThemePickerLivePreviewAndRevert(t *testing.T) {
 	if m.picker.Opened() {
 		t.Fatal("picker should close after confirm")
 	}
+	if got := m.layoutThemes["preset:Overview"]; got != preview {
+		t.Fatalf("layout theme = %q, want %q", got, preview)
+	}
+}
+
+func TestPresetThemesRestorePerLayout(t *testing.T) {
+	m := newModel()
+	m.width, m.height = 120, 40
+	m.layoutThemes = map[string]string{
+		"preset:Overview": tideui.CatppuccinMocha.Name,
+		"preset:System":   tideui.Nord.Name,
+	}
+
+	m.ws.ApplyPreset("System")
+	m.syncLayoutTheme()
+	if got := m.state.theme.Name; got != tideui.Nord.Name {
+		t.Fatalf("System theme = %q, want %q", got, tideui.Nord.Name)
+	}
+	m.ws.ApplyPreset("Overview")
+	m.syncLayoutTheme()
+	if got := m.state.theme.Name; got != tideui.CatppuccinMocha.Name {
+		t.Fatalf("Overview theme = %q, want %q", got, tideui.CatppuccinMocha.Name)
+	}
 }
 
 func update(t *testing.T, m model, msg tea.Msg) model {

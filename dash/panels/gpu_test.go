@@ -22,7 +22,7 @@ func TestGPUPanelMeta(t *testing.T) {
 	}
 	// The panel keeps the sizing the hand-written registration used, so the
 	// layout is unchanged by the migration.
-	if meta.MinWidth != 18 || meta.MinHeight != 6 || meta.HideBelow != 104 || meta.Priority != 72 {
+	if meta.MinWidth != 18 || meta.MinHeight != 6 || meta.HideBelow != 80 || meta.Priority != 72 {
 		t.Fatalf("sizing changed: %#v", meta)
 	}
 	if meta.Interval != time.Second {

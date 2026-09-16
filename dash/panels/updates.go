@@ -39,7 +39,7 @@ func (u *updates) Meta() dash.Meta {
 	return dash.Meta{
 		ID: "updates", Title: "Updates", Subtitle: "system",
 		Role: tideui.RoleOptional, Priority: 50,
-		MinWidth: 20, MinHeight: 5, HideBelow: 120,
+		MinWidth: 20, MinHeight: 5, HideBelow: 80,
 		// checkupdates syncs a temporary package database over the network,
 		// so this is deliberately slow-polled.
 		Interval: 30 * time.Minute,

@@ -9,6 +9,7 @@ import (
 
 const sampleYahoo = `{"chart":{"result":[{"meta":{
   "symbol":"AMD","currency":"USD","regularMarketPrice":162.40,"chartPreviousClose":159.52
+},"indicators":{"quote":[{"high":[164.2],"low":[158.8]}]}
 }}]}}`
 
 func TestFetchQuote(t *testing.T) {
@@ -30,6 +31,9 @@ func TestFetchQuote(t *testing.T) {
 	}
 	if quote.Price != 162.40 {
 		t.Fatalf("price = %v", quote.Price)
+	}
+	if quote.High != 164.2 || quote.Low != 158.8 {
+		t.Fatalf("high/low = %v/%v", quote.High, quote.Low)
 	}
 	if quote.ChangePct < 1.7 || quote.ChangePct > 1.9 {
 		t.Fatalf("change = %v, want ~1.8", quote.ChangePct)

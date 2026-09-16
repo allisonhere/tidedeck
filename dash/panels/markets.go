@@ -33,9 +33,10 @@ func (m *markets) Meta() dash.Meta {
 	return dash.Meta{
 		ID: "markets", Title: "Markets",
 		Role: tideui.RoleOptional, Priority: 50,
-		// HideBelow matches the storage threshold rather than the old 160, so
-		// enabling the panel actually shows it on a normal wide terminal.
-		MinWidth: 18, MinHeight: 6, HideBelow: 120,
+		// Keep the watchlist available on normal terminals; the adaptive
+		// workspace hides optional panels only once the terminal is genuinely
+		// narrow.
+		MinWidth: 18, MinHeight: 6, HideBelow: 80,
 		Interval: time.Minute,
 		Theme:    tideui.GruvboxLight,
 	}
@@ -73,6 +74,9 @@ func (m *markets) Refresh(ctx context.Context) error {
 }
 
 func (m *markets) View(ctx tideui.PanelContext) string {
+	if ctx.Zoomed {
+		return ctx.Renderer.RenderMarketsDetail(m.Load(), ctx.Width)
+	}
 	return ctx.Renderer.RenderMarkets(m.Load(), ctx.Width)
 }
 
@@ -85,6 +89,8 @@ func (m *markets) Demo(now time.Time) {
 		return tideui.MarketQuote{
 			Symbol:    symbol,
 			Price:     math.Round(p*100) / 100,
+			High:      math.Round((p+math.Abs(drift)*0.8)*100) / 100,
+			Low:       math.Round((p-math.Abs(drift)*0.8)*100) / 100,
 			ChangePct: math.Round((drift/price*100*wave(t, 30, phase))*10) / 10,
 		}
 	}

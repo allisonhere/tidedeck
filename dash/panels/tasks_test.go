@@ -16,7 +16,7 @@ func TestTasksPanelMeta(t *testing.T) {
 	if meta.ID != "tasks" || meta.Title != "Tasks" {
 		t.Fatalf("meta = %#v", meta)
 	}
-	if meta.MinWidth != 20 || meta.MinHeight != 6 || meta.HideBelow != 88 || meta.Priority != 72 {
+	if meta.MinWidth != 20 || meta.MinHeight != 6 || meta.HideBelow != 80 || meta.Priority != 72 {
 		t.Fatalf("sizing changed: %#v", meta)
 	}
 	if meta.Interval != 30*time.Second {

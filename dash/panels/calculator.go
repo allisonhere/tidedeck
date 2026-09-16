@@ -33,7 +33,7 @@ func (c *calculator) Meta() dash.Meta {
 	return dash.Meta{
 		ID: "calculator", Title: "Calculator",
 		Role: tideui.RoleOptional, Priority: 30,
-		MinWidth: 18, MinHeight: 4, HideBelow: 92,
+		MinWidth: 18, MinHeight: 4, HideBelow: 80,
 		// Off until the picker shows it, like the other optional panels, so it
 		// does not claim a slot in every preset.
 		Hidden: true,

@@ -41,7 +41,7 @@ func (n *network) Meta() dash.Meta {
 	return dash.Meta{
 		ID: "network", Title: "Network",
 		Role: tideui.RoleSecondary, Priority: 70,
-		MinWidth: 18, MinHeight: 7, HideBelow: 104,
+		MinWidth: 18, MinHeight: 7, HideBelow: 80,
 		Interval: time.Second,
 		// Sparklines, not gauges.
 		Spark: true,

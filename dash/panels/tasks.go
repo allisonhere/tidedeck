@@ -27,7 +27,7 @@ func (t *tasks) Meta() dash.Meta {
 	return dash.Meta{
 		ID: "tasks", Title: "Tasks",
 		Role: tideui.RoleSecondary, Priority: 72,
-		MinWidth: 20, MinHeight: 6, HideBelow: 88,
+		MinWidth: 20, MinHeight: 6, HideBelow: 80,
 		Interval: 30 * time.Second,
 	}
 }

@@ -31,7 +31,7 @@ func (s *services) Meta() dash.Meta {
 	return dash.Meta{
 		ID: "services", Title: "Services",
 		Role: tideui.RoleSecondary, Priority: 65,
-		MinWidth: 20, MinHeight: 6, HideBelow: 92,
+		MinWidth: 20, MinHeight: 6, HideBelow: 80,
 		Interval: 15 * time.Second,
 	}
 }

@@ -325,6 +325,8 @@ func (r RepoActivity) Clean() bool {
 type MarketQuote struct {
 	Symbol    string
 	Price     float64
+	High      float64
+	Low       float64
 	ChangePct float64
 	Currency  string
 }

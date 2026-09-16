@@ -64,10 +64,13 @@ func (s fileStore) Save(key string, value []byte) error {
 // presentation styles the settings screen edits, and transient status. Panel
 // data lives on the deck, not here.
 type demoState struct {
-	theme   tideui.Theme
-	density tideui.Density
-	now     time.Time
-	status  string
+	theme tideui.Theme
+	// layoutThemeKey tracks which preset or saved slot supplied the current
+	// workspace theme. It is runtime state, not a configuration key.
+	layoutThemeKey string
+	density        tideui.Density
+	now            time.Time
+	status         string
 	// clipboard is text to write as an OSC 52 sequence in the next frame. It is
 	// carried through the View rather than written from a command, so it goes
 	// out in the same buffered write as the frame and cannot be split by it.
@@ -112,12 +115,13 @@ type model struct {
 	// slot with the current layout; saved slots live under their own store key
 	// so they survive a restart. activeSlot is the slot last loaded (0 when a
 	// named preset is active) and drives the status strip.
-	store      tideui.LayoutStore
-	slots      [slotCount][]byte
-	slotSaved  [slotCount]bool
-	slotOpen   bool
-	slotCursor int
-	activeSlot int
+	store        tideui.LayoutStore
+	slots        [slotCount][]byte
+	slotSaved    [slotCount]bool
+	slotOpen     bool
+	slotCursor   int
+	activeSlot   int
+	layoutThemes map[string]string
 }
 
 // slotCount is how many saveable layout slots the alt+1..5 keys address.
@@ -191,14 +195,16 @@ func newModel() model {
 	settings.SetDeck(deck)
 
 	m := model{
-		state:    state,
-		deck:     deck,
-		ws:       ws,
-		picker:   tideui.NewThemePicker(tideui.ThemePickerOptions{InitialTheme: state.theme.Name}),
-		cfg:      cfg,
-		settings: settings,
-		store:    store,
+		state:        state,
+		deck:         deck,
+		ws:           ws,
+		picker:       tideui.NewThemePicker(tideui.ThemePickerOptions{InitialTheme: state.theme.Name}),
+		cfg:          cfg,
+		settings:     settings,
+		store:        store,
+		layoutThemes: copyStringMap(cfg.LayoutThemes),
 	}
+	m.syncLayoutTheme()
 	m.loadSlots()
 	// Apply the saved configuration the same way a save does. Doing it here
 	// rather than repeating a shorter version of it is what makes a
@@ -431,6 +437,7 @@ func (m *model) applySlot(index int) {
 			return
 		}
 		m.activeSlot = index + 1
+		m.syncLayoutTheme()
 		m.state.status = fmt.Sprintf("slot %d: %s", index+1, m.slotLabel(index))
 		return
 	}
@@ -438,6 +445,7 @@ func (m *model) applySlot(index int) {
 	if index < len(names) {
 		m.ws.ApplyPreset(names[index])
 		m.activeSlot = 0
+		m.syncLayoutTheme()
 		m.state.status = "preset: " + names[index]
 	}
 }
@@ -519,6 +527,52 @@ func (m model) renderSlotChooser(r tideui.Renderer, width int) tideui.Overlay {
 }
 
 func (m model) Init() tea.Cmd { return tickCmd(time.Second) }
+
+// currentLayoutThemeKey gives presets and saved slots separate theme scopes.
+// A slot does not share a theme with the preset it originally came from once
+// the user has saved over it.
+func (m model) currentLayoutThemeKey() string {
+	if m.activeSlot > 0 {
+		return fmt.Sprintf("slot:%d", m.activeSlot)
+	}
+	if preset := m.ws.ActivePreset(); preset != "" {
+		return "preset:" + preset
+	}
+	return "layout"
+}
+
+// syncLayoutTheme applies the theme assigned to the active preset or slot.
+// Layouts without an assignment inherit the current theme, preserving the
+// behavior of existing configs and layouts.
+func (m *model) syncLayoutTheme() {
+	key := m.currentLayoutThemeKey()
+	if key == m.state.layoutThemeKey {
+		return
+	}
+	m.state.layoutThemeKey = key
+	name := m.layoutThemes[key]
+	if name == "" {
+		return
+	}
+	if theme, ok := layoutThemeByName(name); ok {
+		m.state.theme = theme
+	}
+}
+
+// rememberLayoutTheme assigns the current global theme to the active layout
+// and persists the assignment alongside the normal application config.
+func (m *model) rememberLayoutTheme() {
+	key := m.currentLayoutThemeKey()
+	m.state.layoutThemeKey = key
+	if m.layoutThemes == nil {
+		m.layoutThemes = map[string]string{}
+	}
+	m.layoutThemes[key] = m.state.theme.Name
+	m.cfg.LayoutThemes = copyStringMap(m.layoutThemes)
+	if err := m.cfg.save(); err != nil {
+		m.state.status = "layout theme save failed: " + err.Error()
+	}
+}
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -914,6 +968,9 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch action {
 		case settingsSaved:
 			m.cfg = m.settings.SavedConfig()
+			// Layout themes are managed by the workspace theme picker, not the
+			// settings form. Carry them through a settings save unchanged.
+			m.cfg.LayoutThemes = copyStringMap(m.layoutThemes)
 			if err := m.cfg.save(); err != nil {
 				m.state.status = "config save failed: " + err.Error()
 			} else {
@@ -1031,6 +1088,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // openWorkspaceThemePicker edits the workspace-wide theme with live preview.
 func (m *model) openWorkspaceThemePicker() {
+	m.syncLayoutTheme()
 	m.pickerTarget = ""
 	m.pickerHad = false
 	m.picker = tideui.NewThemePicker(tideui.ThemePickerOptions{
@@ -1072,6 +1130,9 @@ func (m *model) updateThemePicker(msg tea.KeyMsg) {
 	case tideui.ThemePickerConfirm:
 		theme := m.picker.ConfirmedTheme()
 		m.applyPickedTheme(theme)
+		if m.pickerTarget == "" {
+			m.rememberLayoutTheme()
+		}
 		if m.pickerTarget == "" {
 			m.state.status = "workspace theme: " + theme.Name
 		} else if panel, ok := m.ws.Lookup(m.pickerTarget); ok {
@@ -1116,6 +1177,9 @@ func (m model) View() string {
 	if m.width == 0 {
 		return ""
 	}
+	// Presets can also be selected by the workspace command palette. Reconcile
+	// its new theme scope before rendering the next frame.
+	m.syncLayoutTheme()
 	renderer := tideui.NewRenderer(m.state.theme, tideui.StyleOptions{
 		Density: m.state.density, PaneCorners: tideui.RoundCorners,
 		Gauge: m.state.gauge, Sparkline: m.state.spark, ClockFont: m.state.clockFont,

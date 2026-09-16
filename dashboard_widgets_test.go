@@ -525,10 +525,10 @@ func TestRenderTasksNotesGitMarkets(t *testing.T) {
 	}
 
 	markets := ansi.Strip(r.RenderMarkets([]MarketQuote{
-		{Symbol: "AMD", Price: 162.40, ChangePct: 1.8},
-		{Symbol: "NVDA", Price: 214.10, ChangePct: -0.4},
+		{Symbol: "AMD", Price: 162.40, High: 164.20, Low: 158.80, ChangePct: 1.8},
+		{Symbol: "NVDA", Price: 214.10, High: 216.30, Low: 211.50, ChangePct: -0.4},
 	}, 30))
-	for _, want := range []string{"AMD", "162.40", "1.8%", "NVDA", "214.10", "0.4%"} {
+	for _, want := range []string{"AMD", "162.40", "1.8%", "H 164.20", "L 158.80", "NVDA", "214.10", "0.4%"} {
 		if !strings.Contains(markets, want) {
 			t.Fatalf("markets missing %q:\n%s", want, markets)
 		}
@@ -724,6 +724,31 @@ func TestWeatherNarrowDropsWholeFacts(t *testing.T) {
 	// Rain and wind stack rather than crowding one row.
 	if rain := weatherLineWith(strings.Split(out, "\n"), "Rain"); strings.Contains(rain, "Wind") {
 		t.Fatalf("rain and wind should stack at width 24:\n%s", out)
+	}
+}
+
+func TestPanelsUseCompactContentAtNarrowWidths(t *testing.T) {
+	r := chromeRenderer(Compact)
+
+	system := ansi.Strip(r.RenderSystem(SystemMetrics{
+		CPUPercent: 18, CPUSpark: []float64{0.1, 0.2, 0.3}, MemoryPercent: 41,
+		TemperatureC: 54, Load: [3]float64{1.4, 1.1, 0.9}, Uptime: 3 * time.Hour,
+	}, 24))
+	if strings.Contains(system, "LOAD") || strings.Contains(system, "UP") {
+		t.Fatalf("narrow system retained secondary rows:\n%s", system)
+	}
+	if !strings.Contains(system, "CPU") || !strings.Contains(system, "TEMP") {
+		t.Fatalf("narrow system dropped primary rows:\n%s", system)
+	}
+
+	gpu := ansi.Strip(r.RenderGPU(gpuFixture(), 24))
+	for _, secondary := range []string{"TEMP", "PWR", "CLK"} {
+		if strings.Contains(gpu, secondary) {
+			t.Fatalf("narrow GPU retained %q:\n%s", secondary, gpu)
+		}
+	}
+	if !strings.Contains(gpu, "GPU") || !strings.Contains(gpu, "MEM") {
+		t.Fatalf("narrow GPU dropped primary metrics:\n%s", gpu)
 	}
 }
 

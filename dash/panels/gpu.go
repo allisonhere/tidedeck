@@ -28,7 +28,7 @@ func (g *gpu) Meta() dash.Meta {
 	return dash.Meta{
 		ID: "gpu", Title: "GPU",
 		Role: tideui.RoleSecondary, Priority: 72,
-		MinWidth: 18, MinHeight: 6, HideBelow: 104,
+		MinWidth: 18, MinHeight: 6, HideBelow: 80,
 		Interval: time.Second,
 		Gauge:    true,
 		Spark:    true,

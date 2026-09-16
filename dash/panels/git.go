@@ -38,7 +38,7 @@ func (g *git) Meta() dash.Meta {
 	return dash.Meta{
 		ID: "git", Title: "Git Activity",
 		Role: tideui.RoleOptional, Priority: 40,
-		MinWidth: 18, MinHeight: 5, HideBelow: 150,
+		MinWidth: 18, MinHeight: 5, HideBelow: 80,
 		Interval: time.Minute,
 	}
 }

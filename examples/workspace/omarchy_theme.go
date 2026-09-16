@@ -97,3 +97,16 @@ func themePickerThemes() []tideui.Theme {
 	}
 	return themes
 }
+
+// layoutThemeByName resolves both built-in picker themes and the current
+// Omarchy theme, so layout assignments can survive a restart without storing
+// the full palette in the app config.
+func layoutThemeByName(name string) (tideui.Theme, bool) {
+	if theme, ok := tideui.ThemeByName(name); ok {
+		return theme, true
+	}
+	if theme, ok := omarchyCurrentTheme(); ok && theme.Name == name {
+		return theme, true
+	}
+	return tideui.Theme{}, false
+}

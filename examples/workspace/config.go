@@ -24,9 +24,11 @@ type config struct {
 	// needs a patched font and emoji a colour emoji font.
 	Icons string `json:"icons"`
 	// GlyphMode controls panel header glyphs: on, off, or per_panel.
-	GlyphMode   string            `json:"glyph_mode"`
-	PanelGlyphs map[string]bool   `json:"panel_glyphs,omitempty"`
-	PanelGauges map[string]string `json:"panel_gauges,omitempty"`
+	GlyphMode   string          `json:"glyph_mode"`
+	PanelGlyphs map[string]bool `json:"panel_glyphs,omitempty"`
+	// LayoutThemes maps preset/slot identifiers to workspace theme names.
+	LayoutThemes map[string]string `json:"layout_themes,omitempty"`
+	PanelGauges  map[string]string `json:"panel_gauges,omitempty"`
 	// PanelSparks overrides the sparkline style per panel id. "default" or a
 	// missing entry follows the workspace SparkStyle.
 	PanelSparks map[string]string `json:"panel_sparks,omitempty"`

@@ -16,7 +16,7 @@ func TestNotesPanelMeta(t *testing.T) {
 	if meta.ID != "notes" || meta.Title != "Notes" {
 		t.Fatalf("meta = %#v", meta)
 	}
-	if meta.MinWidth != 18 || meta.MinHeight != 5 || meta.HideBelow != 130 || meta.Priority != 45 {
+	if meta.MinWidth != 18 || meta.MinHeight != 5 || meta.HideBelow != 80 || meta.Priority != 45 {
 		t.Fatalf("sizing changed: %#v", meta)
 	}
 	if meta.Interval != 30*time.Second {

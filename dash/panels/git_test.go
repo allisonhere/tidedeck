@@ -22,7 +22,7 @@ func TestGitPanelMeta(t *testing.T) {
 	}
 	// The panel keeps the sizing the hand-written registration used, so the
 	// layout is unchanged by the migration.
-	if meta.MinWidth != 18 || meta.MinHeight != 5 || meta.HideBelow != 150 || meta.Priority != 40 {
+	if meta.MinWidth != 18 || meta.MinHeight != 5 || meta.HideBelow != 80 || meta.Priority != 40 {
 		t.Fatalf("sizing changed: %#v", meta)
 	}
 	if meta.Interval != time.Minute {
