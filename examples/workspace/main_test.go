@@ -381,6 +381,24 @@ func TestCopyFromCalculator(t *testing.T) {
 	}
 }
 
+// Directional navigation belongs to the tiled workspace. A panel cursor may
+// still be used in a zoomed panel, but it must not capture arrows while the
+// user is moving between dashboard panes.
+func TestPanelCursorDoesNotCaptureTiledNavigation(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := newModel()
+	m.width, m.height = 150, 44
+	if !m.ws.Focus("news") {
+		t.Fatal("could not focus News")
+	}
+	if m.ws.Zoomed() != "" {
+		t.Fatal("dashboard unexpectedly started zoomed")
+	}
+	if m.moveSelection(1) {
+		t.Fatal("News cursor captured tiled navigation")
+	}
+}
+
 func TestOSC52Encoding(t *testing.T) {
 	if got := osc52("96"); got != "\x1b]52;c;OTY=\x07" {
 		t.Fatalf("osc52 = %q", got)

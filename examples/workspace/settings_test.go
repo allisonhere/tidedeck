@@ -90,6 +90,33 @@ func TestSettingsFormEditsAndSaves(t *testing.T) {
 	}
 }
 
+func TestSettingsWorkspaceUsesTwoPanesAndCancelsInlineEdit(t *testing.T) {
+	form := weatherForm(t)
+	renderer := tideui.NewRenderer(tideui.CatppuccinMocha, tideui.StyleOptions{Density: tideui.Dense})
+	wide := form.RenderWorkspace(renderer, 120, 30)
+	if !strings.Contains(wide, "TideDeck › Settings") || !strings.Contains(wide, "Editor") {
+		t.Fatalf("settings workspace lost pane chrome: %q", wide)
+	}
+
+	openCategory(t, form, "Weather")
+	field := selectNewsField(t, form, "location")
+	original := *field.text
+	form.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	form.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("changed")})
+	if !form.dirty {
+		t.Fatal("inline edit did not mark settings dirty")
+	}
+	form.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if *field.text != original {
+		t.Fatalf("escape kept cancelled edit: got %q want %q", *field.text, original)
+	}
+
+	narrow := form.RenderWorkspace(renderer, 70, 18)
+	if !strings.Contains(narrow, "Editor") {
+		t.Fatalf("narrow settings view did not expose editor tab: %q", narrow)
+	}
+}
+
 func TestSettingsFormRejectsBadNumber(t *testing.T) {
 	form := weatherForm(t)
 	*form.state.panelText["weather.latitude"] = "not-a-number"
@@ -780,6 +807,24 @@ func TestSettingsIconStyleChoice(t *testing.T) {
 	}
 }
 
+func TestGlyphModeAndPanelOverride(t *testing.T) {
+	if glyphModeOrDefault("unknown") != glyphModeOn {
+		t.Fatal("unknown glyph mode did not fall back to on")
+	}
+	if !glyphsShown(config{GlyphMode: glyphModeOn}, "weather") {
+		t.Fatal("on mode hid a glyph")
+	}
+	if glyphsShown(config{GlyphMode: glyphModeOff}, "weather") {
+		t.Fatal("off mode showed a glyph")
+	}
+	if glyphsShown(config{GlyphMode: glyphModePerPane, PanelGlyphs: map[string]bool{"weather": false}}, "weather") {
+		t.Fatal("per-panel override did not hide weather glyph")
+	}
+	if !glyphsShown(config{GlyphMode: glyphModePerPane}, "weather") {
+		t.Fatal("per-panel default should show glyph")
+	}
+}
+
 // The settings pages must follow the panels, so the list does not reshuffle
 // as panels move onto the registry - a page declared by a panel is appended
 // to the hand-written list, and only the ordering puts it back in place.
@@ -832,6 +877,7 @@ func TestWeatherCategoryMergesFormAndPanelFields(t *testing.T) {
 		"enabled",
 		"city or ZIP", "Look up coordinates", // the form's geocoder
 		"live weather", "latitude", "longitude", "location", "fahrenheit", "wind mph",
+		"show glyph",
 	}
 	if strings.Join(labels, "|") != strings.Join(want, "|") {
 		t.Fatalf("Weather page rows =\n%v\nwant\n%v", labels, want)

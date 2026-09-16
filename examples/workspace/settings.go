@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/allisonhere/tideui"
@@ -22,7 +23,16 @@ const (
 	fieldAction
 	fieldPanel
 	fieldChoice
+	fieldGlyph
 )
+
+const (
+	glyphModeOn      = "on"
+	glyphModeOff     = "off"
+	glyphModePerPane = "per_panel"
+)
+
+const settingsMaxWidth = 128
 
 type formField struct {
 	label        string
@@ -93,6 +103,7 @@ type formState struct {
 	spark     string
 	clockFont string
 	icons     string
+	glyphMode string
 	// doc is the document the edited config came from, carried through the
 	// form so saving preserves keys the form never shows.
 	doc dash.Values
@@ -105,6 +116,7 @@ type formState struct {
 	panelFlag   map[string]*bool
 	panelGauges map[string]string
 	panelSparks map[string]string
+	panelGlyphs map[string]bool
 	feeds       string // custom URLs only; catalogue URLs live in feedPresets
 	feedPresets []bool // one per provider.NewsSources(), same order
 	// pluginSource is the plugin install field. It is transient: the value is
@@ -122,8 +134,10 @@ func formFromConfig(cfg config) formState {
 		spark:       sparkOrDefault(cfg.SparkStyle),
 		clockFont:   clockFontOrDefault(cfg.ClockFont),
 		icons:       iconStyleOrDefault(cfg.Icons),
+		glyphMode:   glyphModeOrDefault(cfg.GlyphMode),
 		panelGauges: copyStringMap(cfg.PanelGauges),
 		panelSparks: copyStringMap(cfg.PanelSparks),
+		panelGlyphs: copyBoolMap(cfg.PanelGlyphs),
 		feeds:       customFeeds,
 		feedPresets: feedPresets,
 	}
@@ -136,8 +150,10 @@ func (s formState) toConfig(deck *dash.Deck) (config, error) {
 		SparkStyle:  sparkOrDefault(s.spark),
 		ClockFont:   clockFontOrDefault(s.clockFont),
 		Icons:       iconStyleOrDefault(s.icons),
+		GlyphMode:   glyphModeOrDefault(s.glyphMode),
 		PanelGauges: panelOverrides(s.panelGauges),
 		PanelSparks: panelOverrides(s.panelSparks),
+		PanelGlyphs: panelGlyphOverrides(s.panelGlyphs),
 		Feeds:       joinFeeds(s.feedPresets, s.feeds),
 	}
 	document, err := s.applyPanelFields(s.doc, deck)
@@ -181,6 +197,44 @@ func copyStringMap(in map[string]string) map[string]string {
 	out := make(map[string]string, len(in))
 	for key, value := range in {
 		out[key] = value
+	}
+	return out
+}
+
+func copyBoolMap(in map[string]bool) map[string]bool {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
+}
+
+func glyphModeNames() []string { return []string{glyphModeOn, glyphModeOff, glyphModePerPane} }
+
+func glyphModeOrDefault(mode string) string {
+	for _, known := range glyphModeNames() {
+		if mode == known {
+			return mode
+		}
+	}
+	return glyphModeOn
+}
+
+func panelGlyphOverrides(in map[string]bool) map[string]bool {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]bool)
+	for id, enabled := range in {
+		if !enabled {
+			out[id] = false
+		}
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }
@@ -280,20 +334,27 @@ const (
 	viewFields
 )
 
-// settingsForm is the modal configuration panel. Every provider setting is
-// edited here; nothing requires environment variables or a hand-edited file.
-// It is organized as a category list that opens into a page of fields, so a
-// long configuration stays readable.
+type settingsPane int
+
+const (
+	settingsNav settingsPane = iota
+	settingsEditor
+)
+
+// settingsForm owns the Settings workspace. The model remains schema-driven;
+// rendering presents it as a persistent navigation/editor layout.
 type settingsForm struct {
 	opened     bool
 	state      *formState
 	cfg        config // config produced by the last successful save
 	categories []settingsCategory
 	view       settingsView
+	focus      settingsPane
 	category   int
 	cursor     int
 	editing    bool
 	caret      int
+	editBefore string
 	problem    string
 	dirty      bool
 
@@ -364,6 +425,24 @@ func (s settingsForm) PanelSparkStyle(id string) string {
 // is being changed.
 func (s settingsForm) Icons() string { return iconStyleOrDefault(s.state.icons) }
 
+func (s settingsForm) GlyphMode() string {
+	if s.state == nil {
+		return glyphModeOn
+	}
+	return glyphModeOrDefault(s.state.glyphMode)
+}
+
+func (s settingsForm) PanelGlyphEnabled(id string) bool {
+	if s.state == nil {
+		return true
+	}
+	value, ok := s.state.panelGlyphs[id]
+	if !ok {
+		return true
+	}
+	return value
+}
+
 func (s settingsForm) ClockFont() string {
 	if s.state == nil {
 		return string(tideui.ClockFontDash)
@@ -387,6 +466,7 @@ func (s *settingsForm) Open(cfg config) {
 	s.opened = true
 	s.categories = s.buildCategories()
 	s.view = viewCategories
+	s.focus = settingsNav
 	s.category = 0
 	s.cursor = 0
 	s.editing = false
@@ -406,6 +486,7 @@ func (s *settingsForm) buildCategories() []settingsCategory {
 			{label: "spark style", kind: fieldChoice, choice: &s.state.spark, options: sparkStyleNames(), sparkPreview: true},
 			{label: "clock font", kind: fieldChoice, choice: &s.state.clockFont, options: clockFontNames()},
 			{label: "icons", kind: fieldChoice, choice: &s.state.icons, options: iconStyleNames()},
+			{label: "panel glyphs", kind: fieldChoice, choice: &s.state.glyphMode, options: glyphModeNames()},
 		}},
 		{name: "Plugins", fields: s.pluginFields()},
 		{name: "Weather", panelID: "weather", fields: []formField{
@@ -448,8 +529,19 @@ func (s *settingsForm) buildCategories() []settingsCategory {
 		if len(prepend) > 0 {
 			categories[i].fields = append(prepend, categories[i].fields...)
 		}
+		categories[i].fields = append(categories[i].fields, s.panelGlyphField(id))
 	}
 	return categories
+}
+
+func (s *settingsForm) panelGlyphField(id string) formField {
+	if s.state.panelGlyphs == nil {
+		s.state.panelGlyphs = map[string]bool{}
+	}
+	if _, ok := s.state.panelGlyphs[id]; !ok {
+		s.state.panelGlyphs[id] = true
+	}
+	return formField{label: "show glyph", kind: fieldGlyph, panel: id}
 }
 
 // panelGaugeField builds a per-panel gauge style choice. "default" follows the
@@ -937,13 +1029,22 @@ func (s *settingsForm) updateCategories(key string) settingsAction {
 	case "esc", "q":
 		s.opened = false
 		return settingsCancelled
-	case "up", "k", "shift+tab":
+	case "up", "k":
 		s.category = wrapIndex(s.category-1, len(s.categories))
-	case "down", "j", "tab":
+	case "down", "j":
 		s.category = wrapIndex(s.category+1, len(s.categories))
+	case "tab":
+		s.focus = settingsEditor
+		s.view = viewFields
+		s.cursor = 0
+	case "shift+tab":
+		s.focus = settingsEditor
+		s.view = viewFields
+		s.cursor = max(0, len(s.currentFields())-1)
 	case "enter", "right", "l", " ":
 		if len(s.categories) > 0 {
 			s.view = viewFields
+			s.focus = settingsEditor
 			s.cursor = 0
 			s.problem = ""
 		}
@@ -956,6 +1057,7 @@ func (s *settingsForm) updateFields(key string) settingsAction {
 	switch key {
 	case "esc", "backspace":
 		s.view = viewCategories
+		s.focus = settingsNav
 		s.editing = false
 	case "left", "h":
 		// Cycle a choice field; otherwise this backs out of the category.
@@ -964,6 +1066,7 @@ func (s *settingsForm) updateFields(key string) settingsAction {
 			s.dirty = true
 		} else {
 			s.view = viewCategories
+			s.focus = settingsNav
 			s.editing = false
 		}
 	case "right", "l":
@@ -971,10 +1074,13 @@ func (s *settingsForm) updateFields(key string) settingsAction {
 			field.setChoice(stepChoice(field.choiceValue(), field.options, 1))
 			s.dirty = true
 		}
-	case "up", "k", "shift+tab":
+	case "up", "k":
 		s.cursor = wrapIndex(s.cursor-1, len(fields))
-	case "down", "j", "tab":
+	case "down", "j":
 		s.cursor = wrapIndex(s.cursor+1, len(fields))
+	case "tab", "shift+tab":
+		s.focus = settingsNav
+		s.view = viewCategories
 	case "enter", " ":
 		return s.activate()
 	}
@@ -991,6 +1097,7 @@ func (s *settingsForm) updateEditing(msg tea.KeyMsg, key string) settingsAction 
 	s.caret = min(max(s.caret, 0), length)
 	switch key {
 	case "esc":
+		*field.text = s.editBefore
 		s.editing = false
 	case "enter":
 		s.editing = false
@@ -1042,6 +1149,7 @@ func (s *settingsForm) activate() settingsAction {
 		s.dirty = true
 	case fieldText:
 		s.editing = true
+		s.editBefore = *field.text
 		s.caret = len([]rune(*field.text))
 	case fieldAction:
 		if field.action != nil {
@@ -1051,6 +1159,12 @@ func (s *settingsForm) activate() settingsAction {
 		if s.ws != nil {
 			s.ws.TogglePanel(field.panel)
 		}
+	case fieldGlyph:
+		if s.state.panelGlyphs == nil {
+			s.state.panelGlyphs = map[string]bool{}
+		}
+		s.state.panelGlyphs[field.panel] = !s.PanelGlyphEnabled(field.panel)
+		s.dirty = true
 	case fieldChoice:
 		field.setChoice(stepChoice(field.choiceValue(), field.options, 1))
 		s.dirty = true
@@ -1111,57 +1225,128 @@ func (s settingsForm) value(field formField) string {
 		}
 	case fieldChoice:
 		return field.choiceValue()
+	case fieldGlyph:
+		if s.PanelGlyphEnabled(field.panel) {
+			return "on"
+		}
+		return "off"
 	}
 	return ""
 }
 
-// Render draws the settings panel as a soft modal overlay.
-func (s settingsForm) Render(r tideui.Renderer, width, height int) tideui.Overlay {
-	if !s.opened {
-		return tideui.Overlay{}
+// RenderWorkspace renders Settings as a TideUI workspace. The dashboard is
+// intentionally not passed in here: entering settings never changes its
+// layout, focus, visibility, preset, or zoom state, so leaving settings is a
+// simple return to the same workspace object.
+func (s settingsForm) RenderWorkspace(r tideui.Renderer, width, height int) string {
+	if !s.opened || width <= 0 || height <= 0 {
+		return ""
 	}
-	panelWidth := min(70, max(34, width-4))
-	innerWidth := max(1, panelWidth-4)
+	layoutWidth := min(width, settingsMaxWidth)
+	narrow := layoutWidth < 96
+	leftWidth := max(24, min(34, layoutWidth/3))
+	rightWidth := max(1, layoutWidth-leftWidth-1)
+	if narrow {
+		leftWidth = layoutWidth
+		rightWidth = layoutWidth
+	}
 
-	var lines []string
-	if s.dirty {
-		lines = append(lines, r.Styles.StatusNotice.Width(innerWidth).
-			Render(" unsaved changes — ctrl+s to apply "))
+	navRows := max(1, height-5)
+	left := strings.Join(s.renderCategories(r, max(1, leftWidth-4), navRows), "\n")
+
+	right := "choose a category from the navigation pane"
+	if s.category >= 0 && s.category < len(s.categories) {
+		category := s.categories[s.category]
+		rows := max(1, height-6)
+		right = r.Styles.OverlayTitle.Render(settingsIcon(category)+" "+strings.ToUpper(category.name)) + "\n"
+		if category.panelID != "" {
+			right += r.Styles.OverlayHint.Render("Panel") + "\n"
+		}
+		if len(category.fields) == 0 {
+			right += r.Styles.OverlayHint.Render("No additional settings for this panel.")
+		} else {
+			right += strings.Join(s.renderFields(r, max(1, rightWidth-4), rows), "\n")
+		}
 	}
 	if s.problem != "" {
-		// Truncate to one line: a long reason - a pasted URL, a git error -
-		// must not wrap and push the fields around. The soft body re-truncates
-		// and pads, so no fixed width is set here.
-		lines = append(lines, r.Styles.StatusError.
-			Render(ansi.Truncate("  "+s.problem, innerWidth, "…")))
+		right = r.Styles.StatusError.Render(ansi.Truncate(s.problem, max(1, rightWidth-4), "…")) + "\n" + right
 	}
 
-	rowsAvailable := max(1, height-8)
-	if s.view == viewCategories {
-		lines = append(lines, s.renderCategories(r, innerWidth, rowsAvailable)...)
-		lines = append(lines, "", r.RenderSoftHints(innerWidth,
-			tideui.SoftHint{Key: "↑/↓", Label: "choose"},
-			tideui.SoftHint{Key: "enter", Label: "open"},
-			tideui.SoftHint{Key: "ctrl+s", Label: "apply"},
-			tideui.SoftHint{Key: "esc", Label: "discard"},
-		))
-	} else {
-		lines = append(lines, r.Styles.OverlayTitle.Width(innerWidth).
-			Render(strings.ToLower(s.categories[s.category].name)))
-		lines = append(lines, s.renderFields(r, innerWidth, rowsAvailable)...)
-		lines = append(lines, "", r.RenderSoftHints(innerWidth,
-			tideui.SoftHint{Key: "↑/↓", Label: "field"},
-			tideui.SoftHint{Key: "enter", Label: "toggle / edit"},
-			tideui.SoftHint{Key: "esc", Label: "back"},
-			tideui.SoftHint{Key: "ctrl+s", Label: "apply"},
-		))
+	mode := tideui.SidebarOnly
+	panes := [3]tideui.Pane{
+		{Title: "Settings", Content: left, Focused: s.focus == settingsNav, Hint: "↑/↓"},
+		{Title: "Editor", Content: right, Focused: s.focus == settingsEditor, Hint: "tab focus"},
 	}
-	return r.SoftPanelOverlay(tideui.SoftPanel{
-		Prefix:  "tidedeck",
-		Title:   "settings",
-		Content: r.RenderSoftBody(panelWidth, strings.Join(lines, "\n")),
-		Width:   panelWidth,
+	if narrow {
+		mode = tideui.Tabbed
+		if s.focus == settingsNav {
+			panes[1] = tideui.Pane{Title: "Settings", Content: left, Focused: true}
+		} else {
+			panes[0] = tideui.Pane{Title: "Editor", Content: right, Focused: true}
+		}
+	}
+	hints := "tab focus · esc back"
+	if s.dirty {
+		hints = "ctrl+s save · tab focus · esc back"
+	}
+	view := r.Render(tideui.Layout{
+		Width: layoutWidth, Height: height, Mode: mode, Panes: panes,
+		SidebarRatio: float64(leftWidth) / float64(max(1, layoutWidth)),
+		Status:       &tideui.StatusBar{Left: "TideDeck › Settings", Right: hints},
 	})
+	if layoutWidth == width {
+		return view
+	}
+	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Top, view)
+}
+
+func settingsIcon(category settingsCategory) string {
+	switch category.panelID {
+	case "":
+		if category.name == "Plugins" {
+			return "🧩"
+		}
+		return "⚙️"
+	default:
+		return panelGlyph(category.panelID)
+	}
+}
+
+func panelGlyph(id string) string {
+	switch id {
+	case "agenda":
+		return "📅"
+	case "weather":
+		return "🌤️"
+	case "system":
+		return "💻"
+	case "gpu":
+		return "🎮"
+	case "updates":
+		return "⬆️"
+	case "clock":
+		return "🕒"
+	case "git":
+		return "🌿"
+	case "news":
+		return "📰"
+	case "network":
+		return "🌐"
+	case "storage":
+		return "💾"
+	case "services":
+		return "⚙️"
+	case "tasks":
+		return "✅"
+	case "notes":
+		return "📝"
+	case "markets":
+		return "📈"
+	case "calculator":
+		return "🧮"
+	default:
+		return "🔌"
+	}
 }
 
 func (s settingsForm) renderCategories(r tideui.Renderer, width, rows int) []string {
@@ -1172,13 +1357,18 @@ func (s settingsForm) renderCategories(r tideui.Renderer, width, rows int) []str
 	}
 	for index := first; index < last; index++ {
 		category := s.categories[index]
+		if index == 0 {
+			lines = append(lines, r.Styles.OverlayHint.Render("GENERAL"))
+		} else if category.panelID != "" && s.categories[index-1].panelID == "" {
+			lines = append(lines, r.Styles.OverlayHint.Render("PANELS"))
+		}
 		suffix := fmt.Sprintf("%d", len(category.fields))
 		if category.panelID != "" && !s.panelVisible(category.panelID) {
 			suffix = "off"
 		}
 		lines = append(lines, r.RenderSoftRow(tideui.SoftRow{
 			Prefix:   "  ",
-			Text:     category.name,
+			Text:     settingsIcon(category) + " " + category.name,
 			Suffix:   suffix,
 			Selected: index == s.category,
 		}, width))
@@ -1212,6 +1402,12 @@ func (s settingsForm) renderFields(r tideui.Renderer, width, rows int) []string 
 			}
 		case fieldPanel:
 			if s.panelVisible(field.panel) {
+				row.Prefix = "[x] "
+			} else {
+				row.Prefix = "[ ] "
+			}
+		case fieldGlyph:
+			if s.PanelGlyphEnabled(field.panel) {
 				row.Prefix = "[x] "
 			} else {
 				row.Prefix = "[ ] "

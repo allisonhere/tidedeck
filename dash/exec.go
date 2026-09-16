@@ -12,8 +12,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/allisonhere/tideui"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // maxPluginOutput caps what a plugin may print. A program that produces more
@@ -61,7 +63,7 @@ func (e *execPanel) Meta() Meta {
 		title = e.manifest.Name
 	}
 	meta := Meta{
-		ID: e.manifest.ID, Title: title, Subtitle: panel.Category,
+		ID: e.manifest.ID, Title: title, Glyph: normalizeGlyph(panel.Glyph), Subtitle: panel.Category,
 		Role: tideui.RoleOptional, Priority: panel.Priority,
 		MinWidth: panel.MinWidth, MinHeight: panel.MinHeight,
 		HideBelow: panel.HideBelow, Interval: e.manifest.Interval(),
@@ -83,6 +85,22 @@ func (e *execPanel) Meta() Meta {
 		meta.MinHeight = 4
 	}
 	return meta
+}
+
+// normalizeGlyph keeps plugin metadata from damaging header alignment. A
+// glyph may be a short emoji sequence (for example emoji plus variation
+// selector), but it must occupy one or two terminal cells and contain no
+// control/newline characters. Invalid values use TideDeck's host fallback.
+func normalizeGlyph(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.ContainsAny(value, "\r\n\t") || utf8.RuneCountInString(value) > 4 {
+		return ""
+	}
+	width := ansi.StringWidth(value)
+	if width < 1 || width > 2 {
+		return ""
+	}
+	return value
 }
 
 func (e *execPanel) Schema() []Field { return e.manifest.Fields() }

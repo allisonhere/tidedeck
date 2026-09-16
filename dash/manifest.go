@@ -47,6 +47,7 @@ type Manifest struct {
 // placed and what it lets you configure.
 type PanelManifest struct {
 	DisplayName    string         `json:"displayName"`
+	Glyph          string         `json:"glyph"`
 	Description    string         `json:"description"`
 	Category       string         `json:"category"`
 	RefreshSeconds int            `json:"refreshSeconds"`

@@ -22,7 +22,10 @@ type config struct {
 	ClockFont  string `json:"clock_font"`
 	// Icons picks the widget icon family: "plain", "emoji" or "nerd". Nerd
 	// needs a patched font and emoji a colour emoji font.
-	Icons       string            `json:"icons"`
+	Icons string `json:"icons"`
+	// GlyphMode controls panel header glyphs: on, off, or per_panel.
+	GlyphMode   string            `json:"glyph_mode"`
+	PanelGlyphs map[string]bool   `json:"panel_glyphs,omitempty"`
 	PanelGauges map[string]string `json:"panel_gauges,omitempty"`
 	// PanelSparks overrides the sparkline style per panel id. "default" or a
 	// missing entry follows the workspace SparkStyle.
@@ -86,6 +89,7 @@ func defaultConfig() config {
 		SparkStyle: "blocks",
 		ClockFont:  "dash",
 		Icons:      "emoji",
+		GlyphMode:  glyphModeOn,
 	}
 }
 

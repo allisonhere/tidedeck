@@ -240,6 +240,7 @@ func (m *model) applyConfig() {
 	applyPanelSparks(m.ws, m.cfg)
 	m.deck.SetMode(deckMode(m.cfg.Live))
 	m.deck.Configure(m.values())
+	applyPanelGlyphs(m.ws, m.deck, m.cfg)
 	// Give the deck's panels their first data now rather than on the tick a
 	// second from now: a panel that holds its own data renders empty until
 	// something fills it, and the first frame is drawn before that tick.
@@ -271,6 +272,44 @@ func (m *model) applyStylePreview() {
 		default:
 			panel.Sparkline(tideui.SparklineStyle(style))
 		}
+	}
+	applyPanelGlyphs(m.ws, m.deck, config{GlyphMode: m.settings.GlyphMode(), PanelGlyphs: m.settings.state.panelGlyphs})
+}
+
+func glyphsShown(cfg config, id string) bool {
+	switch glyphModeOrDefault(cfg.GlyphMode) {
+	case glyphModeOff:
+		return false
+	case glyphModePerPane:
+		if value, ok := cfg.PanelGlyphs[id]; ok {
+			return value
+		}
+	}
+	return true
+}
+
+func applyPanelGlyphs(ws *tideui.Workspace, deck *dash.Deck, cfg config) {
+	if ws == nil || deck == nil {
+		return
+	}
+	for _, panel := range deck.Panels() {
+		id := panel.Meta().ID
+		view, ok := ws.Lookup(id)
+		if !ok {
+			continue
+		}
+		title := panel.Meta().Title
+		if title == "" {
+			title = id
+		}
+		if glyphsShown(cfg, id) {
+			glyph := panel.Meta().Glyph
+			if glyph == "" {
+				glyph = panelGlyph(id)
+			}
+			title = glyph + " " + title
+		}
+		view.Title(title)
 	}
 }
 
@@ -487,6 +526,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 	case tickMsg:
 		m.state.now = time.Now()
+		m.syncOmarchyTheme()
 		// Panels fetch on their own intervals and hold their own data.
 		m.deck.Refresh(context.Background(), m.state.now)
 		m.deck.Tick(m.state.now)
@@ -528,6 +568,31 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 	}
 	return m, nil
+}
+
+// syncOmarchyTheme keeps only themes explicitly sourced from Omarchy live.
+// Built-in and manually selected panel themes remain stable, while a new
+// Omarchy palette is reflected on the next dashboard tick.
+func (m *model) syncOmarchyTheme() {
+	theme, ok := omarchyCurrentTheme()
+	if !ok {
+		return
+	}
+	changed := false
+	if strings.HasPrefix(m.state.theme.Name, "omarchy · ") && m.state.theme.Name != theme.Name {
+		m.state.theme = theme
+		changed = true
+	}
+	for _, panel := range m.ws.Panels() {
+		current, has := panel.PanelTheme()
+		if has && strings.HasPrefix(current.Name, "omarchy · ") && current.Name != theme.Name {
+			panel.Theme(theme)
+			changed = true
+		}
+	}
+	if changed {
+		m.state.status = "Omarchy theme synced: " + strings.TrimPrefix(theme.Name, "omarchy · ")
+	}
 }
 
 type lookupMsg struct {
@@ -612,6 +677,7 @@ func (m *model) applyPluginOp(msg pluginOpMsg) {
 	if m.settings.Opened() {
 		m.settings.Reload(m.cfg)
 	}
+	applyPanelGlyphs(m.ws, m.deck, m.cfg)
 }
 
 type panelRefreshedMsg struct{}
@@ -750,9 +816,14 @@ func (m *model) handlePanelInput(msg tea.KeyMsg) (tea.Cmd, bool) {
 	return m.refreshFocusedCmd(), true
 }
 
-// moveSelection hands a move to the focused panel's cursor, if it has one. It
-// reports whether the panel took it, so the arrows still move focus otherwise.
+// moveSelection hands a move to the focused panel's cursor only while that
+// panel owns the whole screen. In the tiled dashboard, directional keys are
+// reserved for moving between panes; otherwise a list panel such as News can
+// trap the user's focus in its first few rows.
 func (m *model) moveSelection(delta int) bool {
+	if m.ws.Zoomed() == "" {
+		return false
+	}
 	panel, ok := m.deck.Lookup(m.ws.Focused())
 	if !ok {
 		return false
@@ -926,17 +997,9 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "up":
-			// A panel with a cursor (the news list) takes the arrows to move
-			// its selection; otherwise they move focus between panels.
-			if m.moveSelection(-1) {
-				return m, nil
-			}
 			m.ws.FocusDirection(tideui.DirUp)
 			return m, nil
 		case "down":
-			if m.moveSelection(1) {
-				return m, nil
-			}
 			m.ws.FocusDirection(tideui.DirDown)
 			return m, nil
 		case "j":
@@ -970,6 +1033,9 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *model) openWorkspaceThemePicker() {
 	m.pickerTarget = ""
 	m.pickerHad = false
+	m.picker = tideui.NewThemePicker(tideui.ThemePickerOptions{
+		Themes: themePickerThemes(), InitialTheme: m.state.theme.Name,
+	})
 	m.picker.SetTitle("Theme")
 	m.picker.Open(m.state.theme.Name)
 }
@@ -983,13 +1049,17 @@ func (m *model) openPanelThemePicker() {
 		return
 	}
 	m.pickerTarget = focus
+	currentTheme := m.state.theme.Name
 	if theme, has := panel.PanelTheme(); has {
 		m.pickerPrev, m.pickerHad = theme, true
-		m.picker.Open(theme.Name)
+		currentTheme = theme.Name
 	} else {
 		m.pickerPrev, m.pickerHad = tideui.Theme{}, false
-		m.picker.Open(m.state.theme.Name)
 	}
+	m.picker = tideui.NewThemePicker(tideui.ThemePickerOptions{
+		Themes: themePickerThemes(), InitialTheme: currentTheme,
+	})
+	m.picker.Open(currentTheme)
 	m.picker.SetTitle("Theme · " + panel.TitleText())
 	m.state.status = "pick a theme for " + panel.TitleText()
 }
@@ -1052,6 +1122,9 @@ func (m model) View() string {
 		IconStyle:   m.state.icons,
 		ModalShadow: true,
 	})
+	if m.settings.Opened() {
+		return m.settings.RenderWorkspace(renderer, m.width, m.height)
+	}
 	wr := tideui.NewWorkspaceRenderer(renderer)
 
 	primary := "tideDeck  ·  " + m.state.theme.Name + "  ·  " + string(m.state.density)
@@ -1076,11 +1149,6 @@ func (m model) View() string {
 	wr.Options.StatusNotice = m.state.status
 	base := wr.Render(m.ws, m.width, m.height)
 	out := ""
-	if m.settings.Opened() {
-		if overlay := m.settings.Render(renderer, m.width, m.height); overlay.Visible {
-			out = renderer.OverlayModal(base, overlay.Content, m.width, m.height)
-		}
-	}
 	if out == "" {
 		if overlay := m.ws.Overlay(renderer); overlay != nil && overlay.Visible {
 			out = renderer.OverlayModal(base, overlay.Content, m.width, m.height)

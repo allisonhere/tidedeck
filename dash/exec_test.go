@@ -267,3 +267,16 @@ func TestExecPanelCopyNamesARow(t *testing.T) {
 		t.Fatal("a panel with no copy field should copy nothing")
 	}
 }
+
+func TestExecPanelOptionalGlyph(t *testing.T) {
+	manifest := plugin(t, `echo '{"rows":[]}'`, map[string]any{
+		"panel": map[string]any{"glyph": "🧩"},
+	})
+	if got := Exec(manifest).Meta().Glyph; got != "🧩" {
+		t.Fatalf("plugin glyph = %q, want 🧩", got)
+	}
+	manifest.Panel.Glyph = "too\nwide"
+	if got := Exec(manifest).Meta().Glyph; got != "" {
+		t.Fatalf("invalid plugin glyph = %q, want fallback", got)
+	}
+}

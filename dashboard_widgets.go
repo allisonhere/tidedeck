@@ -734,7 +734,7 @@ func (r Renderer) analogClock(t time.Time) []string {
 // RenderSystem renders the system-health summary.
 func (r Renderer) RenderSystem(m SystemMetrics, width int) string {
 	bg := r.Styles.Workspace.Bg
-	total := metricTotal(width, 5, 5, 20)
+	total := metricTotal(width, 5, 5, width)
 	rows := []MetricRow{
 		{Label: "CPU", Value: fmt.Sprintf("%.0f%%", m.CPUPercent), Fraction: m.CPUPercent / 100,
 			Spark: m.CPUSpark, Tone: toneForPercent(m.CPUPercent), LabelWidth: 5, ValueWidth: 5, TotalWidth: total},
@@ -784,7 +784,7 @@ func (r Renderer) RenderGPU(m GPUMetrics, width int) string {
 	if m.Name == "" {
 		return r.dashBlock([]string{lipgloss.NewStyle().Background(bg).Foreground(ws.HintFg).Render("No GPU found")}, width, bg)
 	}
-	total := metricTotal(width, 5, 5, 20)
+	total := metricTotal(width, 5, 5, width)
 	lines := []string{r.RenderMetricRow(MetricRow{
 		Label: "GPU", Value: fmt.Sprintf("%.0f%%", m.BusyPercent), Fraction: m.BusyPercent / 100,
 		Spark: m.BusySpark, Tone: toneForPercent(m.BusyPercent),
@@ -937,8 +937,7 @@ func (r Renderer) RenderNetwork(m NetworkMetrics, width int) string {
 				Render(fmt.Sprintf("%.0f %s", m.Upload, unit)),
 	}
 	if len(m.DownSpark) > 0 {
-		graphWidth := min(width, 26)
-		lines = append(lines, "", r.RenderSparkline(Sparkline{Values: m.DownSpark, Width: graphWidth, Tone: ToneAccent}, bg))
+		lines = append(lines, "", r.renderTrendBlock("DOWNLOAD", m.DownSpark, width, ToneAccent, bg))
 	}
 	if m.Interface != "" {
 		lines = append(lines, "", lipgloss.NewStyle().Background(bg).Foreground(ws.BodyMutedFg).
@@ -952,7 +951,7 @@ func (r Renderer) RenderNetworkDetail(m NetworkMetrics, width int) string {
 	bg := r.Styles.Workspace.Bg
 	lines := strings.Split(r.RenderNetwork(m, width), "\n")
 	if len(m.UpSpark) > 0 {
-		lines = append(lines, "", r.RenderSparkline(Sparkline{Values: m.UpSpark, Width: width, Tone: ToneGood}, bg))
+		lines = append(lines, "", r.renderTrendBlock("UPLOAD", m.UpSpark, width, ToneGood, bg))
 	}
 	if m.LAN != "" {
 		lines = append(lines, r.dashPair("LAN", m.LAN, 6, bg))
@@ -961,6 +960,24 @@ func (r Renderer) RenderNetworkDetail(m NetworkMetrics, width int) string {
 		lines = append(lines, r.dashPair("WAN", m.WAN, 6, bg))
 	}
 	return r.dashBlock(lines, width, bg)
+}
+
+// renderTrendBlock gives a standalone graph enough context to be useful at a
+// glance. The plot remains exactly the panel width, while the small range row
+// makes a quiet or spiky series legible without relying on colour alone.
+func (r Renderer) renderTrendBlock(label string, values []float64, width int, tone Tone, bg lipgloss.Color) string {
+	if len(values) == 0 || width <= 0 {
+		return ""
+	}
+	low, high := valueRange(values)
+	current := values[len(values)-1]
+	stats := fmt.Sprintf("low %.1f   now %.1f   high %.1f", low, current, high)
+	muted := lipgloss.NewStyle().Background(bg).Foreground(r.Styles.Workspace.BodyMutedFg)
+	return strings.Join([]string{
+		r.RenderSectionDivider(SectionDivider{Label: label, Width: width}, bg),
+		r.RenderSparkline(Sparkline{Values: values, Width: width, Tone: tone}, bg),
+		muted.Render(stats),
+	}, "\n")
 }
 
 // RenderStorage renders mounted filesystems with gauges.
@@ -983,7 +1000,7 @@ func (r Renderer) RenderStorage(mounts []StorageMount, width int) string {
 		lines = append(lines, r.RenderMetricRow(MetricRow{
 			Label: mount.Path, Value: fmt.Sprintf("%.0f%%", mount.UsedPercent),
 			Fraction: mount.UsedPercent / 100, Bar: true, Tone: tone,
-			LabelWidth: labelWidth, ValueWidth: 4, TotalWidth: metricTotal(width, labelWidth, 4, 28),
+			LabelWidth: labelWidth, ValueWidth: 4, TotalWidth: metricTotal(width, labelWidth, 4, width),
 		}, bg))
 	}
 	return r.dashBlock(lines, width, bg)
@@ -1478,8 +1495,8 @@ func (r Renderer) RenderMarkets(items []MarketQuote, width int) string {
 	return r.dashBlock(lines, width, bg)
 }
 
-// metricTotal caps a metric row's width so its gauge or sparkline does not
-// stretch across a very wide panel.
+// metricTotal reserves the label/value columns and gives the plot all
+// remaining width, bounded by the panel width.
 func metricTotal(width, labelWidth, valueWidth, maxPlot int) int {
 	return min(width, labelWidth+valueWidth+4+maxPlot)
 }

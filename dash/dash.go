@@ -27,6 +27,7 @@ import (
 type Meta struct {
 	ID       string // stable identifier, e.g. "gpu"
 	Title    string // shown in the panel header
+	Glyph    string // optional panel glyph; the host supplies a fallback when empty
 	Subtitle string
 
 	Role      tideui.PanelRole

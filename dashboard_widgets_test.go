@@ -928,3 +928,20 @@ func TestElideMiddle(t *testing.T) {
 		t.Fatalf("elideMiddle(unicode, 9) = %q, width %d", got, lipgloss.Width(got))
 	}
 }
+
+func TestGraphsUsePanelWidth(t *testing.T) {
+	r := NewRenderer(CatppuccinMocha, StyleOptions{Density: Compact})
+	const width = 48
+
+	network := r.RenderNetwork(NetworkMetrics{
+		DownSpark: []float64{0.1, 0.4, 0.2, 0.8},
+	}, width)
+	if got := lipgloss.Width(strings.Split(network, "\n")[2]); got != width {
+		t.Fatalf("network sparkline width = %d, want %d", got, width)
+	}
+
+	system := r.RenderSystem(SystemMetrics{CPUSpark: []float64{0.1, 0.4, 0.8}}, width)
+	if got := lipgloss.Width(strings.Split(system, "\n")[0]); got != width {
+		t.Fatalf("system sparkline row width = %d, want %d", got, width)
+	}
+}
