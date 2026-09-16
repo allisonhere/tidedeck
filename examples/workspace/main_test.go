@@ -63,6 +63,20 @@ func TestNewPanelsRenderInTheirPreset(t *testing.T) {
 	}
 }
 
+// The system panel moved onto the deck, so it must be registered and its
+// deck-supplied badge must be applied before the first frame rather than a
+// tick later, when the hand-written registration set it directly.
+func TestSystemPanelIsOnTheDeck(t *testing.T) {
+	m := newModel()
+	m.width, m.height = 200, 60
+	if _, ok := m.ws.Lookup("system"); !ok {
+		t.Fatal("system is not registered")
+	}
+	if !strings.Contains(m.View(), "healthy") {
+		t.Fatal("the system badge is missing on the first frame")
+	}
+}
+
 // A dashboard started with live data configured must be live on the first
 // frame. The deck's settings and mode used to be applied only when settings
 // were saved, so a configured panel sat in demo mode until you opened the
