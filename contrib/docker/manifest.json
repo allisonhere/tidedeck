@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "tidedeck.docker",
+  "name": "Containers",
+  "version": "1.0.0",
+  "author": "tidedeck",
+  "license": "MIT",
+  "description": "Docker containers, their state and health, read from docker ps.",
+  "kinds": ["panel"],
+  "entryPoints": { "panel": ["./render.sh"] },
+  "panel": {
+    "displayName": "Containers",
+    "category": "System",
+    "refreshSeconds": 10,
+    "minWidth": 26,
+    "minHeight": 5,
+    "priority": 35,
+    "input": "filter",
+    "inputChars": "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-/:",
+    "copy": "id",
+    "schema": [
+      { "key": "all", "type": "boolean", "label": "show stopped", "defaultValue": true },
+      { "key": "filter", "type": "string", "label": "filter", "defaultValue": "" }
+    ]
+  }
+}
