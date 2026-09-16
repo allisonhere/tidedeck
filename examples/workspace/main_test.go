@@ -204,3 +204,21 @@ func hasCategory(form *settingsForm, name string) bool {
 	}
 	return false
 }
+
+// A bare digit must not switch preset, since applying a preset resets the
+// layout; the shortcut needs a modifier.
+func TestPresetShortcutsNeedAlt(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := newModel()
+	m.width, m.height = 120, 40
+	start := m.ws.ActivePreset()
+
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")})
+	if got := m.ws.ActivePreset(); got != start {
+		t.Fatalf("a bare digit switched preset to %q", got)
+	}
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2"), Alt: true})
+	if got := m.ws.ActivePreset(); got == start {
+		t.Fatalf("alt+2 did not switch preset (still %q)", got)
+	}
+}

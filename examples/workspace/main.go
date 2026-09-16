@@ -543,9 +543,12 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "right":
 			m.ws.FocusDirection(tideui.DirRight)
 			return m, nil
-		case "1", "2", "3", "4", "5":
+		case "alt+1", "alt+2", "alt+3", "alt+4", "alt+5":
+			// A modifier keeps the digit keys free: a bare number used to
+			// switch preset and reset the layout, which is easy to hit by
+			// accident.
 			names := m.ws.PresetNames()
-			index := int(msg.String()[0] - '1')
+			index := int(msg.String()[len(msg.String())-1] - '1')
 			if index >= 0 && index < len(names) {
 				m.ws.ApplyPreset(names[index])
 				m.state.status = "preset: " + names[index]

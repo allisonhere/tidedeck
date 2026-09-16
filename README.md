@@ -1050,7 +1050,8 @@ key or with another plugin's.
 | `spacer` | a blank line |
 
 A plugin panel is a **read-only rendering** of its document: typing at it does
-nothing (and the workspace's own keys, like `1`–`5` for presets, still apply). A
+nothing (and the workspace's own keys, like `alt+1`–`alt+5` for presets, still
+apply). A
 plugin's inputs are its declared settings, which are edited in the settings
 screen and reach the program as environment variables on the next run.
 
