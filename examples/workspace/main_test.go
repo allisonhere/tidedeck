@@ -385,3 +385,128 @@ func TestOSC52Encoding(t *testing.T) {
 		t.Fatalf("osc52 = %q", got)
 	}
 }
+
+// letterPanel is a minimal panel that accepts letters, like a text filter, so
+// the shortcut/input collision can be tested without a subprocess.
+type letterPanel struct{ text string }
+
+func (p *letterPanel) Meta() dash.Meta {
+	return dash.Meta{ID: "test.letter", Title: "Letter", Role: tideui.RoleOptional, MinWidth: 8, MinHeight: 3, Hidden: true}
+}
+func (p *letterPanel) View(tideui.PanelContext) string { return p.text }
+func (p *letterPanel) Type(r rune) bool {
+	if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+		p.text += string(r)
+		return true
+	}
+	return false
+}
+func (p *letterPanel) Backspace() bool {
+	if p.text == "" {
+		return false
+	}
+	p.text = p.text[:len(p.text)-1]
+	return true
+}
+
+func focusLetterPanel(t *testing.T, m model) (model, *letterPanel) {
+	t.Helper()
+	panel := &letterPanel{}
+	m.deck.Register(panel)
+	m.deck.AttachPanel(m.ws, panel)
+	m.ws.Show("test.letter")
+	if got := m.ws.Focused(); got != "test.letter" {
+		t.Fatalf("focus = %q, want test.letter", got)
+	}
+	return m, panel
+}
+
+// A focused panel that accepts text must not swallow the application's
+// single-key shortcuts: m still arranges and s still opens settings.
+func TestFocusedInputDoesNotSwallowShortcuts(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := newModel()
+	m.width, m.height = 120, 40
+	m, panel := focusLetterPanel(t, m)
+
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("m")})
+	if !m.ws.Arranging() {
+		t.Fatal("m did not enter arrange mode while a text input was focused")
+	}
+	if panel.text != "" {
+		t.Fatalf("m was typed into the filter: %q", panel.text)
+	}
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyEsc}) // leave arrange mode
+
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	if !m.settings.Opened() {
+		t.Fatal("s did not open settings while a text input was focused")
+	}
+	if panel.text != "" {
+		t.Fatalf("s was typed into the filter: %q", panel.text)
+	}
+}
+
+// Typing a rune that is not a shortcut starts an edit session, after which
+// even the reserved letters reach the panel.
+func TestTypingStartsAnEditSession(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := newModel()
+	m.width, m.height = 120, 40
+	m, panel := focusLetterPanel(t, m)
+
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	if !m.editing {
+		t.Fatal("typing a letter did not start an edit session")
+	}
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("m")})
+	if m.ws.Arranging() || m.settings.Opened() {
+		t.Fatal("a shortcut fired while an edit session was active")
+	}
+	if panel.text != "rsm" {
+		t.Fatalf("panel text = %q, want rsm", panel.text)
+	}
+}
+
+// "/" opens a session even when the first character would otherwise be a
+// shortcut, so a filter can begin with s, m, and so on.
+func TestSlashTypesAReservedFirstLetter(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := newModel()
+	m.width, m.height = 120, 40
+	m, panel := focusLetterPanel(t, m)
+
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	if !m.editing {
+		t.Fatal("/ did not start an edit session")
+	}
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	if m.settings.Opened() {
+		t.Fatal("s opened settings instead of being typed")
+	}
+	if panel.text != "s" {
+		t.Fatalf("panel text = %q, want s", panel.text)
+	}
+}
+
+// Escape ends the session, so the shortcuts work again.
+func TestEscapeEndsEditSession(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := newModel()
+	m.width, m.height = 120, 40
+	m, _ = focusLetterPanel(t, m)
+
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	if !m.editing {
+		t.Fatal("typing did not start a session")
+	}
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.editing {
+		t.Fatal("escape did not end the session")
+	}
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("m")})
+	if !m.ws.Arranging() {
+		t.Fatal("m did not arrange after escape ended the session")
+	}
+}

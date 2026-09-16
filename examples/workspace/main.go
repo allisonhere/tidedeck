@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -98,6 +99,13 @@ type model struct {
 	pickerTarget string
 	pickerPrev   tideui.Theme
 	pickerHad    bool
+
+	// editing is true while a focused panel that accepts typing owns the
+	// keyboard, and editTarget is the panel it belongs to so a focus change
+	// (by mouse, say) ends the session. Without the distinction a text field
+	// would swallow the single-key shortcuts the moment it is focused.
+	editing    bool
+	editTarget string
 }
 
 type tickMsg time.Time
@@ -512,6 +520,84 @@ func (m model) focusedInput() (dash.Input, bool) {
 	return input, ok
 }
 
+// reservedShortcuts are the single-key commands the application and the
+// workspace bind. A focused input panel must not shadow them: if it did, a
+// text filter would eat "m arrange" and "s settings", and once it matched
+// nothing the panel would just look empty.
+const reservedShortcuts = "mwqtscdT"
+
+// handlePanelInput routes a key to a focused panel that accepts typing. While
+// the panel is only focused it does not get the reserved shortcuts, so "m
+// arrange" still works. Typing an accepted rune - or pressing "/" to start even
+// when the first letter is reserved - opens an edit session, and inside it the
+// panel's reserved letters are typed rather than run ("m" in a filter). A rune
+// the panel does not accept still falls through. Escape ends the session. It
+// returns the command to run and whether the key was consumed.
+func (m *model) handlePanelInput(msg tea.KeyMsg) (tea.Cmd, bool) {
+	input, ok := m.focusedInput()
+	if !ok {
+		m.editing, m.editTarget = false, ""
+		return nil, false
+	}
+	// A focus change outside the keyboard (a mouse click) ends the session.
+	if m.editing && m.editTarget != m.ws.Focused() {
+		m.editing, m.editTarget = false, ""
+	}
+	if m.editing {
+		switch msg.Type {
+		case tea.KeyEsc:
+			m.editing, m.editTarget = false, ""
+			m.state.status = "stopped typing"
+			return nil, true
+		case tea.KeyBackspace:
+			if input.Backspace() {
+				return m.refreshFocusedCmd(), true
+			}
+			return nil, false
+		case tea.KeyRunes:
+			// A session takes the runes the panel accepts, including the ones
+			// that are shortcuts - that is the point of the session. A rune the
+			// panel does not accept still falls through, so the calculator can
+			// copy (c) without leaving the expression.
+			consumed := false
+			for _, r := range msg.Runes {
+				if input.Type(r) {
+					consumed = true
+				}
+			}
+			if consumed {
+				return m.refreshFocusedCmd(), true
+			}
+			return nil, false
+		default:
+			return nil, false
+		}
+	}
+	if msg.Type != tea.KeyRunes {
+		return nil, false
+	}
+	if len(msg.Runes) == 1 && msg.Runes[0] == '/' {
+		m.editing, m.editTarget = true, m.ws.Focused()
+		m.state.status = "typing — esc to stop"
+		return nil, true
+	}
+	if len(msg.Runes) == 1 && strings.ContainsRune(reservedShortcuts, msg.Runes[0]) {
+		return nil, false
+	}
+	consumed := false
+	for _, r := range msg.Runes {
+		if input.Type(r) {
+			consumed = true
+		}
+	}
+	if !consumed {
+		return nil, false
+	}
+	m.editing, m.editTarget = true, m.ws.Focused()
+	m.state.status = "typing — esc to stop"
+	return m.refreshFocusedCmd(), true
+}
+
 func (m model) refreshBadges() {
 	// Panels on the deck advertise their own badges.
 	for id, badge := range m.deck.Badges() {
@@ -558,27 +644,8 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if !m.ws.Arranging() {
-		// A focused panel that accepts typing gets the keys it asks for before
-		// any application shortcut, so typing into a calculator does not
-		// trigger one. It only takes the keys it wants; everything else falls
-		// through.
-		if input, ok := m.focusedInput(); ok {
-			switch msg.Type {
-			case tea.KeyRunes:
-				consumed := false
-				for _, r := range msg.Runes {
-					if input.Type(r) {
-						consumed = true
-					}
-				}
-				if consumed {
-					return m, m.refreshFocusedCmd()
-				}
-			case tea.KeyBackspace:
-				if input.Backspace() {
-					return m, m.refreshFocusedCmd()
-				}
-			}
+		if cmd, handled := m.handlePanelInput(msg); handled {
+			return m, cmd
 		}
 		switch msg.String() {
 		case "q", "ctrl+c":
@@ -758,7 +825,7 @@ func (m model) View() string {
 	}
 	wr.Options.StatusLeft = primary
 	wr.Options.StatusSecondary = secondary
-	wr.Options.StatusHints = []tideui.KeyHint{tideui.Hint("s", "settings")}
+	wr.Options.StatusHints = m.statusHints()
 	// Status messages show as the strip's capsule, so they stay visible even
 	// when the secondary metadata is truncated on a narrow terminal.
 	wr.Options.StatusNotice = m.state.status
@@ -790,6 +857,18 @@ func (m model) View() string {
 		m.state.clipboard = ""
 	}
 	return out
+}
+
+// statusHints advertises the input affordance while a panel that accepts
+// typing is focused, so "/" is discoverable rather than folklore.
+func (m model) statusHints() []tideui.KeyHint {
+	if m.editing {
+		return []tideui.KeyHint{tideui.Hint("esc", "stop typing")}
+	}
+	if _, ok := m.focusedInput(); ok {
+		return []tideui.KeyHint{tideui.Hint("/", "type"), tideui.Hint("s", "settings")}
+	}
+	return []tideui.KeyHint{tideui.Hint("s", "settings")}
 }
 
 func main() {
