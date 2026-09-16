@@ -755,12 +755,21 @@ func TestSettingsRepoFieldSummarizes(t *testing.T) {
 		t.Fatal(err)
 	}
 	ws := tideui.NewWorkspace()
-	ws.Panel("git", nil).Title("Git")
+	deck := dash.New()
+	deck.Register(panels.Git())
+	deck.Attach(ws)
+
 	form := newSettingsForm()
 	form.SetWorkspace(ws)
-	form.Open(config{Repos: real + "," + filepath.Join(real, "missing")})
+	form.SetDeck(deck)
 
-	openCategory(t, form, "Git")
+	// The setting lives in the document, where a panel-owned key belongs.
+	cfg := defaultConfig()
+	cfg.doc = dash.NewValues()
+	cfg.doc.Set("repos", real+","+filepath.Join(real, "missing"))
+	form.Open(cfg)
+
+	openCategory(t, form, "Git Activity")
 	field := selectNewsField(t, form, "repositories")
 	summary := form.value(*field)
 	if !strings.Contains(summary, "2 repos") || !strings.Contains(summary, "1 not found") {
@@ -770,15 +779,25 @@ func TestSettingsRepoFieldSummarizes(t *testing.T) {
 		t.Fatalf("the row should summarize, not print the raw paths: %q", summary)
 	}
 	// An empty list says so rather than rendering as a blank row.
-	form.Open(config{})
-	openCategory(t, form, "Git")
+	empty := defaultConfig()
+	empty.doc = dash.NewValues()
+	form.Open(empty)
+	openCategory(t, form, "Git Activity")
 	if got := form.value(*selectNewsField(t, form, "repositories")); got != "none set" {
 		t.Fatalf("empty repos = %q, want none set", got)
 	}
 	// Saving normalizes what was typed.
-	form.Open(config{Repos: " " + real + " ," + real})
+	dup := defaultConfig()
+	dup.doc = dash.NewValues()
+	form.Open(dup)
+	openCategory(t, form, "Git Activity")
+	*selectNewsField(t, form, "repositories").text = " " + real + " ," + real
 	form.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
-	if got := form.SavedConfig().Repos; strings.Count(got, real) != 1 {
+	saved, err := form.SavedConfig().document()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := saved.String("repos"); strings.Count(got, real) != 1 {
 		t.Fatalf("saved repos = %q, want the duplicate collapsed", got)
 	}
 }

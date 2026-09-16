@@ -30,7 +30,6 @@ type config struct {
 	Feeds       string            `json:"feeds"`
 	Todo        string            `json:"todo"`
 	Notes       string            `json:"notes"`
-	Repos       string            `json:"repos"`
 	Symbols     string            `json:"symbols"`
 	Systemd     string            `json:"systemd"`
 	Docker      string            `json:"docker"`
@@ -234,78 +233,4 @@ func expandPath(path string) string {
 
 func formatFloat(value float64) string {
 	return fmt.Sprintf("%g", value)
-}
-
-// repoPath is one configured repository and what is actually at that path.
-type repoPath struct {
-	Display string // "~/Projects/tideui", as it should be stored and shown
-	Full    string // the expanded absolute path
-	Exists  bool
-	IsRepo  bool
-	Remote  bool // a clone URL rather than a working copy
-}
-
-// parseRepoList reads the configured repository paths, expanding ~, dropping
-// blanks, and dropping duplicates that differ only in spelling. Order is
-// preserved so the list stays the one the user typed.
-func parseRepoList(value string) []repoPath {
-	var repos []repoPath
-	seen := make(map[string]bool)
-	for _, part := range strings.Split(value, ",") {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-		// A remote URL is not a filesystem path: filepath.Clean would collapse
-		// the "//" in "https://" and silently corrupt what was typed.
-		if provider.IsRemoteURL(part) {
-			if seen[part] {
-				continue
-			}
-			seen[part] = true
-			repos = append(repos, repoPath{Display: part, Full: part, Remote: true})
-			continue
-		}
-		full := filepath.Clean(expandPath(part))
-		if seen[full] {
-			continue
-		}
-		seen[full] = true
-		entry := repoPath{Display: collapseHome(full), Full: full}
-		if info, err := os.Stat(full); err == nil && info.IsDir() {
-			entry.Exists = true
-			if _, err := os.Stat(filepath.Join(full, ".git")); err == nil {
-				entry.IsRepo = true
-			}
-		}
-		repos = append(repos, entry)
-	}
-	return repos
-}
-
-// normalizeRepoList rewrites the stored value: deduplicated, trimmed, and with
-// the home directory written as ~ so the field stays readable.
-func normalizeRepoList(value string) string {
-	repos := parseRepoList(value)
-	paths := make([]string, 0, len(repos))
-	for _, repo := range repos {
-		paths = append(paths, repo.Display)
-	}
-	return strings.Join(paths, ", ")
-}
-
-// collapseHome is the inverse of expandPath, so a saved config shows ~ rather
-// than a long absolute path.
-func collapseHome(path string) string {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return path
-	}
-	if path == home {
-		return "~"
-	}
-	if strings.HasPrefix(path, home+string(os.PathSeparator)) {
-		return "~" + path[len(home):]
-	}
-	return path
 }

@@ -84,7 +84,6 @@ type demoState struct {
 	readHeadlines map[string]bool
 	services      []tideui.ServiceStatus
 	notes         []tideui.Note
-	repos         []tideui.RepoActivity
 	mounts        []tideui.StorageMount
 }
 
@@ -131,7 +130,6 @@ func newModel() model {
 		headlines: feed.Headlines(),
 		services:  feed.Services(),
 		notes:     feed.Notes(),
-		repos:     feed.RepoActivity(),
 		mounts:    feed.Storage(),
 	}
 	store := fileStore{path: filepath.Join(userConfigDir(), "tidedeck", "layout.json")}
@@ -158,7 +156,7 @@ func newModel() model {
 	// Panels are registered in the order the hand-written registrations used to
 	// sit, so the deck attaches them — and the settings list orders them — the
 	// way the dashboard always did.
-	deck.Register(panels.Agenda(), panels.System(), panels.Weather(), panels.GPU(), panels.Updates(), panels.Clock())
+	deck.Register(panels.Agenda(), panels.System(), panels.Weather(), panels.GPU(), panels.Updates(), panels.Clock(), panels.Git())
 	deck.OnStatus(func(message string) { state.status = message })
 	registerPanels(ws, state, deck)
 	registerPresets(ws)
@@ -224,7 +222,7 @@ func (m *model) applyConfig() {
 		m.state.live = newLiveSource(m.cfg)
 		m.state.source = m.state.live
 		m.state.tasks, m.state.headlines, m.state.services = nil, nil, nil
-		m.state.notes, m.state.repos, m.state.mounts = nil, nil, nil
+		m.state.notes, m.state.mounts = nil, nil
 	} else {
 		m.state.live = nil
 		m.state.source = m.feed
@@ -232,7 +230,6 @@ func (m *model) applyConfig() {
 		m.state.headlines = m.feed.Headlines()
 		m.state.services = m.feed.Services()
 		m.state.notes = m.feed.Notes()
-		m.state.repos = m.feed.RepoActivity()
 		m.state.mounts = m.feed.Storage()
 	}
 	// Give the deck's panels their first data now rather than on the tick a
@@ -367,10 +364,6 @@ func registerPanels(ws *tideui.Workspace, state *demoState, deck *dash.Deck) {
 		Title("Notes").Role(tideui.RoleOptional).Priority(45).MinWidth(18).MinHeight(5).HideBelow(130).
 		Actions(tideui.Action("edit", "e", func(*tideui.Workspace) { state.status = "editing note" }).Labeled("edit"))
 
-	ws.Panel("git", gitPanel(state)).
-		Title("Git Activity").Role(tideui.RoleOptional).Priority(40).MinWidth(18).MinHeight(5).HideBelow(150).
-		Actions(tideui.Action("fetch", "r", func(*tideui.Workspace) { state.status = "fetched all remotes" }).Labeled("fetch"))
-
 	// Markets ships with its own contrasting theme to show that a panel can
 	// opt out of the workspace palette entirely. Press T / ctrl+T to assign or
 	// clear the focused panel's theme at runtime.
@@ -455,9 +448,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if snapshot.Notes != nil {
 				m.state.notes = snapshot.Notes
-			}
-			if snapshot.Repos != nil {
-				m.state.repos = snapshot.Repos
 			}
 			if snapshot.Storage != nil {
 				m.state.mounts = snapshot.Storage

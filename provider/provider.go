@@ -36,7 +36,6 @@ type Snapshot struct {
 	Headlines []tideui.Headline
 	Tasks     []tideui.Task
 	Notes     []tideui.Note
-	Repos     []tideui.RepoActivity
 	Markets   []tideui.MarketQuote
 
 	Updated time.Time
@@ -116,7 +115,6 @@ type Dashboard struct {
 	Headlines *Fetcher[[]tideui.Headline]
 	Tasks     *Fetcher[[]tideui.Task]
 	Notes     *Fetcher[[]tideui.Note]
-	Repos     *Fetcher[[]tideui.RepoActivity]
 	Markets   *Fetcher[[]tideui.MarketQuote]
 }
 
@@ -131,7 +129,6 @@ func (d *Dashboard) Refresh(ctx context.Context) {
 	d.Headlines.Refresh(ctx)
 	d.Tasks.Refresh(ctx)
 	d.Notes.Refresh(ctx)
-	d.Repos.Refresh(ctx)
 	d.Markets.Refresh(ctx)
 }
 
@@ -158,9 +155,6 @@ func (d *Dashboard) Snapshot() Snapshot {
 	}
 	if value, ok := read(d.Notes, snap.Errors, "notes"); ok {
 		snap.Notes = value
-	}
-	if value, ok := read(d.Repos, snap.Errors, "repos"); ok {
-		snap.Repos = value
 	}
 	if value, ok := read(d.Markets, snap.Errors, "markets"); ok {
 		snap.Markets = value

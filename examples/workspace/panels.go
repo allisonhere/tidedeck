@@ -78,16 +78,6 @@ func notesPanel(state *demoState) tideui.PanelView {
 	}
 }
 
-func gitPanel(state *demoState) tideui.PanelView {
-	return func(ctx tideui.PanelContext) string {
-		r := panelRenderer(state, ctx)
-		if ctx.Zoomed {
-			return r.RenderRepoActivityDetail(state.repos, ctx.Width)
-		}
-		return r.RenderRepoActivity(state.repos, ctx.Width)
-	}
-}
-
 func marketsPanel(state *demoState) tideui.PanelView {
 	return func(ctx tideui.PanelContext) string {
 		r := panelRenderer(state, ctx)

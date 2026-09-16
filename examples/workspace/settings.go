@@ -103,7 +103,6 @@ type formState struct {
 	feedPresets []bool // one per provider.NewsSources(), same order
 	todo        string
 	notes       string
-	repos       string
 	symbols     string
 	systemd     string
 	docker      string
@@ -126,7 +125,6 @@ func formFromConfig(cfg config) formState {
 		feedPresets: feedPresets,
 		todo:        cfg.Todo,
 		notes:       cfg.Notes,
-		repos:       cfg.Repos,
 		symbols:     cfg.Symbols,
 		systemd:     cfg.Systemd,
 		docker:      cfg.Docker,
@@ -146,7 +144,6 @@ func (s formState) toConfig(deck *dash.Deck) (config, error) {
 		Feeds:       joinFeeds(s.feedPresets, s.feeds),
 		Todo:        s.todo,
 		Notes:       s.notes,
-		Repos:       normalizeRepoList(s.repos),
 		Symbols:     s.symbols,
 		Systemd:     s.systemd,
 		Docker:      s.docker,
@@ -305,11 +302,6 @@ type settingsForm struct {
 	problem    string
 	dirty      bool
 
-	// Cached repository summary, so a row that renders on every keystroke does
-	// not stat the filesystem each time.
-	repoSummarySource string
-	repoSummaryText   string
-
 	// deck supplies the settings of panels that own their own. It may be nil,
 	// in which case only the hand-written categories are shown.
 	deck *dash.Deck
@@ -375,49 +367,6 @@ func (s settingsForm) ClockFont() string {
 
 func newSettingsForm() *settingsForm { return &settingsForm{} }
 
-// repoSummary describes the configured repositories in the space a row has:
-// how many there are, and how many of them are not actually repositories. The
-// full value is still what gets edited; showing it raw truncated mid-path and
-// pushed the field's own label off the row.
-func (s *settingsForm) repoSummary(value string) string {
-	if strings.TrimSpace(value) == "" {
-		return "none set"
-	}
-	// Checking paths touches the filesystem, and a row renders on every
-	// keystroke, so the answer is kept until the value changes.
-	if s.repoSummarySource != value || s.repoSummaryText == "" {
-		repos := parseRepoList(value)
-		missing, remote := 0, 0
-		for _, repo := range repos {
-			switch {
-			case repo.Remote:
-				remote++
-			case !repo.IsRepo:
-				missing++
-			}
-		}
-		text := fmt.Sprintf("%d %s", len(repos), plural(len(repos), "repo", "repos"))
-		if missing > 0 {
-			text += fmt.Sprintf(" · %d not found", missing)
-		}
-		// A clone URL is a different mistake from a wrong path, and saying
-		// which one it is saves a round of guessing.
-		if remote > 0 {
-			text += fmt.Sprintf(" · %d not cloned", remote)
-		}
-		s.repoSummarySource, s.repoSummaryText = value, text
-	}
-	return s.repoSummaryText
-}
-
-// plural picks a word form for a count.
-func plural(count int, one, many string) string {
-	if count == 1 {
-		return one
-	}
-	return many
-}
-
 // SetWorkspace attaches the workspace whose panels the Panels category toggles.
 func (s *settingsForm) SetWorkspace(ws *tideui.Workspace) { s.ws = ws }
 
@@ -471,9 +420,6 @@ func (s *settingsForm) buildCategories() []settingsCategory {
 		}},
 		{name: "Notes", panelID: "notes", fields: []formField{
 			{label: "paths", kind: fieldText, text: &s.state.notes},
-		}},
-		{name: "Git", panelID: "git", fields: []formField{
-			{label: "repositories", kind: fieldText, text: &s.state.repos, summary: s.repoSummary},
 		}},
 		{name: "Markets", panelID: "markets", fields: []formField{
 			{label: "symbols", kind: fieldText, text: &s.state.symbols},

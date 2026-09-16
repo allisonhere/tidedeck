@@ -132,13 +132,3 @@ func (f *demoFeed) Notes() []tideui.Note {
 		{Title: "Ideas", Body: "- weather provider\n- calendar sync\n- market watchlist"},
 	}
 }
-
-func (f *demoFeed) RepoActivity() []tideui.RepoActivity {
-	return []tideui.RepoActivity{
-		{Name: "tideui", Branch: "main", Summary: "3 today", Commits: 3, Tone: tideui.ToneAccent},
-		{Name: "tidegit", Branch: "main", Summary: "clean", Tone: tideui.ToneGood},
-		{Name: "tidemail", Branch: "feat/rules", Summary: "2 unpushed · 2 changed",
-			Commits: 2, Ahead: 2, Changes: 2, Tone: tideui.ToneWarning},
-		{Name: "z13control", Branch: "main", Summary: "6 unpushed", Ahead: 6, Tone: tideui.ToneWarning},
-	}
-}

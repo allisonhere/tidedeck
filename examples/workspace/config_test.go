@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -143,77 +142,6 @@ func TestFeedsSplitAndJoinRoundTrip(t *testing.T) {
 	// A short or nil presets slice must not panic.
 	if got := joinFeeds(nil, custom); got != custom {
 		t.Fatalf("nil presets = %q, want %q", got, custom)
-	}
-}
-
-func TestRepoListParsingAndNormalization(t *testing.T) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Skip("no home directory")
-	}
-	real := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(real, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	plain := t.TempDir() // a directory, but not a repository
-
-	repos := parseRepoList(fmt.Sprintf(" %s , %s ,, %s , %s/does-not-exist", real, plain, real, plain))
-	// The duplicate is dropped and blanks ignored; order is preserved.
-	if len(repos) != 3 {
-		t.Fatalf("parsed %d repos, want 3 (duplicate and blank dropped): %#v", len(repos), repos)
-	}
-	if !repos[0].IsRepo {
-		t.Fatalf("%s has a .git and should be a repo", repos[0].Full)
-	}
-	if repos[1].IsRepo || !repos[1].Exists {
-		t.Fatalf("a plain directory exists but is not a repo: %#v", repos[1])
-	}
-	if repos[2].Exists {
-		t.Fatalf("a missing path should not report as existing: %#v", repos[2])
-	}
-
-	// The home directory is written back as ~, so the stored value stays short.
-	collapsed := normalizeRepoList(filepath.Join(home, "Projects", "tidedeck"))
-	if collapsed != "~/Projects/tidedeck" {
-		t.Fatalf("normalizeRepoList = %q, want ~/Projects/tidedeck", collapsed)
-	}
-	// ~ and the absolute spelling are the same repository, not two.
-	both := normalizeRepoList(filepath.Join(home, "x") + ",~/x")
-	if both != "~/x" {
-		t.Fatalf("normalizeRepoList = %q, want the duplicate collapsed", both)
-	}
-	if got := normalizeRepoList("  ,  "); got != "" {
-		t.Fatalf("normalizeRepoList of blanks = %q, want empty", got)
-	}
-}
-
-// Normalization used to run filepath.Clean over every entry, which collapsed
-// the "//" in an https URL and silently rewrote what the user typed.
-func TestRepoListKeepsRemoteURLsIntact(t *testing.T) {
-	const url = "https://github.com/allisonhere/tidemail"
-	if got := normalizeRepoList(url); got != url {
-		t.Fatalf("normalizeRepoList(%q) = %q, want it unchanged", url, got)
-	}
-	repos := parseRepoList(url + ",git@github.com:allisonhere/tideui.git")
-	if len(repos) != 2 {
-		t.Fatalf("parsed %#v, want both URLs kept", repos)
-	}
-	for _, repo := range repos {
-		if !repo.Remote {
-			t.Fatalf("%q should be marked remote", repo.Display)
-		}
-		if repo.IsRepo {
-			t.Fatalf("%q is not a working copy", repo.Display)
-		}
-	}
-	// A URL and a local path are both kept, and the local one still resolves.
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Skip("no home directory")
-	}
-	mixed := normalizeRepoList(url + "," + filepath.Join(home, "x"))
-	if !strings.Contains(mixed, url) || !strings.Contains(mixed, "~/x") {
-		t.Fatalf("mixed list = %q, want the URL intact and the path collapsed", mixed)
 	}
 }
 
