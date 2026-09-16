@@ -150,7 +150,7 @@ func newModel() model {
 	// Panels are registered in the order the hand-written registrations used to
 	// sit, so the deck attaches them — and the settings list orders them — the
 	// way the dashboard always did.
-	deck.Register(panels.Agenda(), panels.System(), panels.Weather(), panels.GPU(), panels.Updates(), panels.Clock(), panels.Git(), panels.News())
+	deck.Register(panels.Agenda(), panels.System(), panels.Weather(), panels.GPU(), panels.Updates(), panels.Clock(), panels.Git(), panels.News(), panels.Network())
 	deck.OnStatus(func(message string) { state.status = message })
 	registerPanels(ws, state, deck)
 	registerPresets(ws)
@@ -289,11 +289,6 @@ func registerPanels(ws *tideui.Workspace, state *demoState, deck *dash.Deck) {
 	// rather than before or after the block, leaving the picker and settings
 	// lists unchanged.
 	deck.Attach(ws)
-
-	ws.Panel("network", networkPanel(state)).
-		Title("Network").Role(tideui.RoleSecondary).Priority(70).MinWidth(18).MinHeight(7).HideBelow(104).
-		Badge("up").BadgeTone(tideui.ToneGood).
-		Actions(tideui.Action("refresh", "r", func(*tideui.Workspace) { state.status = "network sampled" }).Labeled("refresh"))
 
 	ws.Panel("storage", storagePanel(state)).
 		Title("Storage").Role(tideui.RoleSecondary).Priority(55).MinWidth(18).MinHeight(6).HideBelow(120).

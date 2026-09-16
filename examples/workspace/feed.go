@@ -47,22 +47,6 @@ func series(t float64, n int, period, phase, base, amp float64) []float64 {
 	return out
 }
 
-func (f *demoFeed) Network(now time.Time) tideui.NetworkMetrics {
-	t := f.elapsed(now)
-	down := clampRange(87+35*wave(t, 8, 0), 0, 950)
-	up := clampRange(14+9*wave(t, 6, 1), 0, 400)
-	return tideui.NetworkMetrics{
-		Interface: "wlan0",
-		Download:  down,
-		Upload:    up,
-		Unit:      "Mbps",
-		DownSpark: series(t, 24, 5, 0, 0.4, 0.45),
-		UpSpark:   series(t, 24, 7, 1, 0.25, 0.3),
-		LAN:       "940 Mbps",
-		WAN:       "87↓ / 14↑ Mbps",
-	}
-}
-
 func (f *demoFeed) Markets(now time.Time) []tideui.MarketQuote {
 	t := f.elapsed(now)
 	quote := func(symbol string, price, drift, phase float64) tideui.MarketQuote {

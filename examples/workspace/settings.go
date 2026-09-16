@@ -106,7 +106,6 @@ type formState struct {
 	symbols     string
 	systemd     string
 	docker      string
-	iface       string
 }
 
 func formFromConfig(cfg config) formState {
@@ -128,7 +127,6 @@ func formFromConfig(cfg config) formState {
 		symbols:     cfg.Symbols,
 		systemd:     cfg.Systemd,
 		docker:      cfg.Docker,
-		iface:       cfg.Interface,
 	}
 }
 
@@ -147,7 +145,6 @@ func (s formState) toConfig(deck *dash.Deck) (config, error) {
 		Symbols:     s.symbols,
 		Systemd:     s.systemd,
 		Docker:      s.docker,
-		Interface:   s.iface,
 	}
 	document, err := s.applyPanelFields(s.doc, deck)
 	if err != nil {
@@ -406,9 +403,6 @@ func (s *settingsForm) buildCategories() []settingsCategory {
 			{label: "Look up coordinates", kind: fieldAction, action: s.lookupCoordinates},
 		}},
 		{name: "GPU", panelID: "gpu", fields: nil},
-		{name: "Network", panelID: "network", fields: []formField{
-			{label: "interface", kind: fieldText, text: &s.state.iface},
-		}},
 		{name: "Storage", panelID: "storage", fields: nil},
 		{name: "Services", panelID: "services", fields: []formField{
 			{label: "systemd units", kind: fieldText, text: &s.state.systemd},

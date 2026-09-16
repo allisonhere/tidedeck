@@ -12,24 +12,10 @@ func TestFeedIsDeterministic(t *testing.T) {
 	b := newDemoFeed(7, started)
 	now := started.Add(42 * time.Second)
 
-	if !reflect.DeepEqual(a.Network(now), b.Network(now)) {
-		t.Fatal("network is not deterministic")
-	}
 	if !reflect.DeepEqual(a.Markets(now), b.Markets(now)) {
 		t.Fatal("markets are not deterministic")
 	}
 	if !reflect.DeepEqual(a.Storage(), b.Storage()) || !reflect.DeepEqual(a.Tasks(), b.Tasks()) {
 		t.Fatal("static fixtures are not deterministic")
-	}
-}
-
-func TestFeedUpdatesOverTime(t *testing.T) {
-	started := time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)
-	f := newDemoFeed(7, started)
-	t0 := started
-	t1 := started.Add(7 * time.Second)
-
-	if reflect.DeepEqual(f.Network(t0).DownSpark, f.Network(t1).DownSpark) {
-		t.Fatal("network sparkline did not advance")
 	}
 }

@@ -14,7 +14,6 @@ import (
 // live provider dashboard both satisfy it, so the UI is identical whether the
 // data is simulated or real.
 type dataSource interface {
-	Network(time.Time) tideui.NetworkMetrics
 	Markets(time.Time) []tideui.MarketQuote
 }
 
@@ -32,7 +31,6 @@ type liveSource struct {
 // empty.
 func newLiveSource(cfg config) *liveSource {
 	dashboard := &provider.Dashboard{
-		Network: provider.NewFetcher(time.Second, provider.Network(strings.TrimSpace(cfg.Interface))),
 		Storage: provider.NewFetcher(2*time.Minute, provider.Storage()),
 	}
 	if todo := expandPath(strings.TrimSpace(cfg.Todo)); todo != "" {
@@ -67,13 +65,6 @@ func (s *liveSource) snapshotCopy() provider.Snapshot {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.snapshot
-}
-
-func (s *liveSource) Network(time.Time) tideui.NetworkMetrics {
-	if snapshot := s.snapshotCopy(); snapshot.Network != nil {
-		return *snapshot.Network
-	}
-	return tideui.NetworkMetrics{Unit: "Mbps"}
 }
 
 func (s *liveSource) Markets(time.Time) []tideui.MarketQuote {

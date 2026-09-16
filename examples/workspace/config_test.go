@@ -187,7 +187,7 @@ func TestSavePreservesUnknownKeys(t *testing.T) {
 		t.Fatalf("known keys did not load: %+v", cfg)
 	}
 
-	cfg.Interface = "wlan0"
+	cfg.ClockFont = "block"
 	if err := cfg.save(); err != nil {
 		t.Fatal(err)
 	}
@@ -200,8 +200,8 @@ func TestSavePreservesUnknownKeys(t *testing.T) {
 	if !ok || nested["endpoint"] != "https://example.com" || nested["every"] != float64(30) {
 		t.Fatalf("a nested unknown key was not preserved: %v", saved["some_future_panel"])
 	}
-	if saved["interface"] != "wlan0" {
-		t.Fatalf("the edited key was not written: %v", saved["interface"])
+	if saved["clock_font"] != "block" {
+		t.Fatalf("the edited key was not written: %v", saved["clock_font"])
 	}
 	// aur_helper belongs to the updates panel now, so the struct has no field
 	// for it - and it must survive exactly like any other unowned key.
@@ -216,7 +216,7 @@ func TestSavePreservesUnknownKeys(t *testing.T) {
 func TestSaveClearsOwnedKeysThatAreNowEmpty(t *testing.T) {
 	writeConfig(t, `{
   "panel_gauges": {"system": "marker"},
-  "interface": "eth0",
+  "clock_font": "block",
   "keep": "this"
 }`)
 	cfg := loadConfig()
@@ -227,7 +227,7 @@ func TestSaveClearsOwnedKeysThatAreNowEmpty(t *testing.T) {
 	// Clearing an omitempty map means the key is absent from the marshalled
 	// struct entirely, which must clear it rather than keep the old value.
 	cfg.PanelGauges = nil
-	cfg.Interface = ""
+	cfg.ClockFont = ""
 	if err := cfg.save(); err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +236,7 @@ func TestSaveClearsOwnedKeysThatAreNowEmpty(t *testing.T) {
 	if _, present := saved["panel_gauges"]; present {
 		t.Fatalf("cleared panel_gauges came back as %v", saved["panel_gauges"])
 	}
-	if saved["interface"] != "" {
+	if saved["clock_font"] != "" {
 		t.Fatalf("cleared interface = %v, want empty", saved["interface"])
 	}
 	if saved["keep"] != "this" {

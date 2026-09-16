@@ -342,17 +342,17 @@ func TestSettingsSparkStyleChoice(t *testing.T) {
 
 func TestSettingsPanelSparkChoice(t *testing.T) {
 	ws := tideui.NewWorkspace()
-	ws.Panel("network", nil).Title("Network")
+	ws.Panel("gpu", nil).Title("GPU")
 	form := newSettingsForm()
 	form.SetWorkspace(ws)
 	form.Open(config{})
 
 	for i, category := range form.categories {
-		if category.name != "Network" {
+		if category.name != "GPU" {
 			continue
 		}
 		form.category = i
-		form.Update(tea.KeyMsg{Type: tea.KeyEnter}) // open Network
+		form.Update(tea.KeyMsg{Type: tea.KeyEnter}) // open GPU
 		form.Update(tea.KeyMsg{Type: tea.KeyDown})  // enabled -> gauge
 		form.Update(tea.KeyMsg{Type: tea.KeyDown})  // gauge -> spark
 		field := form.currentField()
@@ -369,12 +369,12 @@ func TestSettingsPanelSparkChoice(t *testing.T) {
 		if action := form.Update(tea.KeyMsg{Type: tea.KeyCtrlS}); action != settingsSaved {
 			t.Fatalf("save action = %v", action)
 		}
-		if form.SavedConfig().PanelSparks["network"] == "" {
+		if form.SavedConfig().PanelSparks["gpu"] == "" {
 			t.Fatalf("panel spark not saved: %+v", form.SavedConfig().PanelSparks)
 		}
 		return
 	}
-	t.Fatal("no Network category")
+	t.Fatal("no GPU category")
 }
 
 func TestSettingsClockFontChoice(t *testing.T) {

@@ -26,17 +26,6 @@ func panelRenderer(state *demoState, ctx tideui.PanelContext) tideui.Renderer {
 	return viewRenderer(state)
 }
 
-func networkPanel(state *demoState) tideui.PanelView {
-	return func(ctx tideui.PanelContext) string {
-		r := panelRenderer(state, ctx)
-		m := state.source.Network(state.now)
-		if ctx.Zoomed {
-			return r.RenderNetworkDetail(m, ctx.Width)
-		}
-		return r.RenderNetwork(m, ctx.Width)
-	}
-}
-
 func storagePanel(state *demoState) tideui.PanelView {
 	return func(ctx tideui.PanelContext) string {
 		r := panelRenderer(state, ctx)
