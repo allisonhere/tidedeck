@@ -33,6 +33,7 @@ go get github.com/allisonhere/tideui
 - **Dashboard widgets** — weather, agenda, clock, system, GPU, network, storage, services, updates, news, tasks, notes, git activity, and markets, each driven by a plain data model and backed by a `Renderer` method, with a shared Enter-to-drill-down pattern.
 - **Real data sources** — a standard-library `provider` package: background collectors with per-source intervals and graceful degradation, plus providers for Open-Meteo weather, RSS/Atom/RDF with a curated source
   catalogue (`provider.NewsSources()`), Linux system/GPU/network/storage, pending package updates, systemd and Docker, git activity, todo.txt, notes, iCalendar (local files or remote `https`/`webcal` feeds), and markets.
+- **Panel registry** — a `dash` package where a panel's data, rendering, and settings are one object: opt-in `Fetcher`/`Configurable`/`Ticker`/`Badger`/`Actor` interfaces, pull-based refresh with per-panel intervals and last-good-value degradation, a settings screen built from the fields panels declare, a configuration document that preserves keys it does not recognise, and external plugins that are ordinary programs printing a JSON document.
 - **Per-panel themes** — any panel can take its own full theme or color overrides while density, corners, gutters, and global chrome stay workspace-wide; panel content inherits it through `PanelContext.Renderer`.
 - **Full-border pane focus** — every pane renders a 4-sided border colored by focus state, contrast-boosted to a 7:1 floor (square or round corners) so the focused pane is never hard to spot.
 - **List primitives** — single-line `Row` and multi-line `Block` with selected/muted states.
@@ -755,6 +756,10 @@ dashboard.Refresh(ctx)
 snapshot := dashboard.Snapshot() // reads cache only, never blocks
 ```
 
+A panel on the [panel registry](#panel-registry) fetches and holds its own data
+instead, so a `Dashboard` is only needed for sources whose panel has not moved
+across yet. New panels should be written against `dash`.
+
 ### Providers
 
 | Source | Constructor | Backed by |
@@ -817,6 +822,11 @@ stays readable instead of becoming one long scroll:
   **Services** systemd units or a Docker socket, and the
   **Network** interface.
 
+A panel on the registry brings its own category instead of being listed here:
+its fields come from the `Schema()` it declares, under the same keys they
+already had in the file. Keys the running build does not recognise — a plugin's
+settings, a panel you have removed — are preserved on save rather than dropped.
+
 On the category list, `↑/↓` choose and `enter` opens a category. Inside a
 category, `↑/↓` move between fields, `enter` toggles a boolean or edits text
 (or runs an action such as the lookup), and `esc` returns to the category list.
@@ -829,6 +839,256 @@ is rebuilt from the new configuration immediately.
 The config is stored at `~/.config/tidedeck/config.json` (application-scoped,
 versionless) and the status strip shows `live` instead of `demo data`. Panels
 whose provider is not configured simply start empty.
+
+## Panel registry
+
+`github.com/allisonhere/tideui/dash` binds a panel's three concerns — its data,
+its rendering, and its settings — into one object, so adding a panel means
+writing one file rather than editing ten.
+
+It sits downstream of both other packages, and has to: `provider` imports
+`tideui`, so `tideui` can never import `provider`, and a registry that both
+fetches and draws must live below them. That is also what keeps `tideui`'s
+promise to be purely presentational.
+
+```go
+deck := dash.New()
+deck.Register(panels.GPU(), panels.Updates(), panels.Clock())
+deck.Attach(workspace)           // registers each panel with the workspace
+
+deck.Configure(values)           // hand every panel its settings
+deck.Refresh(ctx, time.Now())    // fetch whatever is due
+deck.Tick(time.Now())            // advance clock-driven panels
+```
+
+`Refresh` is **pull-based**: it checks each panel's interval on the tick the
+application is already doing, rather than running a goroutine per panel. It
+runs each fetch synchronously under a bounded context (`dash.DefaultTimeout`,
+12 s), so call it from a Bubble Tea command rather than from `Update` — a slow
+source would otherwise stall the frame. A failed fetch is recorded against the
+panel (`deck.Err(id)`) and leaves the panel's last good value in place;
+`deck.RefreshNow(id)` makes a panel due again, which is what a panel's own
+refresh action should do.
+
+`Tick` does no I/O and is safe on the UI goroutine: it advances `Ticker`
+panels, and in `ModeDemo` refills every `Demoable` panel with sample data, so
+the dashboard looks alive before anything is configured.
+
+### Writing a panel
+
+`Panel` is two methods. Everything else is opt-in, so the smallest panel is a
+`Meta` and a `View`:
+
+| Interface | Methods | Implement it when the panel |
+|---|---|---|
+| `Panel` | `Meta() Meta`, `View(tideui.PanelContext) string` | *(required)* |
+| `Fetcher` | `Refresh(context.Context) error` | acquires data |
+| `Configurable` | `Schema() []Field`, `Configure(Values) error` | has settings |
+| `Demoable` | `Demo(now time.Time)` | can synthesise sample data |
+| `Ticker` | `Tick(now time.Time)` | changes with the clock between refreshes |
+| `Badger` | `Badge() (string, tideui.Tone)` | advertises a header badge |
+| `Actor` | `Actions() []Action` | offers contextual keys |
+
+Nothing in `Panel` mentions where data comes from, and no panel's model type
+appears in it. That is deliberate: a panel backed by a local provider and a
+panel backed by an out-of-process program are the same kind of thing to a
+`Deck`.
+
+`dash.State[T]` is how a panel holds its data — a mutex-guarded value that
+`Refresh` stores into and `View` loads from, so the fetching and rendering
+goroutines never have to coordinate:
+
+```go
+type gpu struct {
+    dash.State[tideui.GPUMetrics]
+    fetch func(context.Context) (tideui.GPUMetrics, error)
+}
+
+func (g *gpu) Meta() dash.Meta {
+    return dash.Meta{ID: "gpu", Title: "GPU", Role: tideui.RoleSecondary,
+        Priority: 72, MinWidth: 18, MinHeight: 6, HideBelow: 104,
+        Interval: time.Second}
+}
+
+func (g *gpu) Refresh(ctx context.Context) error {
+    metrics, err := g.fetch(ctx)
+    if err != nil {
+        return err // the last good reading stays on screen
+    }
+    g.Store(metrics)
+    return nil
+}
+
+func (g *gpu) View(ctx tideui.PanelContext) string {
+    return ctx.Renderer.RenderGPU(g.Load(), ctx.Width)
+}
+```
+
+A panel with `Interval: 0` that implements `Fetcher` is fetched once. A panel
+that implements `Ticker` and not `Fetcher` — the clock is the example — does no
+I/O at all and simply recomputes on the tick.
+
+### Settings a panel declares
+
+A `Configurable` panel declares its own fields, and the settings screen builds
+that panel's category from them. There is no hand-written list to keep in sync,
+and a panel's settings arrive back at the panel through `Configure`:
+
+```go
+func (u *updates) Schema() []dash.Field {
+    return []dash.Field{{
+        Key: "aur_helper", Label: "aur helper", Kind: dash.FieldText, Default: "yay",
+    }}
+}
+```
+
+| `FieldKind` | Edited as |
+|---|---|
+| `FieldText` | free text |
+| `FieldBool` | a tick |
+| `FieldChoice` | one of `Options`, stepped with `←/→` |
+| `FieldFloat` | a number, validated on save |
+| `FieldAction` | a button that runs `Field.Run` |
+
+`Field.Key` is a dotted path into the configuration document, and it names the
+key that is *already* in `config.json` — moving a setting onto its panel does
+not rename it or rewrite anyone's file. `Normalize` tidies a value on save and
+`Summary` renders a long value to fit one row.
+
+`dash.Values` is that document: decoded JSON addressed by path, which **keeps
+keys it does not recognise**. A key belonging to a panel this build does not
+have survives a load and a save unchanged, so installing, removing, and
+reinstalling a panel does not cost you its configuration — which a typed struct
+cannot do, because it silently drops every field it has no name for.
+
+```go
+values.String("weather.location")
+values.Float("weather.latitude")
+values.List("zones")            // comma-separated, trimmed
+values.Has("clock_24")          // present, as opposed to false
+```
+
+Use `Has` for any boolean whose default is `true`: `Bool` returns `false` for
+an absent key, so without it a fresh install reads as a deliberate *off*.
+
+### External plugins: a panel that is a program
+
+A plugin is a directory with a `manifest.json` and an executable that prints a
+JSON document. The entry point is run on the panel's interval, with no
+arguments, and exits; there is nothing to supervise, restart, or leak.
+
+> **These are not Quickshell/Omarchy plugins, and the two are not
+> interchangeable.** An Omarchy plugin is QML loaded into a running shell
+> process and drawn on a Wayland surface. tidedeck writes text to a terminal
+> and runs a program. The *shape* of the manifest is deliberately the same, so
+> that someone who has written one already knows this format — but a QML entry
+> point is rejected, with that as the reason.
+
+`~/.config/tidedeck/plugins/<id>/manifest.json`:
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "drbayless.ai-usage",
+  "name": "AI Usage",
+  "version": "1.0.0",
+  "author": "drbayless",
+  "license": "MIT",
+  "description": "Plan usage and balances, read from the ai-usagebar binary.",
+  "kinds": ["panel"],
+  "entryPoints": { "panel": ["./render.sh"] },
+  "panel": {
+    "displayName": "AI Usage",
+    "category": "AI",
+    "refreshSeconds": 300,
+    "minWidth": 22, "minHeight": 5, "priority": 45,
+    "schema": [
+      { "key": "binary", "type": "string", "label": "ai-usagebar binary",
+        "defaultValue": "ai-usagebar" }
+    ]
+  }
+}
+```
+
+`id` must be namespaced (`author.name`), `kinds` is `["panel"]` in this build,
+and a relative entry point resolves against the plugin's own directory, not the
+working directory the dashboard was started in. `refreshSeconds` has a floor of
+two seconds: a program that wants to be sampled faster than that is the wrong
+shape for a subprocess. `Manifest.Validate` reports everything wrong at once,
+rather than one problem per run.
+
+Declared settings reach the program as environment variables —
+`TIDEDECK_PLUGIN_<KEY>`, uppercased, non-alphanumerics replaced with `_` — and
+only the declared ones: a plugin gets what it asked for, and the dashboard's
+other settings are not its business. In the configuration document they live
+under `plugins.<id>.<key>`, so a plugin cannot collide with a built-in panel's
+key or with another plugin's.
+
+#### The document
+
+```json
+{
+  "schemaVersion": 1,
+  "badge": { "text": "3", "tone": "warning" },
+  "rows": [
+    { "type": "metric",  "label": "Session", "value": "43%", "percent": 43, "severity": "low" },
+    { "type": "gauge",   "label": "MEM", "value": "41%", "percent": 41 },
+    { "type": "spark",   "label": "CPU", "value": "18%", "history": [0.1, 0.4, 0.9] },
+    { "type": "text",    "label": "Balance", "value": "$7.02" },
+    { "type": "block",   "label": "Credits", "body": ["balance: 0"] },
+    { "type": "divider", "label": "DETAIL" },
+    { "type": "spacer" }
+  ],
+  "detail": [ { "type": "text", "label": "Plan", "value": "Claude Pro" } ]
+}
+```
+
+| Row type | Renders as |
+|---|---|
+| `metric` | label, value, and a bar when `percent` is set |
+| `gauge` | label, value, and a bar |
+| `spark` | label, value, and a sparkline from `history` (0..1 samples) |
+| `text` | a label/value pair |
+| `block` | a label plus indented `body` lines |
+| `divider` | a section divider |
+| `spacer` | a blank line |
+
+`detail` is what a zoomed panel shows; absent means reuse `rows`. Colour comes
+from `tone` (`good`, `warning`, `danger`, `muted`, `accent`) or from `severity`
+(`low`, `mid`, `high`), which is accepted because other tools in this space
+already speak it; `tone` wins when both are given. An unknown row type is
+skipped rather than failing the document, so a plugin written against a later
+schema loses a line instead of disappearing. Every row is drawn with the same
+primitives the built-in panels use and bounded by `Renderer.RenderLines`, so a
+plugin cannot overflow its pane whatever it prints.
+
+`contrib/ai-usage/` is a working example: a `jq` projection of
+`ai-usagebar usage --json`, which is a projection rather than a translation
+because the two formats already agree on `type`/`label`/`value`/`percent`/
+`severity`.
+
+#### Running them
+
+```go
+plugins, problems := dash.LoadPlugins(filepath.Join(configDir, "plugins"))
+deck.Register(plugins...)   // a plugin panel is just a Panel
+```
+
+Each subdirectory is one plugin; one that does not validate is skipped with its
+reason rather than stopping the others from loading, and a missing plugin
+directory is the normal case, not an error. `dash.Exec(manifest)` builds a
+single one.
+
+Failure of any kind — a non-zero exit, unparseable output, a timeout, more than
+1 MB printed, or a `schemaVersion` this build does not know — keeps the last
+good document and records the error, exactly as a failing provider does.
+`stderr` is captured for that error message and never rendered as content.
+Killing an entry point does not necessarily end what it started, so a script
+that leaves a child holding the output pipe is bounded too.
+
+**Plugins run unsandboxed, with your user permissions.** This is an extension
+mechanism for a single-user dashboard, not a security boundary, and there is no
+honest way to describe it otherwise: a plugin can do anything you can do.
 
 ## Terminal background
 

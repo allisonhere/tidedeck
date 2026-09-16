@@ -50,9 +50,10 @@ type Panel interface {
 	View(tideui.PanelContext) string
 }
 
-// Fetcher is implemented by a panel that acquires data. Refresh runs off the
-// UI goroutine under a bounded context; a panel stores the result itself and
-// keeps its last good value on error, so View never has to handle failure.
+// Fetcher is implemented by a panel that acquires data. Refresh is called
+// under a bounded context, and is expected to be the only part of a panel that
+// blocks; a panel stores the result itself and keeps its last good value on
+// error, so View never has to handle failure.
 type Fetcher interface {
 	Refresh(context.Context) error
 }

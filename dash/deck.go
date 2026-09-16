@@ -145,6 +145,10 @@ func (d *Deck) actions(actor Actor) []tideui.PanelAction {
 // Refresh brings stale panels up to date. It is cheap to call often: a panel
 // whose interval has not elapsed is skipped, and in demo mode nothing fetches
 // at all.
+//
+// The fetches themselves are synchronous, so a caller with a UI should drive
+// this from a command rather than from its update loop: a panel is bounded by
+// the deck's timeout, but a slow source would still hold up the frame.
 func (d *Deck) Refresh(ctx context.Context, now time.Time) {
 	if d.mode != ModeLive {
 		return
