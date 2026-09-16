@@ -74,10 +74,11 @@ func agendaPanel(state *demoState) tideui.PanelView {
 	return func(ctx tideui.PanelContext) string {
 		r := panelRenderer(state, ctx)
 		items := state.source.Agenda(state.now, state.agendaOffset)
+		day := state.now.AddDate(0, 0, state.agendaOffset)
 		if ctx.Zoomed {
-			return r.RenderAgendaDetail(items, state.now, ctx.Width)
+			return r.RenderCalendarDetail(day, items, state.now, ctx.Width)
 		}
-		return r.RenderAgenda(items, state.now, ctx.Width)
+		return r.RenderCalendar(day, items, state.now, ctx.Width)
 	}
 }
 

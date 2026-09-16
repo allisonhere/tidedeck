@@ -229,6 +229,57 @@ func (r Renderer) RenderAgendaDetail(items []AgendaItem, now time.Time, width in
 	return r.renderAgenda(items, now, width, true)
 }
 
+// RenderCalendar lays a month grid beside the day's agenda, highlighting the
+// selected day. The grid covers the day's own month, so stepping the day across
+// a month boundary turns the calendar page.
+func (r Renderer) RenderCalendar(day time.Time, items []AgendaItem, now time.Time, width int) string {
+	return r.renderCalendar(day, items, now, width, false)
+}
+
+// RenderCalendarDetail is RenderCalendar with the agenda's locations and
+// categories shown.
+func (r Renderer) RenderCalendarDetail(day time.Time, items []AgendaItem, now time.Time, width int) string {
+	return r.renderCalendar(day, items, now, width, true)
+}
+
+const (
+	calendarGridWidth = 20
+	calendarGap       = 2
+)
+
+func (r Renderer) renderCalendar(day time.Time, items []AgendaItem, now time.Time, width int, detail bool) string {
+	// The grid needs its full width, and the agenda needs enough room to be
+	// worth showing; below that the calendar collapses to the agenda alone.
+	agendaWidth := width - calendarGridWidth - calendarGap
+	if agendaWidth < 16 {
+		return r.renderAgenda(items, now, width, detail)
+	}
+	bg := r.Styles.Workspace.Bg
+	grid := strings.Split(r.RenderMiniCalendar(MiniCalendar{
+		Year: day.Year(), Month: day.Month(), Highlight: day.Day(), Width: calendarGridWidth,
+	}, bg), "\n")
+	agenda := strings.Split(r.renderAgenda(items, now, agendaWidth, detail), "\n")
+	height := max(len(grid), len(agenda))
+	padColumn := func(column []string, columnWidth int) []string {
+		out := make([]string, height)
+		for i := range out {
+			if i < len(column) {
+				out[i] = padStyled(column[i], columnWidth, bg)
+			} else {
+				out[i] = padStyled("", columnWidth, bg)
+			}
+		}
+		return out
+	}
+	grid = padColumn(grid, calendarGridWidth)
+	agenda = padColumn(agenda, agendaWidth)
+	separator := lipgloss.NewStyle().Background(bg).Render(strings.Repeat(" ", calendarGap))
+	for i := range grid {
+		grid[i] += separator + agenda[i]
+	}
+	return strings.Join(grid, "\n")
+}
+
 func (r Renderer) renderAgenda(items []AgendaItem, now time.Time, width int, detail bool) string {
 	bg := r.Styles.Workspace.Bg
 	ws := r.Styles.Workspace

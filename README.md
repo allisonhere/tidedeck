@@ -676,6 +676,7 @@ Renderers on `Renderer`:
 |---|---|---|
 | Weather | `RenderWeather` | `RenderWeatherDetail` |
 | Agenda | `RenderAgenda` (all-day events labelled, not `00:00`) | `RenderAgendaDetail` |
+| Calendar | `RenderCalendar` (month grid beside the day's agenda) | `RenderCalendarDetail` |
 | Clock | `RenderClock` (sun/moon glyph, day-period, world clocks) | `RenderClockDetail` (big digital time, day-progress gauge, analog face, `RenderMiniCalendar`) |
 | System | `RenderSystem` | `RenderSystemDetail` |
 | Network | `RenderNetwork` | `RenderNetworkDetail` |

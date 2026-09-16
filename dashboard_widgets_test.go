@@ -194,6 +194,33 @@ func TestRenderAgendaAllDay(t *testing.T) {
 	}
 }
 
+func TestRenderCalendarMonthAndAgenda(t *testing.T) {
+	now := dashboardNow()
+	day := time.Date(now.Year(), now.Month(), 16, 0, 0, 0, 0, now.Location())
+	items := []AgendaItem{
+		{Title: "Team offsite", Start: day, AllDay: true},
+		{Title: "Standup", Start: day.Add(8 * time.Hour)},
+	}
+	wide := ansi.Strip(r2().RenderCalendar(day, items, now, 64))
+	if !strings.Contains(wide, "September 2026") {
+		t.Fatalf("calendar missing the month grid:\n%s", wide)
+	}
+	if !strings.Contains(wide, "Team offsite") || !strings.Contains(wide, "all-day") {
+		t.Fatalf("calendar missing the agenda:\n%s", wide)
+	}
+	if strings.Index(wide, "September") > strings.Index(wide, "Standup") {
+		t.Fatalf("month is not laid out before the agenda:\n%s", wide)
+	}
+	// Too narrow for two columns, the grid gives way to the agenda alone.
+	narrow := ansi.Strip(r2().RenderCalendar(day, items, now, 30))
+	if strings.Contains(narrow, "September") {
+		t.Fatalf("narrow calendar should drop the grid:\n%s", narrow)
+	}
+	if !strings.Contains(narrow, "Team offsite") {
+		t.Fatalf("narrow calendar missing the agenda:\n%s", narrow)
+	}
+}
+
 func TestRenderAgendaEmpty(t *testing.T) {
 	out := r2().RenderAgenda(nil, dashboardNow(), 30)
 	if !strings.Contains(ansi.Strip(out), "No upcoming events") {
