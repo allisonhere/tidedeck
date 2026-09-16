@@ -119,7 +119,6 @@ func newModel() model {
 		spark:     tideui.SparklineStyle(sparkOrDefault(cfg.SparkStyle)),
 		clockFont: tideui.ClockFont(clockFontOrDefault(cfg.ClockFont)),
 		icons:     tideui.IconStyle(iconStyleOrDefault(cfg.Icons)),
-		notes:     feed.Notes(),
 	}
 	store := fileStore{path: filepath.Join(userConfigDir(), "tidedeck", "layout.json")}
 	ws := tideui.NewWorkspace(
@@ -145,7 +144,7 @@ func newModel() model {
 	// Panels are registered in the order the hand-written registrations used to
 	// sit, so the deck attaches them — and the settings list orders them — the
 	// way the dashboard always did.
-	deck.Register(panels.Agenda(), panels.System(), panels.Weather(), panels.GPU(), panels.Updates(), panels.Clock(), panels.Git(), panels.News(), panels.Network(), panels.Storage(), panels.Services(), panels.Tasks())
+	deck.Register(panels.Agenda(), panels.System(), panels.Weather(), panels.GPU(), panels.Updates(), panels.Clock(), panels.Git(), panels.News(), panels.Network(), panels.Storage(), panels.Services(), panels.Tasks(), panels.Notes())
 	deck.OnStatus(func(message string) { state.status = message })
 	registerPanels(ws, state, deck)
 	registerPresets(ws)
@@ -210,11 +209,9 @@ func (m *model) applyConfig() {
 	if m.cfg.Live {
 		m.state.live = newLiveSource(m.cfg)
 		m.state.source = m.state.live
-		m.state.notes = nil
 	} else {
 		m.state.live = nil
 		m.state.source = m.feed
-		m.state.notes = m.feed.Notes()
 	}
 	// Give the deck's panels their first data now rather than on the tick a
 	// second from now: a panel that holds its own data renders empty until
@@ -280,10 +277,6 @@ func registerPanels(ws *tideui.Workspace, state *demoState, deck *dash.Deck) {
 	// rather than before or after the block, leaving the picker and settings
 	// lists unchanged.
 	deck.Attach(ws)
-
-	ws.Panel("notes", notesPanel(state)).
-		Title("Notes").Role(tideui.RoleOptional).Priority(45).MinWidth(18).MinHeight(5).HideBelow(130).
-		Actions(tideui.Action("edit", "e", func(*tideui.Workspace) { state.status = "editing note" }).Labeled("edit"))
 
 	// Markets ships with its own contrasting theme to show that a panel can
 	// opt out of the workspace palette entirely. Press T / ctrl+T to assign or
@@ -351,15 +344,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickMsg:
 		m.state.now = time.Now()
 		// Panels on the deck fetch on their own intervals and hold their own
-		// data; the snapshot copying below is the path not yet migrated.
+		// data; only the markets source is still on the old collector.
 		m.deck.Refresh(context.Background(), m.state.now)
 		m.deck.Tick(m.state.now)
 		if m.state.live != nil {
 			m.state.live.refresh(context.Background())
-			snapshot := m.state.live.snapshotCopy()
-			if snapshot.Notes != nil {
-				m.state.notes = snapshot.Notes
-			}
 		}
 		// Auto-clear transient status feedback a few seconds after it stops
 		// changing, so it is prominent but never sticks around.

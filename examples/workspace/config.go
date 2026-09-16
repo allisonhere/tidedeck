@@ -29,7 +29,6 @@ type config struct {
 	PanelSparks map[string]string `json:"panel_sparks,omitempty"`
 	Feeds       string            `json:"feeds"`
 	Todo        string            `json:"todo"`
-	Notes       string            `json:"notes"`
 	Symbols     string            `json:"symbols"`
 	// doc is the document this config was decoded from. Saving writes the
 	// document back rather than only the fields below, so a key this build

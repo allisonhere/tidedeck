@@ -30,9 +30,6 @@ type liveSource struct {
 // empty.
 func newLiveSource(cfg config) *liveSource {
 	dashboard := &provider.Dashboard{}
-	if notes := list(cfg.Notes); len(notes) > 0 {
-		dashboard.Notes = provider.NewFetcher(30*time.Second, provider.Notes(notes...))
-	}
 	if symbols := list(cfg.Symbols); len(symbols) > 0 {
 		dashboard.Markets = provider.NewFetcher(time.Minute, provider.Markets(symbols...))
 	}
