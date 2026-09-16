@@ -170,6 +170,47 @@ type SystemMetrics struct {
 	Processes     int
 }
 
+// GPUMetrics backs the GPU widget. Percentages are 0..100 and BusySpark is
+// 0..1, matching SystemMetrics.
+type GPUMetrics struct {
+	Name         string // short driver name, e.g. "amdgpu"
+	BusyPercent  float64
+	BusySpark    []float64
+	MemoryUsed   string
+	MemoryTotal  string
+	MemoryLabel  string // "VRAM", or "GPU mem" on an integrated GPU
+	MemoryFrac   float64
+	TemperatureC int
+	PowerWatts   float64
+	ClockMHz     int
+	// Integrated marks a GPU whose memory is carved out of system RAM. Its
+	// memory is near-full by construction, so the widget shows the figure
+	// without a gauge rather than painting a permanently alarming bar.
+	Integrated bool
+}
+
+// UpdatePackage is one pending package update.
+type UpdatePackage struct {
+	Name string
+	From string
+	To   string
+}
+
+// UpdateStatus backs the updates widget.
+type UpdateStatus struct {
+	Omarchy        string // installed version
+	OmarchyPending string // version waiting, empty when current
+	Repo           []UpdatePackage
+	AUR            []UpdatePackage
+	Checked        time.Time
+	// Unavailable explains why a count is missing rather than zero, e.g.
+	// "checkupdates not installed".
+	Unavailable string
+}
+
+// Pending reports how many package updates are waiting.
+func (u UpdateStatus) Pending() int { return len(u.Repo) + len(u.AUR) }
+
 // NetworkMetrics backs the network widget.
 type NetworkMetrics struct {
 	Interface string
@@ -248,8 +289,28 @@ type RepoActivity struct {
 	Name    string
 	Branch  string
 	Summary string
-	Commits int
-	Tone    Tone
+	Commits int // commits made today
+	Changes int // uncommitted files
+	// Ahead and Behind count commits relative to the tracking branch.
+	// Unpushed work is the thing a dashboard is best placed to catch, so it
+	// is tracked separately rather than folded into Summary.
+	Ahead      int
+	Behind     int
+	Stashes    int
+	NoUpstream bool   // no tracking branch configured, which is not "clean"
+	State      string // "rebase" or "merge" when one is half-finished
+	Tone       Tone
+}
+
+// Clean reports whether a repository has nothing outstanding at all.
+func (r RepoActivity) Clean() bool {
+	// No branch means this is not a working copy at all — a missing path or a
+	// clone URL. Such an entry has nothing outstanding only because nothing
+	// could be read, so it must not be ticked as good.
+	if r.Branch == "" {
+		return false
+	}
+	return r.Changes == 0 && r.Ahead == 0 && r.Stashes == 0 && r.State == "" && !r.NoUpstream
 }
 
 // MarketQuote is one watchlist entry.

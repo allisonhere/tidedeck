@@ -1,6 +1,7 @@
 package tideui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -193,7 +194,7 @@ func TestRenderClockAndCalendar(t *testing.T) {
 	if !strings.Contains(big, "afternoon") || !strings.Contains(big, "% of day") && !strings.Contains(big, "61%") {
 		t.Fatalf("wide clock should be rich:\n%s", big)
 	}
-	if !strings.Contains(big, "_") {
+	if !strings.Contains(big, "─") {
 		t.Fatalf("wide clock missing big digits:\n%s", big)
 	}
 	calendar := ansi.Strip(r.RenderMiniCalendar(MiniCalendar{Year: 2026, Month: time.September, Highlight: 14, Width: 21}, r.Styles.Workspace.Bg))
@@ -219,18 +220,38 @@ func TestClockLook(t *testing.T) {
 	if f := dayFraction(morning); f <= 0 || f >= 1 {
 		t.Fatalf("dayFraction = %v, want between 0 and 1", f)
 	}
-	big := r.bigTime("14:42") // default dash font is 3 rows
-	if len(big) != 3 || lipgloss.Width(big[0]) != 19 {
+	big := r.bigTime("14:42") // default dash font is 3 rows of 4-cell digits
+	if len(big) != 3 || lipgloss.Width(big[0]) != 22 {
 		t.Fatalf("dash bigTime = %#v", big)
 	}
 	// The dash "4" carries both top verticals, so it reads as a seven-segment 4.
-	if four := bigClockDash['4']; len(four) != 3 || four[0] != "| |" || four[2] != "  |" {
+	if four := bigClockDash['4']; len(four) != 3 || four[0] != "│  │" || four[2] != "   │" {
 		t.Fatalf("dash 4 = %#v", four)
 	}
-	// Top bars ride at the top of row 0 (overline), not on the baseline.
+	// Digits are four cells wide and square-ish once the cell aspect is taken
+	// into account; every row of a digit is the same width, so the rows of a
+	// rendered time stay in step.
+	for ch, glyph := range bigClockDash {
+		if ch == ':' {
+			continue
+		}
+		for _, row := range glyph {
+			if lipgloss.Width(row) != 4 {
+				t.Fatalf("dash %q row = %q, want 4 cells", ch, row)
+			}
+		}
+	}
+	// Row 0 is a full top row: the top bar spans the digit and joins the top
+	// verticals, so no digit leaves a gap up there.
 	for _, ch := range []rune{'0', '2', '3', '5', '6', '7', '8', '9'} {
-		if !strings.Contains(bigClockDash[ch][0], "‾") {
-			t.Fatalf("dash %q row 0 = %q, want a top bar", ch, bigClockDash[ch][0])
+		if top := bigClockDash[ch][0]; strings.ContainsRune(top, ' ') || !strings.ContainsRune(top, '─') {
+			t.Fatalf("dash %q row 0 = %q, want an unbroken top bar", ch, top)
+		}
+	}
+	// Digits without a top bar still fill row 0 with their verticals.
+	for _, ch := range []rune{'1', '4'} {
+		if top := bigClockDash[ch][0]; !strings.ContainsRune(top, '│') {
+			t.Fatalf("dash %q row 0 = %q, want top verticals", ch, top)
 		}
 	}
 	block := NewRenderer(CatppuccinMocha, StyleOptions{ClockFont: ClockFontBlock}).bigTime("14:42")
@@ -251,9 +272,13 @@ func TestClockLook(t *testing.T) {
 		if fr.Styles.ClockFont != font {
 			t.Fatalf("resolved clock font = %q, want %q", fr.Styles.ClockFont, font)
 		}
+		// Fonts differ in digit width, but every row of one render must be
+		// the same width or the digits shear apart.
 		rows := fr.bigTime("14:42")
-		if lipgloss.Width(rows[0]) != 19 {
-			t.Fatalf("%s bigTime = %#v", font, rows)
+		for _, row := range rows {
+			if lipgloss.Width(row) != lipgloss.Width(rows[0]) {
+				t.Fatalf("%s bigTime rows are ragged: %#v", font, rows)
+			}
 		}
 	}
 	if NewRenderer(CatppuccinMocha, StyleOptions{ClockFont: ClockFont("x")}).Styles.ClockFont != ClockFontDash {
@@ -354,7 +379,7 @@ func TestRenderTasksNotesGitMarkets(t *testing.T) {
 	repos := ansi.Strip(r.RenderRepoActivity([]RepoActivity{
 		{Name: "tideui", Branch: "main", Commits: 3, Tone: ToneAccent},
 	}, 34))
-	for _, want := range []string{"tideui", "main", "3 commits"} {
+	for _, want := range []string{"tideui", "main", "3 today"} {
 		if !strings.Contains(repos, want) {
 			t.Fatalf("git missing %q:\n%s", want, repos)
 		}
@@ -387,6 +412,31 @@ func TestDashboardWidgetsBoundedAtTinyWidths(t *testing.T) {
 		"systemDetail": func(w int) string {
 			return r.RenderSystemDetail(SystemMetrics{Cores: []float64{10, 90}, MemoryUsed: "1G", Processes: 3}, w)
 		},
+		"repos": func(w int) string {
+			return r.RenderRepoActivity([]RepoActivity{
+				{Name: "threadtide", Branch: "milestone-2.5-account-panel-and-compliance",
+					Summary: "no upstream · 6 unpushed · 81 changed", Ahead: 6, Changes: 81, NoUpstream: true},
+			}, w)
+		},
+		"reposDetail": func(w int) string {
+			return r.RenderRepoActivityDetail([]RepoActivity{
+				{Name: "tidedeck", Branch: "main", Commits: 4, Changes: 25, Ahead: 2, Behind: 1, Summary: "2 unpushed · 25 changed"},
+			}, w)
+		},
+		"gpu": func(w int) string {
+			return r.RenderGPU(gpuFixture(), w)
+		},
+		"gpuDetail": func(w int) string {
+			return r.RenderGPUDetail(gpuFixture(), w)
+		},
+		"gpuDiscrete": func(w int) string {
+			return r.RenderGPU(GPUMetrics{Name: "nvidia", BusyPercent: 63, MemoryLabel: "VRAM",
+				MemoryUsed: "5.1 GB", MemoryTotal: "8.0 GB", MemoryFrac: 0.64, TemperatureC: 71}, w)
+		},
+		"gpuEmpty":      func(w int) string { return r.RenderGPU(GPUMetrics{}, w) },
+		"updates":       func(w int) string { return r.RenderUpdates(updatesFixture(), w) },
+		"updatesDetail": func(w int) string { return r.RenderUpdatesDetail(updatesFixture(), w) },
+		"updatesClean":  func(w int) string { return r.RenderUpdates(UpdateStatus{Omarchy: "4.0.4-1"}, w) },
 		"network": func(w int) string {
 			return r.RenderNetwork(NetworkMetrics{Download: 10, Upload: 2, DownSpark: []float64{0.5}}, w)
 		},
@@ -460,5 +510,282 @@ func TestStatusDotDoesNotRelyOnColourAlone(t *testing.T) {
 	bad := ansi.Strip(r.RenderStatusDot(StatusDot{Label: "stopped", Tone: ToneDanger}, r.Styles.Workspace.Bg))
 	if good == bad {
 		t.Fatal("status labels must differ even without colour")
+	}
+}
+
+// weatherLineWith returns the first line containing sub.
+func weatherLineWith(lines []string, sub string) string {
+	for _, line := range lines {
+		if strings.Contains(line, sub) {
+			return line
+		}
+	}
+	return ""
+}
+
+// weatherColumnOf returns the cell column sub starts at, counting display
+// width so emoji do not skew the comparison.
+func weatherColumnOf(t *testing.T, line, sub string) int {
+	t.Helper()
+	at := strings.Index(line, sub)
+	if at < 0 {
+		t.Fatalf("%q missing from %q", sub, line)
+	}
+	return lipgloss.Width(line[:at])
+}
+
+func TestWeatherDetailIsGridAligned(t *testing.T) {
+	r := chromeRenderer(Compact)
+	w := weatherFixture()
+	w.FeelsLike, w.HasFeelsLike = 70, true
+	w.Daily = []ForecastPoint{
+		{Label: "Today", Temperature: 8, Condition: "Snow"},
+		{Label: "Tue", Temperature: 108, Condition: "Sunny"},
+	}
+	out := ansi.Strip(r.RenderWeatherDetail(w, 40))
+	lines := strings.Split(out, "\n")
+	for _, line := range lines {
+		if lipgloss.Width(line) != 40 {
+			t.Fatalf("detail line width = %d, want 40 (%q)", lipgloss.Width(line), line)
+		}
+	}
+	// Rain and wind share one row once there is room for both.
+	if rain := weatherLineWith(lines, "Rain"); !strings.Contains(rain, "Wind") {
+		t.Fatalf("rain and wind should share a row at width 40:\n%s", out)
+	}
+	// The label column fits the longest label, so the values line up under
+	// each other instead of "Updated" pushing its value a cell right.
+	place := weatherColumnOf(t, weatherLineWith(lines, "Place"), "Springfield")
+	updated := weatherColumnOf(t, weatherLineWith(lines, "Updated"), "14:42")
+	if place != updated {
+		t.Fatalf("label column ragged: Place value at %d, Updated value at %d:\n%s", place, updated, out)
+	}
+	// Temperatures are right-aligned, so 8° and 108° end in the same column
+	// and the conditions all start together.
+	today := weatherColumnOf(t, weatherLineWith(lines, "Today"), "Snow")
+	tue := weatherColumnOf(t, weatherLineWith(lines, "Tue "), "Sunny")
+	if today != tue {
+		t.Fatalf("forecast conditions ragged: %d vs %d:\n%s", today, tue, out)
+	}
+}
+
+func TestWeatherNarrowDropsWholeFacts(t *testing.T) {
+	r := chromeRenderer(Compact)
+	w := weatherFixture()
+	w.FeelsLike, w.HasFeelsLike = 70, true
+	out := ansi.Strip(r.RenderWeather(w, 24))
+	facts := weatherLineWith(strings.Split(out, "\n"), "H 76°")
+	// Too narrow for feels-like: it is dropped whole, not cut mid-figure.
+	if strings.Contains(facts, "…") || strings.Contains(facts, "Feels") {
+		t.Fatalf("narrow facts line should drop feels-like whole, got %q", facts)
+	}
+	if !strings.Contains(facts, "L 61°") {
+		t.Fatalf("narrow facts line lost the low: %q", facts)
+	}
+	// Rain and wind stack rather than crowding one row.
+	if rain := weatherLineWith(strings.Split(out, "\n"), "Rain"); strings.Contains(rain, "Wind") {
+		t.Fatalf("rain and wind should stack at width 24:\n%s", out)
+	}
+}
+
+func TestWeatherHourlyKeepsWholeSegments(t *testing.T) {
+	r := chromeRenderer(Compact)
+	w := weatherFixture()
+	w.Hourly = []ForecastPoint{
+		{Label: "3PM", Temperature: 74}, {Label: "6PM", Temperature: 70},
+		{Label: "9PM", Temperature: 64}, {Label: "12AM", Temperature: 61},
+	}
+	strip := weatherLineWith(strings.Split(ansi.Strip(r.RenderWeather(w, 28)), "\n"), "3PM")
+	if strings.Contains(strip, "…") {
+		t.Fatalf("hourly strip was cut mid-segment: %q", strip)
+	}
+	if !strings.Contains(strip, "9PM") || strings.Contains(strip, "12AM") {
+		t.Fatalf("hourly strip should keep whole segments only: %q", strip)
+	}
+}
+
+func gpuFixture() GPUMetrics {
+	return GPUMetrics{
+		Name: "amdgpu", BusyPercent: 7, BusySpark: []float64{0.05, 0.4, 0.07},
+		MemoryUsed: "29.2 GB", MemoryTotal: "31.0 GB", MemoryLabel: "MEM", MemoryFrac: 0.94,
+		TemperatureC: 48, PowerWatts: 16.2, ClockMHz: 1003, Integrated: true,
+	}
+}
+
+func updatesFixture() UpdateStatus {
+	return UpdateStatus{
+		Omarchy: "4.0.3-1", OmarchyPending: "4.0.4-1",
+		Repo: []UpdatePackage{
+			{Name: "omarchy", From: "4.0.3-1", To: "4.0.4-1"},
+			{Name: "linux", From: "6.17.2-1", To: "6.17.4-1"},
+		},
+		AUR:     []UpdatePackage{{Name: "yay", From: "12.4.2-1", To: "12.5.0-1"}},
+		Checked: dashboardNow(),
+	}
+}
+
+func TestRenderGPU(t *testing.T) {
+	r := chromeRenderer(Compact)
+	out := ansi.Strip(r.RenderGPU(gpuFixture(), 32))
+	for _, want := range []string{"GPU", "7%", "MEM", "29.2 GB", "31.0 GB", "48°C", "16.2 W", "1003 MHz"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("gpu missing %q:\n%s", want, out)
+		}
+	}
+	// An integrated GPU's memory is near-full by construction, so it is shown
+	// as a figure rather than a gauge that would always read as critical.
+	if strings.Contains(out, "94%") {
+		t.Fatalf("integrated memory should not be gauged as a percentage:\n%s", out)
+	}
+	detail := ansi.Strip(r.RenderGPUDetail(gpuFixture(), 36))
+	for _, want := range []string{"DEVICE", "amdgpu", "Shared with system memory"} {
+		if !strings.Contains(detail, want) {
+			t.Fatalf("gpu detail missing %q:\n%s", want, detail)
+		}
+	}
+	// A discrete card does get the gauge, where the percentage means something.
+	discrete := ansi.Strip(r.RenderGPU(GPUMetrics{Name: "nvidia", BusyPercent: 63,
+		MemoryLabel: "VRAM", MemoryUsed: "5.1 GB", MemoryTotal: "8.0 GB", MemoryFrac: 0.64}, 32))
+	if !strings.Contains(discrete, "VRAM") || !strings.Contains(discrete, "64%") {
+		t.Fatalf("discrete gpu should gauge VRAM:\n%s", discrete)
+	}
+	// Rows with no reading are left out rather than shown as zero.
+	if strings.Contains(discrete, "TEMP") {
+		t.Fatalf("absent temperature should be omitted:\n%s", discrete)
+	}
+	if empty := ansi.Strip(r.RenderGPU(GPUMetrics{}, 24)); !strings.Contains(empty, "No GPU") {
+		t.Fatalf("empty gpu = %q", empty)
+	}
+}
+
+func TestRenderUpdates(t *testing.T) {
+	r := chromeRenderer(Compact)
+	out := ansi.Strip(r.RenderUpdates(updatesFixture(), 34))
+	for _, want := range []string{"Omarchy", "4.0.3-1", "4.0.4-1", "3", "updates", "linux", "yay"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("updates missing %q:\n%s", want, out)
+		}
+	}
+	// A clean system says so rather than showing an empty panel.
+	clean := ansi.Strip(r.RenderUpdates(UpdateStatus{Omarchy: "4.0.4-1"}, 30))
+	if !strings.Contains(clean, "Up to date") {
+		t.Fatalf("clean updates = %q", clean)
+	}
+	if strings.Contains(clean, "→") {
+		t.Fatalf("no pending version should mean no arrow:\n%s", clean)
+	}
+	// A failed check must not read as "nothing to do".
+	broken := ansi.Strip(r.RenderUpdates(UpdateStatus{Omarchy: "4.0.4-1", Unavailable: "checkupdates unavailable"}, 34))
+	if !strings.Contains(broken, "checkupdates unavailable") {
+		t.Fatalf("unavailable updates = %q", broken)
+	}
+	if strings.Contains(broken, "Up to date") {
+		t.Fatalf("an unknown count must not claim the system is current:\n%s", broken)
+	}
+	// One update reads naturally.
+	single := ansi.Strip(r.RenderUpdates(UpdateStatus{Repo: []UpdatePackage{{Name: "linux", To: "6.17.4-1"}}}, 30))
+	if !strings.Contains(single, "1  update") || strings.Contains(single, "updates") {
+		t.Fatalf("single update wording = %q", single)
+	}
+	// The list is capped and says how many were left out.
+	many := UpdateStatus{}
+	for i := 0; i < 9; i++ {
+		many.Repo = append(many.Repo, UpdatePackage{Name: fmt.Sprintf("pkg%d", i), To: "1.0"})
+	}
+	capped := ansi.Strip(r.RenderUpdates(many, 30))
+	if !strings.Contains(capped, "+5 more") {
+		t.Fatalf("capped list should report the remainder:\n%s", capped)
+	}
+}
+
+func TestRenderRepoActivityShowsWhatIsOutstanding(t *testing.T) {
+	r := chromeRenderer(Compact)
+
+	// A repository with unpushed commits must not read as clean: this is the
+	// state a dashboard is best placed to catch.
+	icons := r.Styles.RepoIcons
+	unpushed := ansi.Strip(r.RenderRepoActivity([]RepoActivity{
+		{Name: "z13control", Branch: "main", Ahead: 6, Summary: "6 unpushed", Tone: ToneWarning},
+	}, 40))
+	if !strings.Contains(unpushed, icons.Ahead+"6") {
+		t.Fatalf("unpushed work missing:\n%s", unpushed)
+	}
+	if strings.Contains(unpushed, icons.Clean) {
+		t.Fatalf("a repo with unpushed commits should not be ticked:\n%s", unpushed)
+	}
+
+	// The tick belongs only to a repository with nothing outstanding.
+	clean := ansi.Strip(r.RenderRepoActivity([]RepoActivity{
+		{Name: "tide", Branch: "main", Summary: "clean", Tone: ToneGood},
+	}, 40))
+	if !strings.Contains(clean, icons.Clean) {
+		t.Fatalf("a clean repo should be ticked:\n%s", clean)
+	}
+
+	// An interrupted rebase is flagged rather than blending in.
+	mid := ansi.Strip(r.RenderRepoActivity([]RepoActivity{
+		{Name: "olympus", Branch: "summer", State: "rebase", Summary: "REBASE", Tone: ToneDanger},
+	}, 40))
+	if !strings.Contains(mid, icons.Conflict) || !strings.Contains(mid, "REBASE") {
+		t.Fatalf("an interrupted rebase should be flagged:\n%s", mid)
+	}
+
+	// Long branch names are elided from the middle, not left to overflow.
+	long := ansi.Strip(r.RenderRepoActivity([]RepoActivity{
+		{Name: "threadtide", Branch: "milestone-2.5-account-panel-and-compliance", Summary: "clean"},
+	}, 40))
+	for _, line := range strings.Split(long, "\n") {
+		if lipgloss.Width(line) != 40 {
+			t.Fatalf("line width = %d, want 40: %q", lipgloss.Width(line), line)
+		}
+	}
+	if strings.Contains(long, "milestone-2.5-account-panel-and-compliance") {
+		t.Fatalf("a 42-cell branch name should be elided at width 40:\n%s", long)
+	}
+	if !strings.Contains(long, "…") {
+		t.Fatalf("elision should be marked:\n%s", long)
+	}
+
+	// The detail view restores what the compact line drops for space.
+	detail := ansi.Strip(r.RenderRepoActivityDetail([]RepoActivity{
+		{Name: "tidedeck", Branch: "main", Commits: 4, Changes: 25, Ahead: 2, Behind: 1,
+			Summary: "2 unpushed · 25 changed", Tone: ToneWarning},
+	}, 44))
+	for _, want := range []string{icons.Changed + "25", "4 commit(s) today", "2 ahead, 1 behind"} {
+		if !strings.Contains(detail, want) {
+			t.Fatalf("repo detail missing %q:\n%s", want, detail)
+		}
+	}
+}
+
+func TestElideMiddle(t *testing.T) {
+	// Short enough to fit is returned untouched.
+	for _, value := range []string{"main", "feat/x"} {
+		if got := elideMiddle(value, 10); got != value {
+			t.Fatalf("elideMiddle(%q, 10) = %q, want it unchanged", value, got)
+		}
+	}
+	// A long branch is cut to exactly the width, keeping both ends so the
+	// start and the distinguishing suffix both survive.
+	const branch = "milestone-2.5-account-panel-and-compliance"
+	for _, width := range []int{8, 12, 20, 30} {
+		got := elideMiddle(branch, width)
+		if lipgloss.Width(got) != width {
+			t.Fatalf("elideMiddle(branch, %d) = %q, width %d", width, got, lipgloss.Width(got))
+		}
+		if !strings.Contains(got, "…") {
+			t.Fatalf("elideMiddle(branch, %d) = %q, want an ellipsis", width, got)
+		}
+		if !strings.HasPrefix(got, "m") || !strings.HasSuffix(got, "e") {
+			t.Fatalf("elideMiddle(branch, %d) = %q, want both ends kept", width, got)
+		}
+	}
+	// Too narrow for an ellipsis to be worth a cell: hard clamp, still bounded.
+	if got := elideMiddle("abcdef", 3); lipgloss.Width(got) > 3 {
+		t.Fatalf("elideMiddle(abcdef, 3) = %q, wider than 3", got)
+	}
+	// Multi-byte text must be cut on rune boundaries, not bytes.
+	if got := elideMiddle("ünïcödé-brånch-nåme", 9); lipgloss.Width(got) != 9 {
+		t.Fatalf("elideMiddle(unicode, 9) = %q, width %d", got, lipgloss.Width(got))
 	}
 }

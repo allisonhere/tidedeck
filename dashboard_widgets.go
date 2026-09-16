@@ -22,12 +22,11 @@ func (r Renderer) RenderWeather(w WeatherData, width int) string {
 	lines := []string{
 		r.weatherHeadline(w, bg),
 		lipgloss.NewStyle().Background(bg).Foreground(ws.BodyFg).
-			Render(r.weatherRangeText(w)),
-		r.dashPair(r.rainGlyph()+" Rain", fmt.Sprintf("%d%%", w.RainChance), 7, bg),
-		r.dashPair(r.windGlyph()+" Wind", fmt.Sprintf("%d %s", w.WindSpeed, w.WindUnit), 7, bg),
+			Render(r.weatherRangeText(w, width)),
 	}
+	lines = append(lines, r.weatherMetricRows(w, width, bg)...)
 	if len(w.Hourly) > 0 {
-		lines = append(lines, "", r.renderHourly(w.Hourly, bg))
+		lines = append(lines, "", r.renderHourly(w.Hourly, width, bg))
 	}
 	return r.dashBlock(lines, width, bg)
 }
@@ -49,16 +48,31 @@ func (r Renderer) weatherHeadline(w WeatherData, bg lipgloss.Color) string {
 }
 
 // weatherRangeText renders the high/low line, appending feels-like when known
-// and a flame once the feels-like temperature is hot.
-func (r Renderer) weatherRangeText(w WeatherData) string {
-	text := fmt.Sprintf("H %d°   L %d°", w.High, w.Low)
+// and a flame once the feels-like temperature is hot. Facts that do not fit the
+// panel are dropped whole, so the line never ends in a half-written figure.
+func (r Renderer) weatherRangeText(w WeatherData, width int) string {
+	facts := []string{fmt.Sprintf("H %d°", w.High), fmt.Sprintf("L %d°", w.Low)}
 	if w.HasFeelsLike {
-		text += fmt.Sprintf("   Feels %d°", w.FeelsLike)
+		feels := fmt.Sprintf("Feels %d°", w.FeelsLike)
 		if w.FeelsLike > 90 {
-			text += " " + r.hotGlyph()
+			feels += " " + r.hotGlyph()
 		}
+		facts = append(facts, feels)
 	}
-	return text
+	return joinFit(facts, weatherGap, width)
+}
+
+// weatherMetricRows renders the rain and wind readings. They share one row at
+// the same gap as the facts line above when the panel is wide enough, and stack
+// into the shared label column when it is not.
+func (r Renderer) weatherMetricRows(w WeatherData, width int, bg lipgloss.Color) []string {
+	rain := r.dashPair(r.rainGlyph()+" Rain", fmt.Sprintf("%d%%", w.RainChance), weatherLabelWidth, bg)
+	wind := r.dashPair(r.windGlyph()+" Wind", fmt.Sprintf("%d %s", w.WindSpeed, w.WindUnit), weatherLabelWidth, bg)
+	if lipgloss.Width(rain)+weatherGap+lipgloss.Width(wind) <= width {
+		gap := lipgloss.NewStyle().Background(bg).Render(strings.Repeat(" ", weatherGap))
+		return []string{rain + gap + wind}
+	}
+	return []string{rain, wind}
 }
 
 // hotGlyph marks a hot feels-like temperature. The emoji is two cells wide and
@@ -97,9 +111,34 @@ func (r Renderer) forecastCondition(condition string) string {
 	return kind.Glyph(r.Styles.PlainUI) + " " + condition
 }
 
+// Weather layout constants: the label column both weather widgets share, and
+// the gap between facts on a run-on line.
+const (
+	weatherLabelWidth = 7 // fits "Updated", the longest label
+	weatherGap        = 3
+)
+
+// joinFit joins parts with gap spaces, keeping only the leading parts that fit
+// in width. The first part is always kept so the line is never empty.
+func joinFit(parts []string, gap, width int) string {
+	if len(parts) == 0 {
+		return ""
+	}
+	out := parts[0]
+	spacer := strings.Repeat(" ", gap)
+	for _, part := range parts[1:] {
+		if lipgloss.Width(out)+gap+lipgloss.Width(part) > width {
+			break
+		}
+		out += spacer + part
+	}
+	return out
+}
+
 // renderHourly lays the short forecast out as one grouped strip so it reads as
-// a single element rather than a stack of rows.
-func (r Renderer) renderHourly(points []ForecastPoint, bg lipgloss.Color) string {
+// a single element rather than a stack of rows. Only whole segments are kept,
+// and the slack is shared between them so the strip reads as an even row.
+func (r Renderer) renderHourly(points []ForecastPoint, width int, bg lipgloss.Color) string {
 	ws := r.Styles.Workspace
 	segments := make([]string, 0, len(points))
 	for i, point := range points {
@@ -116,7 +155,25 @@ func (r Renderer) renderHourly(points []ForecastPoint, bg lipgloss.Color) string
 		}
 		segments = append(segments, segment)
 	}
-	return strings.Join(segments, "   ")
+	const maxGap = 6
+	// Drop the segments that would only fit in part.
+	used, fit := 0, 0
+	for i, segment := range segments {
+		next := used + lipgloss.Width(segment)
+		if i > 0 {
+			next += weatherGap
+		}
+		if next > width {
+			break
+		}
+		used, fit = next, i+1
+	}
+	segments = segments[:fit]
+	if len(segments) < 2 {
+		return strings.Join(segments, "")
+	}
+	gap := min(weatherGap+(width-used)/(len(segments)-1), maxGap)
+	return strings.Join(segments, lipgloss.NewStyle().Background(bg).Render(strings.Repeat(" ", gap)))
 }
 
 // RenderWeatherDetail renders the extended forecast.
@@ -126,21 +183,39 @@ func (r Renderer) RenderWeatherDetail(w WeatherData, width int) string {
 	lines := []string{
 		r.weatherHeadline(w, bg),
 		lipgloss.NewStyle().Background(bg).Foreground(ws.BodyFg).
-			Render(fmt.Sprintf("%s   Rain %d%%   Wind %d %s", r.weatherRangeText(w), w.RainChance, w.WindSpeed, w.WindUnit)),
+			Render(r.weatherRangeText(w, width)),
 	}
+	lines = append(lines, r.weatherMetricRows(w, width, bg)...)
 	if w.Location != "" {
-		lines = append(lines, r.dashPair("Place", w.Location, 6, bg))
+		lines = append(lines, r.dashPair("Place", w.Location, weatherLabelWidth, bg))
 	}
 	if !w.Updated.IsZero() {
-		lines = append(lines, r.dashPair("Updated", w.Updated.Format("15:04"), 6, bg))
+		lines = append(lines, r.dashPair("Updated", w.Updated.Format("15:04"), weatherLabelWidth, bg))
 	}
 	if len(w.Daily) > 0 {
 		lines = append(lines, r.RenderSectionDivider(SectionDivider{Label: "FORECAST", Width: width}, bg))
-		for _, day := range w.Daily {
-			lines = append(lines, r.dashPair(day.Label, fmt.Sprintf("%d°  %s", day.Temperature, r.forecastCondition(day.Condition)), 6, bg))
-		}
+		lines = append(lines, r.forecastRows(w.Daily, bg)...)
 	}
 	return r.dashBlock(lines, width, bg)
+}
+
+// forecastRows renders the daily forecast as a grid: a shared label column and
+// a right-aligned temperature column, so the degrees line up whatever their
+// digit count and the conditions all start at the same cell.
+func (r Renderer) forecastRows(days []ForecastPoint, bg lipgloss.Color) []string {
+	labelWidth, tempWidth := weatherLabelWidth, 0
+	temps := make([]string, len(days))
+	for i, day := range days {
+		temps[i] = fmt.Sprintf("%d°", day.Temperature)
+		labelWidth = max(labelWidth, lipgloss.Width(day.Label))
+		tempWidth = max(tempWidth, lipgloss.Width(temps[i]))
+	}
+	rows := make([]string, 0, len(days))
+	for i, day := range days {
+		value := padLeft(temps[i], tempWidth) + "  " + r.forecastCondition(day.Condition)
+		rows = append(rows, r.dashPair(day.Label, value, labelWidth, bg))
+	}
+	return rows
 }
 
 // RenderAgenda renders upcoming events grouped by day with the next event
@@ -440,19 +515,27 @@ func dayFraction(t time.Time) float64 {
 // Two big-clock fonts. "dash" is the original 3-row seven-segment LED look;
 // "block" is a heavier 5-row solid font. Both place each segment so digits
 // read correctly (a "4" has its top-left vertical).
+//
+// The dash font is drawn on a connected box-drawing grid: a cell that carries
+// both a bar and a vertical uses the matching corner or tee, so the segments
+// join instead of floating next to each other. Digits are four cells wide: a
+// terminal cell is about twice as tall as it is wide, so three rows of three
+// cells renders a digit at half the proportions of a real one, which is what
+// made the narrower font look stretched. The colon is narrower than a digit,
+// as it is on a real clock face.
 var (
 	bigClockDash = map[rune][]string{
-		'0': {"|‾|", "| |", "|_|"},
-		'1': {"  |", "  |", "  |"},
-		'2': {" ‾|", " -|", "|_ "},
-		'3': {" ‾|", " -|", " _|"},
-		'4': {"| |", "|-|", "  |"},
-		'5': {"|‾ ", " -|", " _|"},
-		'6': {"|‾ ", "|- ", "|_|"},
-		'7': {" ‾|", "  |", "  |"},
-		'8': {"|‾|", "|-|", "|_|"},
-		'9': {"|‾|", " -|", " _|"},
-		':': {"   ", " . ", " . "},
+		'0': {"┌──┐", "│  │", "└──┘"},
+		'1': {"   │", "   │", "   │"},
+		'2': {"───┐", "┌──┘", "└───"},
+		'3': {"───┐", "───┤", "───┘"},
+		'4': {"│  │", "└──┤", "   │"},
+		'5': {"┌───", "└──┐", "───┘"},
+		'6': {"┌───", "├──┐", "└──┘"},
+		'7': {"───┐", "   │", "   │"},
+		'8': {"┌──┐", "├──┤", "└──┘"},
+		'9': {"┌──┐", "└──┤", "───┘"},
+		':': {"  ", " ●", " ●"},
 	}
 	bigClockBlock = map[rune][]string{
 		'0': {"███", "█ █", "█ █", "█ █", "███"},
@@ -481,9 +564,11 @@ func (r Renderer) bigTime(text string) []string {
 	for i, ch := range text {
 		glyph, ok := font[ch]
 		if !ok || len(glyph) != height {
+			// Hold a digit's worth of space so the rows stay in step.
+			blank := strings.Repeat(" ", lipgloss.Width(font['0'][0]))
 			glyph = make([]string, height)
 			for j := range glyph {
-				glyph[j] = "   "
+				glyph[j] = blank
 			}
 		}
 		for row := 0; row < height; row++ {
@@ -589,6 +674,150 @@ func (r Renderer) RenderSystemDetail(m SystemMetrics, width int) string {
 		lines = append(lines, r.dashPair("Proc", fmt.Sprintf("%d", m.Processes), 5, bg))
 	}
 	return r.dashBlock(lines, width, bg)
+}
+
+// RenderGPU renders the GPU summary: utilisation with a short history, then
+// memory, temperature, power and clock.
+func (r Renderer) RenderGPU(m GPUMetrics, width int) string {
+	bg := r.Styles.Workspace.Bg
+	ws := r.Styles.Workspace
+	if m.Name == "" {
+		return r.dashBlock([]string{lipgloss.NewStyle().Background(bg).Foreground(ws.HintFg).Render("No GPU found")}, width, bg)
+	}
+	total := metricTotal(width, 5, 5, 20)
+	lines := []string{r.RenderMetricRow(MetricRow{
+		Label: "GPU", Value: fmt.Sprintf("%.0f%%", m.BusyPercent), Fraction: m.BusyPercent / 100,
+		Spark: m.BusySpark, Tone: toneForPercent(m.BusyPercent),
+		LabelWidth: 5, ValueWidth: 5, TotalWidth: total,
+	}, bg)}
+	lines = append(lines, r.gpuMemoryLine(m, total, bg)...)
+	if m.TemperatureC > 0 {
+		lines = append(lines, r.dashPair("TEMP", fmt.Sprintf("%d°C", m.TemperatureC), 5, bg))
+	}
+	if m.PowerWatts > 0 {
+		lines = append(lines, r.dashPair("PWR", fmt.Sprintf("%.1f W", m.PowerWatts), 5, bg))
+	}
+	if m.ClockMHz > 0 {
+		lines = append(lines, r.dashPair("CLK", fmt.Sprintf("%d MHz", m.ClockMHz), 5, bg))
+	}
+	return r.dashBlock(lines, width, bg)
+}
+
+// gpuMemoryLine renders memory as a gauge on a discrete card, where the
+// percentage is a real pressure signal, and as a plain figure on an integrated
+// one, where the pool is carved out of system RAM and sits near full by
+// construction - a gauge there would be permanently and meaninglessly red.
+func (r Renderer) gpuMemoryLine(m GPUMetrics, total int, bg lipgloss.Color) []string {
+	if m.MemoryTotal == "" {
+		return nil
+	}
+	label := m.MemoryLabel
+	if label == "" {
+		label = "MEM"
+	}
+	if m.Integrated {
+		return []string{r.dashPair(label, fmt.Sprintf("%s / %s", m.MemoryUsed, m.MemoryTotal), 5, bg)}
+	}
+	percent := m.MemoryFrac * 100
+	return []string{r.RenderMetricRow(MetricRow{
+		Label: label, Value: fmt.Sprintf("%.0f%%", percent), Fraction: m.MemoryFrac,
+		Bar: true, Tone: toneForPercent(percent),
+		LabelWidth: 5, ValueWidth: 5, TotalWidth: total,
+	}, bg)}
+}
+
+// RenderGPUDetail adds the driver and, on an integrated GPU, a note that the
+// memory shown is shared with the system.
+func (r Renderer) RenderGPUDetail(m GPUMetrics, width int) string {
+	bg := r.Styles.Workspace.Bg
+	ws := r.Styles.Workspace
+	if m.Name == "" {
+		return r.RenderGPU(m, width)
+	}
+	lines := strings.Split(r.RenderGPU(m, width), "\n")
+	lines = append(lines, r.RenderSectionDivider(SectionDivider{Label: "DEVICE", Width: width}, bg))
+	lines = append(lines, r.dashPair("Driver", m.Name, 7, bg))
+	if m.Integrated {
+		lines = append(lines, lipgloss.NewStyle().Background(bg).Foreground(ws.HintFg).
+			Render("Shared with system memory"))
+	}
+	return r.dashBlock(lines, width, bg)
+}
+
+// RenderUpdates renders pending system updates: the Omarchy version bump when
+// one is waiting, then how many packages are out of date and which.
+func (r Renderer) RenderUpdates(u UpdateStatus, width int) string {
+	return r.renderUpdates(u, width, false)
+}
+
+// RenderUpdatesDetail renders the same with a longer package list.
+func (r Renderer) RenderUpdatesDetail(u UpdateStatus, width int) string {
+	return r.renderUpdates(u, width, true)
+}
+
+func (r Renderer) renderUpdates(u UpdateStatus, width int, detail bool) string {
+	bg := r.Styles.Workspace.Bg
+	ws := r.Styles.Workspace
+	hint := lipgloss.NewStyle().Background(bg).Foreground(ws.HintFg)
+	var lines []string
+
+	if u.Omarchy != "" {
+		value := u.Omarchy
+		tone := ToneMuted
+		if u.OmarchyPending != "" {
+			value = fmt.Sprintf("%s → %s", u.Omarchy, u.OmarchyPending)
+			tone = ToneAccent
+		}
+		lines = append(lines, r.dashPair("Omarchy", "", 7, bg)+
+			lipgloss.NewStyle().Background(bg).Foreground(r.toneColor(tone)).Render(value))
+	}
+
+	pending := u.Pending()
+	switch {
+	case u.Unavailable != "":
+		// Say the count is unknown rather than implying a clean system.
+		lines = append(lines, hint.Render(u.Unavailable))
+	case pending == 0:
+		lines = append(lines, hint.Render("Up to date"))
+	default:
+		lines = append(lines, r.RenderStatValue(StatValue{
+			Value: fmt.Sprintf("%d", pending), Label: updatesWord(pending), Tone: ToneWarning,
+		}, bg))
+	}
+
+	limit := 4
+	if detail {
+		limit = 14
+	}
+	for _, pkg := range updatePackages(u, limit) {
+		lines = append(lines, r.dashPair(pkg.Name, pkg.To, 16, bg))
+	}
+	if extra := pending - limit; extra > 0 {
+		lines = append(lines, hint.Render(fmt.Sprintf("+%d more", extra)))
+	}
+	if detail && !u.Checked.IsZero() {
+		lines = append(lines, r.dashPair("Checked", u.Checked.Format("15:04"), 7, bg))
+	}
+	return r.dashBlock(lines, width, bg)
+}
+
+// updatePackages returns repository updates followed by AUR ones, capped.
+func updatePackages(u UpdateStatus, limit int) []UpdatePackage {
+	all := make([]UpdatePackage, 0, len(u.Repo)+len(u.AUR))
+	all = append(all, u.Repo...)
+	all = append(all, u.AUR...)
+	if len(all) > limit {
+		all = all[:limit]
+	}
+	return all
+}
+
+// updatesWord keeps the headline reading naturally at one update.
+func updatesWord(count int) string {
+	if count == 1 {
+		return "update"
+	}
+	return "updates"
 }
 
 // RenderNetwork renders throughput and a short-term graph.
@@ -852,8 +1081,18 @@ func (r Renderer) RenderNotes(items []Note, width int) string {
 	return r.dashBlock(lines, width, bg)
 }
 
-// RenderRepoActivity renders a compact repository activity list.
+// RenderRepoActivity renders one line per repository: the name, the branch,
+// and what is outstanding.
 func (r Renderer) RenderRepoActivity(items []RepoActivity, width int) string {
+	return r.renderRepoActivity(items, width, false)
+}
+
+// RenderRepoActivityDetail adds the counts the compact line leaves out.
+func (r Renderer) RenderRepoActivityDetail(items []RepoActivity, width int) string {
+	return r.renderRepoActivity(items, width, true)
+}
+
+func (r Renderer) renderRepoActivity(items []RepoActivity, width int, detail bool) string {
 	if len(items) == 0 {
 		return ""
 	}
@@ -872,24 +1111,126 @@ func (r Renderer) RenderRepoActivity(items []RepoActivity, width int) string {
 		}
 		left := lipgloss.NewStyle().Background(bg).Foreground(r.toneColor(tone)).Bold(true).
 			Render(padRight(item.Name, labelWidth))
-		summary := item.Summary
+
+		// What is outstanding matters more than which branch it is on, so the
+		// branch is the first thing dropped when the row is tight. The state
+		// mark stays either way.
+		state := r.repoState(item)
+		summary := state
 		if !r.Styles.Density.IsDense() && item.Branch != "" {
-			mark := "✓"
-			if r.Styles.PlainUI {
-				mark = "ok"
+			// Branch names run long ("milestone-2.5-account-panel-and-..."),
+			// so they are elided from the middle, where the distinguishing
+			// part of a branch name usually is not.
+			branch := r.Styles.RepoIcons.Branch + elideMiddle(item.Branch, max(6, width/3))
+			withBranch := strings.TrimSpace(branch + " " + state)
+			if labelWidth+1+lipgloss.Width(withBranch) <= width {
+				summary = withBranch
 			}
-			summary = strings.TrimSpace(item.Branch + " " + mark + "  " + summary)
 		}
 		left += lipgloss.NewStyle().Background(bg).Render(" ") +
 			lipgloss.NewStyle().Background(bg).Foreground(ws.BodyMutedFg).Render(summary)
+
+		// Only offer the count when it fits whole: alignRow would otherwise
+		// truncate it to a stray digit hanging off the summary.
 		right := ""
 		if item.Commits > 0 {
-			right = lipgloss.NewStyle().Background(bg).Foreground(ws.BodyFg).
-				Render(fmt.Sprintf("%d commits", item.Commits))
+			text := fmt.Sprintf("%d today", item.Commits)
+			if lipgloss.Width(left)+1+lipgloss.Width(text) <= width {
+				right = lipgloss.NewStyle().Background(bg).Foreground(ws.BodyFg).Render(text)
+			}
 		}
 		lines = append(lines, alignRow(left, "", right, width))
+		if detail {
+			lines = append(lines, r.repoDetailLines(item, bg)...)
+		}
 	}
 	return r.dashBlock(lines, width, bg)
+}
+
+// repoMark shows at a glance whether a repository needs attention. The tick is
+// reserved for a repository with nothing outstanding; it used to be shown
+// unconditionally, which marked a dirty tree as good.
+func (r Renderer) repoMark(item RepoActivity) string {
+	icons := r.Styles.RepoIcons
+	switch {
+	case item.State != "":
+		return icons.Conflict
+	case item.Branch == "":
+		return icons.Missing
+	case item.Clean():
+		return icons.Clean
+	default:
+		return icons.Attention
+	}
+}
+
+// repoState renders the mark plus what is outstanding, as icons and counts.
+// Icons carry this better than words: "↑2 ±25 ≡1" says the same as
+// "2 unpushed · 25 changed · 1 stashed" in a third of the cells, which is what
+// lets a narrow panel keep the branch name as well.
+func (r Renderer) repoState(item RepoActivity) string {
+	icons := r.Styles.RepoIcons
+	parts := []string{r.repoMark(item)}
+	if item.State != "" {
+		parts = append(parts, icons.Conflict+strings.ToUpper(item.State))
+	}
+	if item.NoUpstream && item.Branch != "" {
+		parts = append(parts, icons.NoUpstream)
+	}
+	for _, count := range []struct {
+		icon string
+		n    int
+	}{
+		{icons.Ahead, item.Ahead}, {icons.Behind, item.Behind},
+		{icons.Changed, item.Changes}, {icons.Stash, item.Stashes},
+	} {
+		if count.n > 0 {
+			parts = append(parts, fmt.Sprintf("%s%d", count.icon, count.n))
+		}
+	}
+	if len(parts) == 1 {
+		// Nothing countable: fall back to whatever the source said, which
+		// carries "clean", "not a repo" and "remote URL — clone it first".
+		return strings.TrimSpace(parts[0] + "  " + item.Summary)
+	}
+	return strings.Join(parts, " ")
+}
+
+// repoDetailLines spell out what the one-line summary compresses, including
+// commits made today, which the compact line drops whenever there is
+// outstanding work more worth the space.
+func (r Renderer) repoDetailLines(item RepoActivity, bg lipgloss.Color) []string {
+	var facts []string
+	if item.Commits > 0 {
+		facts = append(facts, fmt.Sprintf("%d commit(s) today", item.Commits))
+	}
+	if item.Ahead > 0 || item.Behind > 0 {
+		facts = append(facts, fmt.Sprintf("%d ahead, %d behind", item.Ahead, item.Behind))
+	}
+	if item.NoUpstream && item.Branch != "" {
+		facts = append(facts, "no upstream")
+	}
+	if len(facts) == 0 {
+		return nil
+	}
+	ws := r.Styles.Workspace
+	return []string{lipgloss.NewStyle().Background(bg).Foreground(ws.SubtitleFg).
+		Render("   " + strings.Join(facts, " · "))}
+}
+
+// elideMiddle shortens a string to width cells, cutting the middle so both
+// ends stay readable.
+func elideMiddle(value string, width int) string {
+	if width <= 0 || lipgloss.Width(value) <= width {
+		return value
+	}
+	if width <= 3 {
+		return ansi.Truncate(value, width, "")
+	}
+	head := (width - 1) / 2
+	tail := width - 1 - head
+	runes := []rune(value)
+	return string(runes[:head]) + "…" + string(runes[len(runes)-tail:])
 }
 
 // RenderMarkets renders an aligned watchlist.

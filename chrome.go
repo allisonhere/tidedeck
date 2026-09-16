@@ -609,11 +609,21 @@ func sparkGlyphs(style SparklineStyle) []rune {
 	case SparkBraille:
 		return []rune("⡀⡄⡆⡇⣇⣧⣷⣿")
 	case SparkBullets:
-		return []rune("∙•●")
+		// A dot, an open ring, then a filled disc. The ramp used to be
+		// "∙•●": the bullet operator and the bullet render at the same size
+		// in most terminal fonts, so it had two visible steps, not three,
+		// and the top of a run was not obviously bigger than the middle.
+		return []rune("·○●")
 	case SparkTicks:
 		return []rune("ˌˈ│┃")
 	case SparkShades:
 		return []rune("░▒▓█")
+	case SparkHeat:
+		return []rune(HeatGlyphs)
+	case SparkWeighted:
+		return []rune(WeightGlyphs)
+	case SparkStroke:
+		return []rune(StrokeGlyphs)
 	default:
 		return []rune("▁▂▃▄▅▆▇█")
 	}
@@ -642,6 +652,9 @@ func gaugeGlyphs(style GaugeStyle) (full, empty, marker, track string) {
 // run's minimum and maximum, so the shape and the colour agree.
 func (r Renderer) RenderSparkline(spark Sparkline, bg lipgloss.Color) string {
 	width := max(1, spark.Width)
+	if ramp, bands, ok := r.bandedRamp(); ok {
+		return r.renderBandedSparkline(spark, ramp, bands, width, bg)
+	}
 	glyphs := sparkGlyphs(r.Styles.Sparkline)
 	if r.Styles.PlainUI {
 		glyphs = []rune(".:-=+*#@")
@@ -649,17 +662,76 @@ func (r Renderer) RenderSparkline(spark Sparkline, bg lipgloss.Color) string {
 	values := resample(spark.Values, width)
 	low, high := valueRange(values)
 	ws := r.Styles.Workspace
+	// Glyph and colour must come from the same number. The glyph used to be
+	// picked from the absolute value while the colour was scaled to the run,
+	// so an idle GPU drew eight identical smallest marks and painted the
+	// highest one red: the reddest cell was also the smallest.
+	varying := high-low > sparkFlatRange
 	var b strings.Builder
 	for _, value := range values {
-		index := int(math.Round(clamp01(value) * float64(len(glyphs)-1)))
+		level := clamp01(value)          // flat run: size by the absolute value
 		color := r.toneColor(spark.Tone) // flat run: keep the caller's tone
-		if high > low {
-			color = ws.MetricGradient((value - low) / (high - low))
+		if varying {
+			level = (value - low) / (high - low)
+			color = ws.MetricGradient(level)
 		}
+		index := int(math.Round(level * float64(len(glyphs)-1)))
 		b.WriteString(lipgloss.NewStyle().Background(bg).Foreground(color).
 			Render(string(glyphs[clampIndex(index, len(glyphs))])))
 	}
 	return b.String()
+}
+
+// sparkFlatRange is the spread below which a run counts as flat. Scaling a run
+// to its own min and max turns sampling noise into a full-height, full-colour
+// swing, so a run that barely moves is drawn at its actual level instead.
+const sparkFlatRange = 0.02
+
+// bandedRamp returns the ramp and thresholds for a banded sparkline style, or
+// false for the run-relative styles.
+func (r Renderer) bandedRamp() ([]rune, []float64, bool) {
+	def, banded := bandedDefaults[r.Styles.Sparkline]
+	if !banded {
+		return nil, nil, false
+	}
+	ramp := r.Styles.Banded[r.Styles.Sparkline]
+	if len(ramp.Glyphs) == 0 || len(ramp.Bands) != len(ramp.Glyphs) {
+		// A zero-value Styles (constructed directly rather than through
+		// BuildStyles) still has to render something.
+		glyphs, bands := normalizeBanded("", nil, r.Styles.PlainUI, def)
+		return glyphs, bands, true
+	}
+	return ramp.Glyphs, ramp.Bands, true
+}
+
+// renderBandedSparkline draws each sample at its own absolute level: the band
+// a value falls into picks both the glyph and the colour, so a quiet run stays
+// light and green instead of being stretched across the whole ramp the way a
+// run-relative sparkline would. One glyph per sample, no connecting marks and
+// no padding between them, every glyph a single cell. Because the ramp itself
+// climbs in weight, the run still reads where colour is unavailable.
+func (r Renderer) renderBandedSparkline(spark Sparkline, glyphs []rune, bands []float64, width int, bg lipgloss.Color) string {
+	ws := r.Styles.Workspace
+	var b strings.Builder
+	for _, value := range resample(spark.Values, width) {
+		band := heatBand(clamp01(value), bands)
+		// Colour steps with the band so weight and severity always agree, and
+		// so the configured thresholds govern both.
+		color := ws.MetricGradient(float64(band) / float64(len(bands)-1))
+		b.WriteString(lipgloss.NewStyle().Background(bg).Foreground(color).
+			Render(string(glyphs[band])))
+	}
+	return b.String()
+}
+
+// heatBand returns the index of the band a value falls in.
+func heatBand(value float64, bands []float64) int {
+	for i, upper := range bands {
+		if value <= upper {
+			return i
+		}
+	}
+	return len(bands) - 1
 }
 
 // valueRange returns the minimum and maximum of a non-empty slice.
