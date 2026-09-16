@@ -41,6 +41,7 @@ printf '{"schemaVersion":1,"badge":{"text":"%s","tone":"%s"},"rows":[' "$result"
 printf '{"type":"text","label":"expression","value":"%s %s %s","tone":"muted"},' "$a" "$op" "$b"
 printf '{"type":"divider","label":"result"},'
 printf '{"type":"text","label":"value","value":"%s","tone":"%s"}' "$result" "$tone"
+printf ',{"type":"text","label":"edit operands","value":"settings (s)","tone":"muted"}'
 printf '],"detail":['
 printf '{"type":"text","label":"a","value":"%s"},' "$a"
 printf '{"type":"text","label":"operation","value":"%s"},' "$op"
