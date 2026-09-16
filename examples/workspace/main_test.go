@@ -579,8 +579,8 @@ func TestSaveLayoutChooserOverwritesTheChosenSlot(t *testing.T) {
 	}
 }
 
-// Enter on the news list copies the selected story's link and marks it read.
-func TestNewsEnterCopiesLinkAndMarksRead(t *testing.T) {
+// Enter on the news list copies the selected story's link.
+func TestNewsEnterCopiesLink(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	m := newModel()
 	m.width, m.height = 150, 44
@@ -596,12 +596,25 @@ func TestNewsEnterCopiesLinkAndMarksRead(t *testing.T) {
 	if m.state.clipboard == "" {
 		t.Fatal("enter copied nothing")
 	}
-	if !strings.Contains(m.state.status, "marked read") {
+	if !strings.Contains(m.state.status, "copied") {
 		t.Fatalf("status = %q", m.state.status)
 	}
 	// The copy rides in the frame rather than a separate write.
 	if frame := m.View(); !strings.Contains(frame, "\x1b]52;c;") {
 		t.Fatal("the frame did not carry the copy sequence")
+	}
+}
+
+// x is the explicit mark-read key, separate from copying.
+func TestNewsMarkReadKey(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := newModel()
+	m.width, m.height = 150, 44
+	m = update(t, m, tickMsg(time.Now()))
+	m.ws.Focus("news")
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	if m.state.status != "marked read" {
+		t.Fatalf("status = %q, want marked read", m.state.status)
 	}
 }
 
@@ -626,7 +639,7 @@ func TestNewsClickCopiesLink(t *testing.T) {
 	if m.state.clipboard == "" {
 		t.Fatal("the click copied nothing")
 	}
-	if !strings.Contains(m.state.status, "marked read") {
+	if !strings.Contains(m.state.status, "copied") {
 		t.Fatalf("status = %q", m.state.status)
 	}
 }

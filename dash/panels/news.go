@@ -120,20 +120,18 @@ func (n *news) Move(delta int) bool {
 
 // Copy offers the selected story's link, so the copy key works on it.
 func (n *news) Copy() (string, bool) {
-	headlines := n.Load()
-	n.mu.Lock()
-	index := n.cursor
-	n.mu.Unlock()
-	if index < 0 || index >= len(headlines) {
-		return "", false
-	}
-	link := headlines[index].Link
+	link, _ := n.copySelected()
 	return link, link != ""
 }
 
-// Activate is the selected story's primary action: mark it read and copy its
-// link, the same thing a click does.
+// Activate is the selected story's primary action - copy its link - the same
+// thing a click does.
 func (n *news) Activate() (string, string) {
+	return n.copySelected()
+}
+
+// copySelected returns the selected story's link and a status message.
+func (n *news) copySelected() (string, string) {
 	headlines := n.Load()
 	n.mu.Lock()
 	index := n.cursor
@@ -141,11 +139,15 @@ func (n *news) Activate() (string, string) {
 	if index < 0 || index >= len(headlines) {
 		return "", "no story selected"
 	}
-	return n.markReadAt(index)
+	link := headlines[index].Link
+	if link == "" {
+		return "", "this story has no link"
+	}
+	return link, "link copied"
 }
 
-// Click selects the story on a content row and activates it. It reports
-// whether the row held a story.
+// Click selects the story on a content row and copies it. It reports whether
+// the row held a story.
 func (n *news) Click(x, y int) (string, string, bool) {
 	n.mu.Lock()
 	rows := n.rows
@@ -160,8 +162,17 @@ func (n *news) Click(x, y int) (string, string, bool) {
 	n.mu.Lock()
 	n.cursor = index
 	n.mu.Unlock()
-	copied, status := n.markReadAt(index)
-	return copied, status, true
+	link, status := n.copySelected()
+	return link, status, true
+}
+
+// markReadSelected marks the selected story read. Copying a link does not mean
+// you read the story, so this stays an explicit action.
+func (n *news) markReadSelected() string {
+	n.mu.Lock()
+	index := n.cursor
+	n.mu.Unlock()
+	return n.markReadAt(index)
 }
 
 // Demo synthesises a plausible morning's stories.
@@ -193,23 +204,24 @@ func (n *news) Badge() (string, tideui.Tone) {
 	return fmt.Sprintf("%d", unread), tideui.ToneMuted
 }
 
-// Actions advertises the refresh key and the primary action Enter and a click
-// both run. It is a hint only: the application owns Enter and the clipboard, so
-// there is no handler to double-run.
+// Actions advertises the refresh key, the primary action Enter and a click
+// both run, and an explicit mark-read. The copy key is a hint only: the
+// application owns Enter and the clipboard, so its handler does nothing.
 func (n *news) Actions() []dash.Action {
 	return []dash.Action{
 		{ID: "refresh", Key: "r", Label: "refresh", Refresh: true,
 			Run: func() string { return "feeds refreshed" }},
-		{ID: "read", Key: "enter", Label: "read · copy"},
+		{ID: "copy", Key: "enter", Label: "copy link"},
+		{ID: "read", Key: "x", Label: "mark read", Run: n.markReadSelected},
 	}
 }
 
 // markReadAt marks one story read and records it, so a later refresh leaves it
-// read, and returns its link to copy and a status message.
-func (n *news) markReadAt(index int) (string, string) {
+// read, and returns a status message.
+func (n *news) markReadAt(index int) string {
 	headlines := n.Load()
 	if index < 0 || index >= len(headlines) {
-		return "", "no story selected"
+		return "no story selected"
 	}
 	headlines[index].Unread = false
 	n.mu.Lock()
@@ -219,10 +231,7 @@ func (n *news) markReadAt(index int) (string, string) {
 	n.read[headlineKey(headlines[index])] = true
 	n.mu.Unlock()
 	n.Store(headlines)
-	if link := headlines[index].Link; link != "" {
-		return link, "marked read · link copied"
-	}
-	return "", "marked read"
+	return "marked read"
 }
 
 // applyRead re-applies what has been marked read to a freshly fetched list.

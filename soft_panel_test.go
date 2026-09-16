@@ -43,14 +43,19 @@ func TestRenderSoftPanelPlainUsesASCIIBorder(t *testing.T) {
 	}
 }
 
-func TestRenderSoftHintsLowercasesAndFitsWidth(t *testing.T) {
+func TestRenderSoftHintsShowsGlyphsAndLowercasesLabels(t *testing.T) {
 	renderer := NewRenderer(CatppuccinMocha, StyleOptions{Density: Compact})
 	line := renderer.RenderSoftHints(30, SoftHint{Key: "ENTER", Label: "Confirm"}, SoftHint{Key: "ESC", Label: "Cancel"})
 	if got := lipgloss.Width(line); got != 30 {
 		t.Fatalf("hint width = %d, want 30", got)
 	}
-	if plain := ansi.Strip(line); !strings.Contains(plain, "enter confirm") || strings.Contains(plain, "ENTER") {
+	plain := ansi.Strip(line)
+	// Keys render as keyboard glyphs; labels stay lowercase.
+	if !strings.Contains(plain, "⏎ confirm") || !strings.Contains(plain, "⎋ cancel") {
 		t.Fatalf("hint text = %q", plain)
+	}
+	if strings.Contains(plain, "Confirm") {
+		t.Fatalf("hint label not lowercased: %q", plain)
 	}
 }
 

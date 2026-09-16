@@ -200,6 +200,52 @@ func (r Renderer) RenderStatusKeyHints(hints []KeyHint, maxWidth int) string {
 	return r.renderHints(s.Theme.StatusBar, ws.KeyBg, ws.KeyFg, labelFg, maxWidth, hints, true)
 }
 
+// keyGlyph draws a key name as the symbol the keyboard carries, so a hint
+// reads as a key rather than a word: ⏎ enter, ⎋ escape, ⇥ tab, → an arrow.
+// Modifiers compose (⇧ shift, ⌃ ctrl) and a "/" list maps each part. An
+// unknown key is returned unchanged, so letters and composite hints like
+// "⇧arrows" pass through.
+func keyGlyph(key string) string {
+	switch strings.ToLower(key) {
+	case "enter", "return":
+		return "⏎"
+	case "esc", "escape":
+		return "⎋"
+	case "tab":
+		return "⇥"
+	case "shift+tab":
+		return "⇤"
+	case "space":
+		return "␣"
+	case "backspace":
+		return "⌫"
+	case "delete":
+		return "⌦"
+	case "up":
+		return "↑"
+	case "down":
+		return "↓"
+	case "left":
+		return "←"
+	case "right":
+		return "→"
+	}
+	lower := strings.ToLower(key)
+	switch {
+	case strings.HasPrefix(lower, "shift+"):
+		return "⇧" + keyGlyph(key[len("shift+"):])
+	case strings.HasPrefix(lower, "ctrl+"):
+		return "⌃" + keyGlyph(key[len("ctrl+"):])
+	case strings.Contains(key, "/"):
+		parts := strings.Split(key, "/")
+		for i, part := range parts {
+			parts[i] = keyGlyph(part)
+		}
+		return strings.Join(parts, "/")
+	}
+	return key
+}
+
 func (r Renderer) renderHints(bg, keyBg, keyFg, labelFg lipgloss.Color, maxWidth int, hints []KeyHint, tryLabels bool) string {
 	if maxWidth <= 0 || len(hints) == 0 {
 		return ""
@@ -217,7 +263,7 @@ func (r Renderer) renderHints(bg, keyBg, keyFg, labelFg lipgloss.Color, maxWidth
 		}
 		capsule := ""
 		if hint.Key != "" {
-			capsule = keyStyle.Render(" " + hint.Key + " ")
+			capsule = keyStyle.Render(" " + keyGlyph(hint.Key) + " ")
 		}
 		candidates := make([]string, 0, 2)
 		if tryLabels && hint.Label != "" {

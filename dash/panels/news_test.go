@@ -96,7 +96,7 @@ func TestNewsReadStateSurvivesRefresh(t *testing.T) {
 		{Title: "First story", Source: "BBC World", Unread: true},
 		{Title: "Second story", Source: "BBC World", Unread: true},
 	})
-	if _, got := panel.markReadAt(0); got != "marked read" {
+	if got := panel.markReadAt(0); got != "marked read" {
 		t.Fatalf("markReadAt = %q", got)
 	}
 	if panel.Load()[0].Unread {
@@ -147,9 +147,9 @@ func TestNewsCursorMovesAndClamps(t *testing.T) {
 	}
 }
 
-// Activating a story copies its link and marks it read, and a refresh must not
-// resurrect it.
-func TestNewsActivateMarksReadAndCopies(t *testing.T) {
+// Activating a story copies its link, and copying is not reading: the story
+// stays unread. The mark-read action is separate and survives a refresh.
+func TestNewsActivateCopiesWithoutReading(t *testing.T) {
 	panel := &news{}
 	panel.Store([]tideui.Headline{
 		{Title: "First", Source: "BBC", Link: "https://bbc/1", Unread: true},
@@ -157,18 +157,26 @@ func TestNewsActivateMarksReadAndCopies(t *testing.T) {
 	})
 	panel.Move(1)
 	copied, status := panel.Activate()
-	if copied != "https://bbc/2" || !strings.Contains(status, "marked read") {
+	if copied != "https://bbc/2" || status != "link copied" {
 		t.Fatalf("activate = %q %q", copied, status)
 	}
+	if !panel.Load()[1].Unread {
+		t.Fatal("copying a link should not mark the story read")
+	}
+
+	// The explicit mark-read action clears it, and a refresh leaves it read.
+	if got := panel.markReadSelected(); got != "marked read" {
+		t.Fatalf("markReadSelected = %q", got)
+	}
 	if panel.Load()[1].Unread {
-		t.Fatal("activate did not mark the selected story read")
+		t.Fatal("mark read did not clear the selected story")
 	}
 	fresh := panel.applyRead([]tideui.Headline{
 		{Title: "First", Source: "BBC", Link: "https://bbc/1", Unread: true},
 		{Title: "Second", Source: "BBC", Link: "https://bbc/2", Unread: true},
 	})
 	if fresh[1].Unread {
-		t.Fatal("a refresh resurrected a story marked read by activate")
+		t.Fatal("a refresh resurrected a story marked read")
 	}
 	if !fresh[0].Unread {
 		t.Fatal("an unselected story should stay unread")
@@ -199,11 +207,11 @@ func TestNewsClickSelectsAndActivates(t *testing.T) {
 	if !hit {
 		t.Fatal("click missed the story")
 	}
-	if copied != "https://bbc/2" || !strings.Contains(status, "marked read") {
+	if copied != "https://bbc/2" || status != "link copied" {
 		t.Fatalf("click = %q %q", copied, status)
 	}
-	if panel.Load()[1].Unread {
-		t.Fatal("click did not mark the story read")
+	if !panel.Load()[1].Unread {
+		t.Fatal("clicking a story should not mark it read")
 	}
 	if _, _, hit := panel.Click(0, len(rows)+5); hit {
 		t.Fatal("a click past the list should miss")
@@ -252,7 +260,7 @@ func TestNewsThroughTheDeck(t *testing.T) {
 	for _, action := range registered.ActionList() {
 		keys[action.Key] = true
 	}
-	for _, want := range []string{"r", "enter"} {
+	for _, want := range []string{"r", "enter", "x"} {
 		if !keys[want] {
 			t.Fatalf("missing %q action; got %v", want, keys)
 		}
@@ -265,7 +273,8 @@ func TestNewsThroughTheDeck(t *testing.T) {
 	if badge, ok := deck.Badges()["news"]; !ok || badge.Text != "2" {
 		t.Fatalf("news badge = %#v, want 2", badge)
 	}
-	// The primary action marks the selected story read and offers its link.
+	// The primary action copies the selected link without changing what is
+	// unread; the explicit mark-read action is what clears the badge.
 	panel, ok := deck.Lookup("news")
 	if !ok {
 		t.Fatal("news is not on the deck")
@@ -277,7 +286,15 @@ func TestNewsThroughTheDeck(t *testing.T) {
 	if copied, _ := activator.Activate(); copied == "" {
 		t.Fatal("activate should offer the selected story's link")
 	}
+	if badge, _ := deck.Badges()["news"]; badge.Text != "2" {
+		t.Fatalf("copying changed the unread badge: %#v", badge)
+	}
+	read, ok := actionByKey(registered, "x")
+	if !ok {
+		t.Fatal("no mark-read action")
+	}
+	read.Handler(ws)
 	if badge, _ := deck.Badges()["news"]; badge.Text != "1" {
-		t.Fatalf("news badge after activate = %#v, want 1", badge)
+		t.Fatalf("news badge after mark read = %#v, want 1", badge)
 	}
 }

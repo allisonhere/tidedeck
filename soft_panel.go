@@ -140,7 +140,7 @@ func (r Renderer) RenderSoftHints(width int, hints ...SoftHint) string {
 		if hint.Key == "" && hint.Label == "" {
 			continue
 		}
-		parts = append(parts, keyStyle.Render(strings.ToLower(hint.Key))+labelStyle.Render(" "+strings.ToLower(hint.Label)))
+		parts = append(parts, keyStyle.Render(keyGlyph(hint.Key))+labelStyle.Render(" "+strings.ToLower(hint.Label)))
 	}
 	line := lipgloss.NewStyle().Background(chrome.baseBg).Render("  ") + strings.Join(parts, gap)
 	return padStyled(line, max(1, width), chrome.baseBg)
