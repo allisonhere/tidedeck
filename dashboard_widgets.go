@@ -1086,6 +1086,11 @@ func (r Renderer) renderHeadlines(items []Headline, width int, detail bool) stri
 		if i >= limit {
 			break
 		}
+		// A blank row between stories keeps each source-and-sentence block
+		// readable now that there is no bullet to mark where one begins.
+		if i > 0 {
+			lines = append(lines, "")
+		}
 		style := readStyle
 		if item.Unread {
 			style = unreadStyle

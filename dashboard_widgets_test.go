@@ -435,6 +435,22 @@ func TestHeadlineWrapsUnderSource(t *testing.T) {
 	}
 }
 
+// Stories are separated by a blank row so each source-and-sentence block reads
+// as one item without a bullet to mark it.
+func TestHeadlinesSeparatedByBlankRow(t *testing.T) {
+	r := chromeRenderer(Dense)
+	out := ansi.Strip(r.RenderHeadlines([]Headline{
+		{Title: "One", Source: "a"},
+		{Title: "Two", Source: "b"},
+	}, 30))
+	for _, line := range strings.Split(out, "\n") {
+		if strings.TrimSpace(line) == "" {
+			return
+		}
+	}
+	t.Fatalf("expected a blank row between stories:\n%s", out)
+}
+
 func TestRenderTasksNotesGitMarkets(t *testing.T) {
 	r := chromeRenderer(Compact)
 	tasks := ansi.Strip(r.RenderTasks([]Task{
