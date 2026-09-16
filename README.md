@@ -1050,11 +1050,23 @@ key or with another plugin's.
 | `divider` | a section divider |
 | `spacer` | a blank line |
 
-A plugin panel is a **read-only rendering** of its document: typing at it does
-nothing (and the workspace's own keys, like `alt+1`–`alt+5` for presets, still
-apply). A
-plugin's inputs are its declared settings, which are edited in the settings
-screen and reach the program as environment variables on the next run.
+A plugin's settings are edited in the settings screen and reach the program as
+environment variables on the next run. A plugin can also **take typing**:
+declaring `panel.input` names a setting that receives keystrokes while the panel
+is focused, and `panel.inputChars` lists the runes it accepts, so anything else
+(and the workspace's own keys, like `alt+1`–`alt+5` for presets) still reaches
+the application. What was typed is passed to the program as that setting's
+environment variable, and the program is re-run on each keystroke:
+
+```json
+"panel": {
+  "input": "expression",
+  "inputChars": "0123456789.+-*/() ",
+  "schema": [{ "key": "expression", "type": "string", "label": "expression" }]
+}
+```
+
+A panel with no `input` is a read-only rendering of its document.
 
 `detail` is what a zoomed panel shows; absent means reuse `rows`. Colour comes
 from `tone` (`good`, `warning`, `danger`, `muted`, `accent`) or from `severity`

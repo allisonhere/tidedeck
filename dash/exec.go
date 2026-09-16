@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/allisonhere/tideui"
@@ -33,8 +34,14 @@ type execPanel struct {
 	State[Doc]
 	manifest Manifest
 	argv     []string
-	env      []string
 	timeout  time.Duration
+
+	// settings holds the last Configure's values by declared key; input is what
+	// has been typed into the panel's input setting since. Both are read when a
+	// run's environment is built, input overriding its setting.
+	mu       sync.Mutex
+	settings map[string]string
+	input    string
 }
 
 // Exec builds a panel that runs a program. The manifest supplies the entry
@@ -84,20 +91,64 @@ func (e *execPanel) Schema() []Field { return e.manifest.Fields() }
 // program the user installed, not sample data, so demo mode must not starve it.
 func (e *execPanel) AlwaysLive() bool { return true }
 
-// Configure passes the plugin's declared settings to the program as
-// environment variables. Only declared keys are passed: a plugin gets what it
-// asked for, and the dashboard's other settings are not its business.
+// Configure records the plugin's declared settings. Only declared keys are
+// kept: a plugin gets what it asked for, and the dashboard's other settings are
+// not its business. The typed input is seeded from its setting, so a configured
+// default shows until something is typed.
 func (e *execPanel) Configure(values Values) error {
-	env := make([]string, 0, len(e.manifest.Panel.Schema))
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.settings = make(map[string]string, len(e.manifest.Panel.Schema))
 	for _, declared := range e.manifest.Panel.Schema {
 		value := values.String(e.manifest.SettingKey(declared.Key))
 		if value == "" && declared.DefaultValue != nil {
 			value = fmt.Sprintf("%v", declared.DefaultValue)
 		}
-		env = append(env, "TIDEDECK_PLUGIN_"+envKey(declared.Key)+"="+value)
+		e.settings[declared.Key] = value
 	}
-	e.env = env
+	if input := e.manifest.Panel.Input; input != "" {
+		e.input = e.settings[input]
+	}
 	return nil
+}
+
+// environment is the run's environment: every declared setting as
+// TIDEDECK_PLUGIN_<KEY>, with the typed input standing in for its setting.
+func (e *execPanel) environment() []string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	env := make([]string, 0, len(e.settings)+1)
+	for key, value := range e.settings {
+		env = append(env, "TIDEDECK_PLUGIN_"+envKey(key)+"="+value)
+	}
+	if input := e.manifest.Panel.Input; input != "" {
+		env = append(env, "TIDEDECK_PLUGIN_"+envKey(input)+"="+e.input)
+	}
+	return env
+}
+
+// Type appends to the input when the rune is one the panel accepts. Anything
+// else is declined, so shortcuts and focus keys still work while it is focused.
+func (e *execPanel) Type(r rune) bool {
+	if e.manifest.Panel.Input == "" || !strings.ContainsRune(e.manifest.Panel.InputChars, r) {
+		return false
+	}
+	e.mu.Lock()
+	e.input += string(r)
+	e.mu.Unlock()
+	return true
+}
+
+// Backspace removes the last typed rune.
+func (e *execPanel) Backspace() bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.manifest.Panel.Input == "" || e.input == "" {
+		return false
+	}
+	runes := []rune(e.input)
+	e.input = string(runes[:len(runes)-1])
+	return true
 }
 
 // envKey converts a setting key into an environment variable name.
@@ -127,7 +178,7 @@ func (e *execPanel) Refresh(ctx context.Context) error {
 
 	command := exec.CommandContext(runCtx, e.argv[0], e.argv[1:]...)
 	command.Dir = e.manifest.dir
-	command.Env = append(os.Environ(), e.env...)
+	command.Env = append(os.Environ(), e.environment()...)
 	var stdout, stderr bytes.Buffer
 	command.Stdout = &stdout
 	command.Stderr = &stderr

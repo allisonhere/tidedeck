@@ -199,3 +199,50 @@ func TestExecPanelWorksThroughTheDeck(t *testing.T) {
 		t.Fatalf("deck did not drive the plugin:\n%s", out)
 	}
 }
+
+// A plugin with a declared input takes typed runes within inputChars, and what
+// was typed reaches the program as that setting on the next run.
+func TestExecPanelTakesInput(t *testing.T) {
+	manifest := plugin(t,
+		`printf '{"rows":[{"type":"text","label":"query","value":"%s"}]}' "$TIDEDECK_PLUGIN_QUERY"`,
+		map[string]any{
+			"panel": map[string]any{
+				"input":      "query",
+				"inputChars": "abc",
+				"schema":     []map[string]any{{"key": "query", "type": "string", "label": "Query"}},
+			},
+		})
+	panel := Exec(manifest).(*execPanel)
+	if err := panel.Configure(NewValues()); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, r := range "cab" {
+		if !panel.Type(r) {
+			t.Fatalf("declined %q, which inputChars allows", r)
+		}
+	}
+	if panel.Type('z') {
+		t.Fatal("accepted a rune outside inputChars")
+	}
+	if !panel.Backspace() {
+		t.Fatal("backspace was declined")
+	}
+
+	if err := panel.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	out := ansi.Strip(panel.View(tideui.PanelContext{Width: 40, Renderer: docRenderer()}))
+	if !strings.Contains(out, "ca") {
+		t.Fatalf("typed input did not reach the program:\n%s", out)
+	}
+}
+
+// A plugin with no input declines every rune, so shortcuts still work.
+func TestExecPanelWithoutInputDeclinesTyping(t *testing.T) {
+	manifest := plugin(t, `echo '{"rows":[]}'`, nil)
+	panel := Exec(manifest).(*execPanel)
+	if panel.Type('a') || panel.Backspace() {
+		t.Fatal("a panel without input should decline typing")
+	}
+}

@@ -62,6 +62,14 @@ type PanelManifest struct {
 	// not the other. A plugin that only prints text leaves both off.
 	Gauge bool `json:"gauge"`
 	Spark bool `json:"spark"`
+
+	// Input names a declared setting that receives typing while the panel is
+	// focused, so a plugin can offer an input - a calculator's expression, a
+	// search box. What the user types is passed to the program as that
+	// setting's environment variable on every run. InputChars lists the runes
+	// that are accepted, so the rest still reach the application's shortcuts.
+	Input      string `json:"input"`
+	InputChars string `json:"inputChars"`
 }
 
 // SchemaField is one declared setting, in the shape shell plugin manifests
@@ -148,6 +156,23 @@ func (m Manifest) Validate() []string {
 		}
 		if field.Type == "choice" && len(field.Options) == 0 {
 			problems = append(problems, fmt.Sprintf("panel.schema[%d] is a choice with no options", i))
+		}
+	}
+	// An input has to say which setting receives the typing, and which runes it
+	// accepts, so an unlisted key (q, s) still reaches the application.
+	if input := strings.TrimSpace(m.Panel.Input); input != "" {
+		declared := false
+		for _, field := range m.Panel.Schema {
+			if field.Key == input {
+				declared = true
+				break
+			}
+		}
+		if !declared {
+			problems = append(problems, fmt.Sprintf("panel.input %q is not a declared schema key", input))
+		}
+		if strings.TrimSpace(m.Panel.InputChars) == "" {
+			problems = append(problems, "panel.inputChars is required when panel.input is set")
 		}
 	}
 	return problems

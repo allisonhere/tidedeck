@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "tidedeck.calculator",
   "name": "Calculator",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "author": "tidedeck",
   "license": "MIT",
-  "description": "Evaluates a op b and shows the expression and its result.",
+  "description": "A calculator you type into: it evaluates the expression and shows the result.",
   "kinds": ["panel"],
   "entryPoints": { "panel": ["./render.sh"] },
   "panel": {
@@ -13,15 +13,12 @@
     "category": "Utilities",
     "refreshSeconds": 30,
     "minWidth": 22,
-    "minHeight": 6,
+    "minHeight": 5,
     "priority": 30,
+    "input": "expression",
+    "inputChars": "0123456789.+-*/() ",
     "schema": [
-      { "key": "a", "type": "string", "label": "a", "defaultValue": "12" },
-      { "key": "op", "type": "choice", "label": "operation",
-        "options": ["+", "-", "*", "/"], "defaultValue": "*" },
-      { "key": "b", "type": "string", "label": "b", "defaultValue": "8" },
-      { "key": "decimals", "type": "choice", "label": "decimals",
-        "options": ["0", "1", "2", "3", "4"], "defaultValue": "2" }
+      { "key": "expression", "type": "string", "label": "expression", "defaultValue": "" }
     ]
   }
 }

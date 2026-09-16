@@ -352,6 +352,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case pluginOpMsg:
 		m.applyPluginOp(msg)
 		return m, nil
+	case panelRefreshedMsg:
+		// The panel's State changed off the UI goroutine; re-render it.
+		return m, nil
 	case tea.MouseMsg:
 		if m.ws.HandleMouse(msg) {
 			return m, nil
@@ -446,6 +449,26 @@ func (m *model) applyPluginOp(msg pluginOpMsg) {
 	}
 }
 
+type panelRefreshedMsg struct{}
+
+// refreshFocusedCmd re-runs the focused panel off the UI goroutine, so a plugin
+// that took input shows the new value without waiting out its interval. It is
+// nil for a panel that does not fetch - a built-in recomputes as it types.
+func (m model) refreshFocusedCmd() tea.Cmd {
+	panel, ok := m.deck.Lookup(m.ws.Focused())
+	if !ok {
+		return nil
+	}
+	fetcher, ok := panel.(dash.Fetcher)
+	if !ok {
+		return nil
+	}
+	return func() tea.Msg {
+		_ = fetcher.Refresh(context.Background())
+		return panelRefreshedMsg{}
+	}
+}
+
 // focusedInput returns the focused panel's Input when it accepts typing.
 func (m model) focusedInput() (dash.Input, bool) {
 	panel, ok := m.deck.Lookup(m.ws.Focused())
@@ -516,11 +539,11 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					}
 				}
 				if consumed {
-					return m, nil
+					return m, m.refreshFocusedCmd()
 				}
 			case tea.KeyBackspace:
 				if input.Backspace() {
-					return m, nil
+					return m, m.refreshFocusedCmd()
 				}
 			}
 		}

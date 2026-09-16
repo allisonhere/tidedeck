@@ -254,3 +254,51 @@ func TestCalculatorTakesTypedInput(t *testing.T) {
 		t.Fatalf("calculator after backspace =\n%s", body)
 	}
 }
+
+// A plugin that declares an input is re-run after a keystroke, so the panel
+// shows what was typed without waiting out its interval.
+func TestPluginInputRefresh(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	source := t.TempDir()
+	manifest := `{"schemaVersion":1,"id":"test.input","name":"Input","version":"1.0.0",` +
+		`"author":"test","description":"input panel","kinds":["panel"],` +
+		`"entryPoints":{"panel":["./run.sh"]},"panel":{"displayName":"Input","refreshSeconds":300,` +
+		`"input":"query","inputChars":"ab","schema":[{"key":"query","type":"string","label":"Query"}]}}`
+	script := "#!/bin/sh\nprintf '{\"rows\":[{\"type\":\"text\",\"label\":\"query\",\"value\":\"%s\"}]}' \"$TIDEDECK_PLUGIN_QUERY\"\n"
+	if err := os.WriteFile(filepath.Join(source, "manifest.json"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "run.sh"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	m := newModel()
+	m.width, m.height = 120, 40
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	openCategory(t, m.settings, "Plugins")
+	m.settings.state.pluginSource = source
+	fieldByLabel(t, m.settings, "Install").action()
+	op, _ := m.settings.TakePluginOp()
+	m.applyPluginOp(pluginOpCmd(op)().(pluginOpMsg))
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyEsc}) // fields -> categories
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyEsc}) // close settings
+
+	m.ws.Show("test.input")
+	m.ws.Focus("test.input")
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	m = next.(model)
+	if cmd == nil {
+		t.Fatal("typing produced no refresh command")
+	}
+	m = update(t, m, cmd()) // run the plugin refresh
+
+	panel, ok := m.ws.Lookup("test.input")
+	if !ok {
+		t.Fatal("the plugin panel is missing")
+	}
+	body := ansi.Strip(panel.Render(tideui.PanelContext{ID: "test.input", Width: 30, Renderer: viewRenderer(m.state)}))
+	if !strings.Contains(body, "a") {
+		t.Fatalf("typed input did not reach the plugin:\n%s", body)
+	}
+}

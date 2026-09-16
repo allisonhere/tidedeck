@@ -203,3 +203,37 @@ func TestLoadPluginsSkipsBrokenOnes(t *testing.T) {
 		t.Fatalf("a missing directory reported %v / %v", panels, problems)
 	}
 }
+
+// An input must name a declared setting and say which runes it takes, so an
+// application shortcut is never swallowed by accident.
+func TestManifestValidatesInput(t *testing.T) {
+	build := func(mutate func(panel map[string]any)) []string {
+		panel := map[string]any{
+			"input":      "expr",
+			"inputChars": "0-9",
+			"schema":     []map[string]any{{"key": "expr", "type": "string"}},
+		}
+		mutate(panel)
+		raw := validManifest()
+		raw["panel"] = panel
+		data, err := json.Marshal(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var manifest Manifest
+		if err := json.Unmarshal(data, &manifest); err != nil {
+			t.Fatal(err)
+		}
+		return manifest.Validate()
+	}
+
+	if problems := build(func(map[string]any) {}); len(problems) != 0 {
+		t.Fatalf("a valid input manifest reported %v", problems)
+	}
+	if problems := build(func(p map[string]any) { delete(p, "inputChars") }); !strings.Contains(strings.Join(problems, " "), "inputChars") {
+		t.Fatalf("missing inputChars = %v", problems)
+	}
+	if problems := build(func(p map[string]any) { p["input"] = "other" }); !strings.Contains(strings.Join(problems, " "), "not a declared") {
+		t.Fatalf("input naming an undeclared key = %v", problems)
+	}
+}

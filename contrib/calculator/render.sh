@@ -1,51 +1,33 @@
 #!/bin/sh
-# A two-operand calculator panel. The dashboard passes the declared settings as
-# environment variables (TIDEDECK_PLUGIN_*), the program computes, and prints a
-# document the panel draws. awk does the arithmetic so the operands can be
-# fractional; shell arithmetic is integers only.
+# A calculator you type into. The dashboard passes what you type at the panel as
+# TIDEDECK_PLUGIN_EXPRESSION, so this program just evaluates it and prints the
+# result as a document. awk does the arithmetic so operands can be fractional.
 set -eu
 
-a="${TIDEDECK_PLUGIN_A:-0}"
-op="${TIDEDECK_PLUGIN_OP:-+}"
-b="${TIDEDECK_PLUGIN_B:-0}"
-decimals="${TIDEDECK_PLUGIN_DECIMALS:-2}"
+expr="${TIDEDECK_PLUGIN_EXPRESSION:-}"
 
-result=$(awk -v a="$a" -v b="$b" -v op="$op" -v p="$decimals" 'BEGIN {
-  if (op == "+")      r = a + b
-  else if (op == "-") r = a - b
-  else if (op == "*") r = a * b
-  else if (op == "/") {
-    if (b == 0) { print "divide by zero"; exit }
-    r = a / b
-  }
-  else { print "unknown operator"; exit }
-  printf "%.*f", p, r
-}')
+# Only the runes the manifest declares are expected, but the environment can be
+# set by hand, so keep just the arithmetic characters before handing the
+# expression to awk.
+clean=$(printf '%s' "$expr" | tr -cd '0-9.+*/() -')
+[ "$clean" = "$expr" ] || expr=""
 
-# A failed calculation is worth flagging, so the badge and the value carry it.
-case "$result" in
-  "divide by zero" | "unknown operator") tone="danger" ;;
-  *)                                     tone="good" ;;
-esac
+result=""
+tone="muted"
+if [ -n "$expr" ]; then
+  result=$(awk "BEGIN { printf \"%g\", ($expr) }" 2>/dev/null) || result=""
+  if [ -z "$result" ]; then
+    result="?"
+    tone="danger"
+  else
+    tone="good"
+  fi
+fi
 
-# A value could contain a quote or backslash; strip them so the document stays
-# valid JSON. The settings are text, and a broken document costs the panel.
-clean() { printf '%s' "$1" | tr -d '"\\'; }
-
-a=$(clean "$a")
-op=$(clean "$op")
-b=$(clean "$b")
-result=$(clean "$result")
-
-printf '{"schemaVersion":1,"badge":{"text":"%s","tone":"%s"},"rows":[' "$result" "$tone"
-printf '{"type":"text","label":"expression","value":"%s %s %s","tone":"muted"},' "$a" "$op" "$b"
+printf '{"schemaVersion":1'
+printf ',"badge":{"text":"%s","tone":"%s"}' "${result:-—}" "$tone"
+printf ',"rows":['
+printf '{"type":"text","label":"expression","value":"%s","tone":"muted"},' "${expr:-type an expression}"
 printf '{"type":"divider","label":"result"},'
-printf '{"type":"text","label":"value","value":"%s","tone":"%s"}' "$result" "$tone"
-printf ',{"type":"text","label":"edit operands","value":"settings (s)","tone":"muted"}'
-printf '],"detail":['
-printf '{"type":"text","label":"a","value":"%s"},' "$a"
-printf '{"type":"text","label":"operation","value":"%s"},' "$op"
-printf '{"type":"text","label":"b","value":"%s"},' "$b"
-printf '{"type":"text","label":"decimals","value":"%s"},' "$decimals"
-printf '{"type":"text","label":"result","value":"%s","tone":"%s"}' "$result" "$tone"
+printf '{"type":"text","label":"value","value":"%s","tone":"%s"}' "${result:-—}" "$tone"
 printf ']}\n'
