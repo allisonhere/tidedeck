@@ -796,7 +796,9 @@ stays readable instead of becoming one long scroll:
   gauge (`solid`, `blocks`, `circles`, `fisheye`, `marker`, `bars`) and
   **spark style** the ramp used by sparklines (`blocks`, `dots`, `braille`,
   `bullets`, `ticks`, `shades`, `heat`, `weighted`, `stroke`), **icons** the
-  widget icon family (`emoji`, `plain`, `nerd`), and **clock font** the large-clock glyphs
+  widget icon family (`emoji`, `plain`, `nerd`), which also decides how a key
+  hint draws its keys (`↵`/`↩️`/`⏎` enter, arrows, and so on), and **clock font**
+  the large-clock glyphs
   (`dash`, `block`) — set them via `StyleOptions.Gauge`/`StyleOptions.Sparkline`/
   `StyleOptions.ClockFont`, `tideui.GaugeStyles()`/`tideui.SparklineStyles()`/
   `tideui.ClockFonts()`. The gauge and sparkline pickers show the actual glyphs

@@ -209,6 +209,7 @@ func (n *news) Badge() (string, tideui.Tone) {
 // application owns Enter and the clipboard, so its handler does nothing.
 func (n *news) Actions() []dash.Action {
 	return []dash.Action{
+		{ID: "move", Key: "up/down", Label: "move"},
 		{ID: "refresh", Key: "r", Label: "refresh", Refresh: true,
 			Run: func() string { return "feeds refreshed" }},
 		{ID: "copy", Key: "enter", Label: "copy link"},

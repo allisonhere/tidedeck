@@ -79,6 +79,39 @@ func TestKeyHintsLabelsAndNarrowFallback(t *testing.T) {
 	}
 }
 
+// Key hints draw a key as the symbol its icon style calls for, and an ASCII
+// theme falls back to the key's name.
+func TestKeyGlyphFollowsIconStyle(t *testing.T) {
+	cases := map[IconStyle]map[string]string{
+		IconPlain: {
+			"enter": "↵", "esc": "␛", "tab": "↹", "shift+tab": "⇤", "space": "␣",
+			"up": "▲", "down": "▼", "left": "◀", "right": "▶",
+			"shift+space": "⇧␣", "ctrl+p": "⌃p",
+			"m": "m", "⇧arrows": "⇧arrows",
+		},
+		IconEmoji: {
+			"enter": "\u21a9\ufe0f",
+			"up":    "\u2b06\ufe0f", "down": "\u2b07\ufe0f",
+			"left": "\u2b05\ufe0f", "right": "\u27a1\ufe0f",
+		},
+		IconNerd: {
+			"enter": "\uf0311", "esc": "\uf12b7", "tab": "\uf0312",
+			"backspace": "\uf030d", "up": "\uf005e",
+		},
+	}
+	for style, wants := range cases {
+		r := NewRenderer(CatppuccinMocha, StyleOptions{IconStyle: style})
+		for key, want := range wants {
+			if got := r.keyGlyph(key); got != want {
+				t.Fatalf("%s %q = %q, want %q", style, key, got, want)
+			}
+		}
+	}
+	if got := NewRenderer(VT52, StyleOptions{}).keyGlyph("enter"); got != "enter" {
+		t.Fatalf("ascii enter = %q, want the key name", got)
+	}
+}
+
 // Dense keeps a footer label while it fits, because a bare key is not
 // discoverable; the key with no label is the narrow-panel fallback.
 func TestKeyHintsDenseKeepsLabelsWhileTheyFit(t *testing.T) {

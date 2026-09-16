@@ -200,50 +200,99 @@ func (r Renderer) RenderStatusKeyHints(hints []KeyHint, maxWidth int) string {
 	return r.renderHints(s.Theme.StatusBar, ws.KeyBg, ws.KeyFg, labelFg, maxWidth, hints, true)
 }
 
-// keyGlyph draws a key name as the symbol the keyboard carries, so a hint
-// reads as a key rather than a word: ⏎ enter, ⎋ escape, ⇥ tab, → an arrow.
-// Modifiers compose (⇧ shift, ⌃ ctrl) and a "/" list maps each part. An
-// unknown key is returned unchanged, so letters and composite hints like
-// "⇧arrows" pass through.
-func keyGlyph(key string) string {
+// keyGlyphs is one family of key symbols, so a hint can draw a key as the mark
+// the keyboard carries rather than its name.
+type keyGlyphs struct {
+	enter, esc, tab, backtab, space, backspace, del string
+	up, down, left, right                           string
+	shift, ctrl                                     string
+}
+
+var (
+	// plainKeyGlyphs uses symbols present in essentially every monospace font.
+	plainKeyGlyphs = keyGlyphs{
+		enter: "↵", esc: "␛", tab: "↹", backtab: "⇤", space: "␣",
+		backspace: "⌫", del: "⌦",
+		up: "▲", down: "▼", left: "◀", right: "▶",
+		shift: "⇧", ctrl: "⌃",
+	}
+	// emojiKeyGlyphs uses colour emoji where one exists and the plain symbol
+	// where it does not. Each emoji is two cells in the width table, so hints
+	// still line up.
+	emojiKeyGlyphs = keyGlyphs{
+		enter: "\u21a9\ufe0f", esc: "␛", tab: "↹", backtab: "⇤", space: "␣",
+		backspace: "⌫", del: "⌦",
+		up: "\u2b06\ufe0f", down: "\u2b07\ufe0f", left: "\u2b05\ufe0f", right: "\u27a1\ufe0f",
+		shift: "⇧", ctrl: "⌃",
+	}
+	// nerdKeyGlyphs uses Nerd Font key icons, verified against the patched
+	// font's own glyph names. Private-use code points: patched fonts only.
+	nerdKeyGlyphs = keyGlyphs{
+		enter: "\uf0311", esc: "\uf12b7", tab: "\uf0312", backtab: "\uf0325",
+		space: "\uf1050", backspace: "\uf030d", del: "\uf01b4",
+		up: "\uf005e", down: "\uf0046", left: "\uf004e", right: "\uf0055",
+		shift: "\uf0636", ctrl: "\uf0634",
+	}
+)
+
+// glyph maps a key name to its symbol. Modifiers compose and a "/" list maps
+// each part; an unknown key passes through, so letters and composite hints
+// like "⇧arrows" are unchanged.
+func (g keyGlyphs) glyph(key string) string {
 	switch strings.ToLower(key) {
 	case "enter", "return":
-		return "⏎"
+		return g.enter
 	case "esc", "escape":
-		return "⎋"
+		return g.esc
 	case "tab":
-		return "⇥"
+		return g.tab
 	case "shift+tab":
-		return "⇤"
+		return g.backtab
 	case "space":
-		return "␣"
+		return g.space
 	case "backspace":
-		return "⌫"
+		return g.backspace
 	case "delete":
-		return "⌦"
+		return g.del
 	case "up":
-		return "↑"
+		return g.up
 	case "down":
-		return "↓"
+		return g.down
 	case "left":
-		return "←"
+		return g.left
 	case "right":
-		return "→"
+		return g.right
 	}
 	lower := strings.ToLower(key)
 	switch {
 	case strings.HasPrefix(lower, "shift+"):
-		return "⇧" + keyGlyph(key[len("shift+"):])
+		return g.shift + g.glyph(key[len("shift+"):])
 	case strings.HasPrefix(lower, "ctrl+"):
-		return "⌃" + keyGlyph(key[len("ctrl+"):])
+		return g.ctrl + g.glyph(key[len("ctrl+"):])
 	case strings.Contains(key, "/"):
 		parts := strings.Split(key, "/")
 		for i, part := range parts {
-			parts[i] = keyGlyph(part)
+			parts[i] = g.glyph(part)
 		}
 		return strings.Join(parts, "/")
 	}
 	return key
+}
+
+// keyGlyph resolves a key's symbol under the renderer's icon style, so hints
+// match the rest of the UI. An ASCII theme keeps the key's name.
+func (r Renderer) keyGlyph(key string) string {
+	if r.Styles.PlainUI {
+		return key
+	}
+	switch r.Styles.IconStyle {
+	case IconNerd:
+		return nerdKeyGlyphs.glyph(key)
+	case IconEmoji:
+		return emojiKeyGlyphs.glyph(key)
+	default:
+		return plainKeyGlyphs.glyph(key)
+	}
 }
 
 func (r Renderer) renderHints(bg, keyBg, keyFg, labelFg lipgloss.Color, maxWidth int, hints []KeyHint, tryLabels bool) string {
@@ -263,7 +312,7 @@ func (r Renderer) renderHints(bg, keyBg, keyFg, labelFg lipgloss.Color, maxWidth
 		}
 		capsule := ""
 		if hint.Key != "" {
-			capsule = keyStyle.Render(" " + keyGlyph(hint.Key) + " ")
+			capsule = keyStyle.Render(" " + r.keyGlyph(hint.Key) + " ")
 		}
 		candidates := make([]string, 0, 2)
 		if tryLabels && hint.Label != "" {

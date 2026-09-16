@@ -230,7 +230,7 @@ func (p CommandPalette) Render(r Renderer, width, height int) Overlay {
 		command := p.filtered[index]
 		rows = append(rows, r.RenderSoftRow(SoftRow{
 			Text:     command.Display(),
-			Suffix:   command.Key,
+			Suffix:   r.keyGlyph(command.Key),
 			Selected: index == p.cursor,
 		}, innerWidth))
 	}
