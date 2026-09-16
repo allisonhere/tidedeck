@@ -30,8 +30,9 @@ go get github.com/allisonhere/tideui
 - **Soft modal panels** — Tide-family modal chrome with embedded border titles, quiet hint footers, and rail-focused rows.
 - **Workspace system** — a tiny tiling window manager for TUIs: declarative panels, a layout tree, semantic adaptive reflow, live arrange mode, shift+arrow pane resizing, tab stacks, zoom, peek, contextual actions, a panel picker, command palette, presets, undo/redo, mouse support, and versioned persistence.
 - **Visual language** — semantic workspace tokens, reusable chrome primitives (headers, footers, tabs, badges, key capsules, metrics, sparklines, list rows), `Comfortable`/`Compact`/`Dense` density modes, and a configurable focus presentation.
-- **Dashboard widgets** — weather, agenda, clock, system, network, storage, services, news, tasks, notes, git activity, and markets, each driven by a plain data model and backed by a `Renderer` method, with a shared Enter-to-drill-down pattern.
-- **Real data sources** — a standard-library `provider` package: background collectors with per-source intervals and graceful degradation, plus providers for Open-Meteo weather, RSS/Atom, Linux system/network/storage, systemd and Docker, git activity, todo.txt, notes, iCalendar, and markets.
+- **Dashboard widgets** — weather, agenda, clock, system, GPU, network, storage, services, updates, news, tasks, notes, git activity, and markets, each driven by a plain data model and backed by a `Renderer` method, with a shared Enter-to-drill-down pattern.
+- **Real data sources** — a standard-library `provider` package: background collectors with per-source intervals and graceful degradation, plus providers for Open-Meteo weather, RSS/Atom/RDF with a curated source
+  catalogue (`provider.NewsSources()`), Linux system/GPU/network/storage, pending package updates, systemd and Docker, git activity, todo.txt, notes, iCalendar, and markets.
 - **Per-panel themes** — any panel can take its own full theme or color overrides while density, corners, gutters, and global chrome stay workspace-wide; panel content inherits it through `PanelContext.Renderer`.
 - **Full-border pane focus** — every pane renders a 4-sided border colored by focus state, contrast-boosted to a 7:1 floor (square or round corners) so the focused pane is never hard to spot.
 - **List primitives** — single-line `Row` and multi-line `Block` with selected/muted states.
@@ -500,6 +501,16 @@ ws.Panel("weather", weatherView).
 panel.ClearTheme() // back to the workspace theme
 ```
 
+The `heat`, `weighted` and `stroke` sparklines differ from the others: they
+size and colour each sample by its own absolute value rather than by where it
+falls within the run, so a quiet stretch stays small and green instead of being
+stretched to fill the ramp. `heat` grades dot area (`·∘○◉●`), `weighted` grades
+vertical stroke weight (`╵╷│┃█`) and `stroke` grades horizontal weight
+(`╴─━█`). Because the ramp itself climbs, each still reads where colour is
+unavailable. `StyleOptions.SparkRamps` replaces a style's glyphs and
+`StyleOptions.SparkBands` its thresholds, both keyed by style; each falls back
+to the built-in ramp, or its ASCII form for an ASCII theme.
+
 Gauge and sparkline styles are panel-scoped too, so one panel can use a
 different glyph set than the workspace:
 
@@ -670,10 +681,12 @@ Renderers on `Renderer`:
 | Network | `RenderNetwork` | `RenderNetworkDetail` |
 | Storage | `RenderStorage` | — |
 | Services | `RenderServices` | `RenderServicesDetail` |
+| GPU | `RenderGPU` | `RenderGPUDetail` |
+| Updates | `RenderUpdates` | `RenderUpdatesDetail` |
 | News / RSS | `RenderHeadlines` | `RenderHeadlinesDetail` |
 | Tasks | `RenderTasks` | — |
 | Notes | `RenderNotes` | — |
-| Git activity | `RenderRepoActivity` | — |
+| Git activity | `RenderRepoActivity` | `RenderRepoActivityDetail` |
 | Markets | `RenderMarkets` | — |
 
 ```go
@@ -753,10 +766,12 @@ snapshot := dashboard.Snapshot() // reads cache only, never blocks
 | Network | `provider.Network(iface)` | `/proc/net/dev` (Linux) |
 | Storage | `provider.Storage()` | `/proc/mounts` + `statfs` (Linux) |
 | Services | `provider.Systemd(units...)` / `provider.Docker(socket)` | systemd / Docker Engine API |
-| News / RSS | `provider.Feed(urls...)` | RSS 2.0 and Atom |
+| GPU | `provider.GPU()` | DRM sysfs (Linux) |
+| Updates | `provider.Updates(aurHelper)` | `omarchy`, `checkupdates`, AUR helper |
+| News / RSS | `provider.Feed(urls...)` | RSS 2.0, RSS 1.0/RDF, and Atom |
 | Tasks | `provider.TodoTxt(path)` | todo.txt |
 | Notes | `provider.Notes(paths...)` | Markdown/text files |
-| Git activity | `provider.Git(repos...)` | the `git` CLI |
+| Git activity | `provider.Git(repos...)` | the `git` CLI (branch, ahead/behind, changes, stashes, interrupted rebase or merge) |
 | Markets | `provider.Markets(symbols...)` | Yahoo Finance chart endpoint |
 
 Linux-only sources return an error elsewhere, which simply leaves that panel
@@ -780,7 +795,8 @@ growing configuration stays readable instead of becoming one long scroll:
   **gauge style** cycles the glyph set used by every progress bar and metric
   gauge (`solid`, `blocks`, `circles`, `fisheye`, `marker`, `bars`) and
   **spark style** the ramp used by sparklines (`blocks`, `dots`, `braille`,
-  `bullets`, `ticks`, `shades`), and **clock font** the large-clock glyphs
+  `bullets`, `ticks`, `shades`, `heat`, `weighted`, `stroke`), **icons** the
+  widget icon family (`emoji`, `plain`, `nerd`), and **clock font** the large-clock glyphs
   (`dash`, `block`) — set them via `StyleOptions.Gauge`/`StyleOptions.Sparkline`/
   `StyleOptions.ClockFont`, `tideui.GaugeStyles()`/`tideui.SparklineStyles()`/
   `tideui.ClockFonts()`. The gauge and sparkline pickers show the actual glyphs
@@ -792,9 +808,11 @@ growing configuration stays readable instead of becoming one long scroll:
   (with a Zippopotam ZIP fallback), fills in latitude, longitude, and the
   location label, and turns on live data.
   The panel then shows `unsaved changes — ctrl+s to apply`.
-- **Clock** a 12/24-hour toggle and zones, **News** feed URLs, **Calendar** `.ics` files,
+- **Clock** a 12/24-hour toggle and zones, **News** a tick list of curated
+  sources plus a row for any other feed URL, **Calendar** `.ics` files,
   **Tasks** `todo.txt`, **Notes** paths, **Git** repository paths,
-  **Markets** symbols, **Services** systemd units or a Docker socket, and the
+  **Markets** symbols, **Updates** the AUR helper to count with,
+  **Services** systemd units or a Docker socket, and the
   **Network** interface.
 
 On the category list, `↑/↓` choose and `enter` opens a category. Inside a

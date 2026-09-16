@@ -14,6 +14,7 @@ func viewRenderer(state *demoState) tideui.Renderer {
 	return tideui.NewRenderer(state.theme, tideui.StyleOptions{
 		Density: state.density, PaneCorners: tideui.RoundCorners,
 		Gauge: state.gauge, Sparkline: state.spark, ClockFont: state.clockFont,
+		IconStyle: state.icons,
 	})
 }
 
@@ -141,6 +142,27 @@ func newsPanel(state *demoState) tideui.PanelView {
 	}
 }
 
+func gpuPanel(state *demoState) tideui.PanelView {
+	return func(ctx tideui.PanelContext) string {
+		r := panelRenderer(state, ctx)
+		metrics := state.source.GPU(state.now)
+		if ctx.Zoomed {
+			return r.RenderGPUDetail(metrics, ctx.Width)
+		}
+		return r.RenderGPU(metrics, ctx.Width)
+	}
+}
+
+func updatesPanel(state *demoState) tideui.PanelView {
+	return func(ctx tideui.PanelContext) string {
+		r := panelRenderer(state, ctx)
+		if ctx.Zoomed {
+			return r.RenderUpdatesDetail(state.updates, ctx.Width)
+		}
+		return r.RenderUpdates(state.updates, ctx.Width)
+	}
+}
+
 func tasksPanel(state *demoState) tideui.PanelView {
 	return func(ctx tideui.PanelContext) string {
 		r := panelRenderer(state, ctx)
@@ -158,6 +180,9 @@ func notesPanel(state *demoState) tideui.PanelView {
 func gitPanel(state *demoState) tideui.PanelView {
 	return func(ctx tideui.PanelContext) string {
 		r := panelRenderer(state, ctx)
+		if ctx.Zoomed {
+			return r.RenderRepoActivityDetail(state.repos, ctx.Width)
+		}
 		return r.RenderRepoActivity(state.repos, ctx.Width)
 	}
 }

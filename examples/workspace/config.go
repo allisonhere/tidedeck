@@ -6,19 +6,24 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/allisonhere/tideui/provider"
 )
 
 // config is the application's editable configuration. Every field is edited
 // through the in-app settings panel (s) and persisted as JSON, so no
 // environment variables or hand-editing are required.
 type config struct {
-	Live        bool              `json:"live"`
-	Weather     weatherConfig     `json:"weather"`
-	Zones       string            `json:"zones"`
-	Clock24     bool              `json:"clock_24"`
-	GaugeStyle  string            `json:"gauge_style"`
-	SparkStyle  string            `json:"spark_style"`
-	ClockFont   string            `json:"clock_font"`
+	Live       bool          `json:"live"`
+	Weather    weatherConfig `json:"weather"`
+	Zones      string        `json:"zones"`
+	Clock24    bool          `json:"clock_24"`
+	GaugeStyle string        `json:"gauge_style"`
+	SparkStyle string        `json:"spark_style"`
+	ClockFont  string        `json:"clock_font"`
+	// Icons picks the widget icon family: "plain", "emoji" or "nerd". Nerd
+	// needs a patched font and emoji a colour emoji font.
+	Icons       string            `json:"icons"`
 	PanelGauges map[string]string `json:"panel_gauges,omitempty"`
 	// PanelSparks overrides the sparkline style per panel id. "default" or a
 	// missing entry follows the workspace SparkStyle.
@@ -32,6 +37,9 @@ type config struct {
 	Systemd     string            `json:"systemd"`
 	Docker      string            `json:"docker"`
 	Interface   string            `json:"interface"`
+	// AURHelper names the AUR wrapper used to count AUR updates ("yay",
+	// "paru"). Empty falls back to yay.
+	AURHelper string `json:"aur_helper"`
 }
 
 // weatherConfig configures the Open-Meteo weather source.
@@ -58,10 +66,13 @@ func defaultConfig() config {
 			Location:   "Local",
 		},
 		Zones:      "Europe/London,Asia/Tokyo,Sydney",
+		Feeds:      defaultFeeds(),
 		Clock24:    true,
 		GaugeStyle: "solid",
 		SparkStyle: "blocks",
 		ClockFont:  "dash",
+		Icons:      "emoji",
+		AURHelper:  "yay",
 	}
 }
 
@@ -96,6 +107,76 @@ func (c config) save() error {
 	return os.WriteFile(path, data, 0o644)
 }
 
+// defaultFeeds is the starting set of news sources, so the News panel has
+// something in it before anyone has pasted a URL.
+func defaultFeeds() string {
+	var urls []string
+	for _, source := range provider.DefaultNewsSources() {
+		urls = append(urls, source.URL)
+	}
+	return strings.Join(urls, ",")
+}
+
+// splitFeeds separates a saved feeds value into catalogue ticks and the URLs
+// that are not in the catalogue, which stay editable as free text. The ticks
+// line up with provider.NewsSources() by index.
+func splitFeeds(value string) (presets []bool, custom string) {
+	catalogue := provider.NewsSources()
+	presets = make([]bool, len(catalogue))
+	index := make(map[string]int, len(catalogue))
+	for i, source := range catalogue {
+		index[provider.CanonicalFeedURL(source.URL)] = i
+	}
+	seen := make(map[string]bool)
+	var rest []string
+	for _, part := range strings.Split(value, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		key := provider.CanonicalFeedURL(part)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		if i, ok := index[key]; ok {
+			presets[i] = true
+			continue
+		}
+		rest = append(rest, part)
+	}
+	return presets, strings.Join(rest, ", ")
+}
+
+// joinFeeds rebuilds the saved value: ticked catalogue entries in catalogue
+// order, then custom URLs as typed, with duplicates dropped. Saving twice
+// without editing anything is a no-op.
+func joinFeeds(presets []bool, custom string) string {
+	var out []string
+	seen := make(map[string]bool)
+	add := func(raw string) {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			return
+		}
+		key := provider.CanonicalFeedURL(raw)
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, raw)
+	}
+	for i, source := range provider.NewsSources() {
+		if i < len(presets) && presets[i] {
+			add(source.URL)
+		}
+	}
+	for _, part := range strings.Split(custom, ",") {
+		add(part)
+	}
+	return strings.Join(out, ",")
+}
+
 // list splits a comma-separated config value, trims blanks, and expands a
 // leading ~.
 func list(value string) []string {
@@ -125,4 +206,78 @@ func expandPath(path string) string {
 
 func formatFloat(value float64) string {
 	return fmt.Sprintf("%g", value)
+}
+
+// repoPath is one configured repository and what is actually at that path.
+type repoPath struct {
+	Display string // "~/Projects/tideui", as it should be stored and shown
+	Full    string // the expanded absolute path
+	Exists  bool
+	IsRepo  bool
+	Remote  bool // a clone URL rather than a working copy
+}
+
+// parseRepoList reads the configured repository paths, expanding ~, dropping
+// blanks, and dropping duplicates that differ only in spelling. Order is
+// preserved so the list stays the one the user typed.
+func parseRepoList(value string) []repoPath {
+	var repos []repoPath
+	seen := make(map[string]bool)
+	for _, part := range strings.Split(value, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		// A remote URL is not a filesystem path: filepath.Clean would collapse
+		// the "//" in "https://" and silently corrupt what was typed.
+		if provider.IsRemoteURL(part) {
+			if seen[part] {
+				continue
+			}
+			seen[part] = true
+			repos = append(repos, repoPath{Display: part, Full: part, Remote: true})
+			continue
+		}
+		full := filepath.Clean(expandPath(part))
+		if seen[full] {
+			continue
+		}
+		seen[full] = true
+		entry := repoPath{Display: collapseHome(full), Full: full}
+		if info, err := os.Stat(full); err == nil && info.IsDir() {
+			entry.Exists = true
+			if _, err := os.Stat(filepath.Join(full, ".git")); err == nil {
+				entry.IsRepo = true
+			}
+		}
+		repos = append(repos, entry)
+	}
+	return repos
+}
+
+// normalizeRepoList rewrites the stored value: deduplicated, trimmed, and with
+// the home directory written as ~ so the field stays readable.
+func normalizeRepoList(value string) string {
+	repos := parseRepoList(value)
+	paths := make([]string, 0, len(repos))
+	for _, repo := range repos {
+		paths = append(paths, repo.Display)
+	}
+	return strings.Join(paths, ", ")
+}
+
+// collapseHome is the inverse of expandPath, so a saved config shows ~ rather
+// than a long absolute path.
+func collapseHome(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return path
+	}
+	if path == home {
+		return "~"
+	}
+	if strings.HasPrefix(path, home+string(os.PathSeparator)) {
+		return "~" + path[len(home):]
+	}
+	return path
 }

@@ -18,6 +18,7 @@ type dataSource interface {
 	Clock(time.Time) tideui.ClockData
 	Agenda(time.Time, int) []tideui.AgendaItem
 	System(time.Time) tideui.SystemMetrics
+	GPU(time.Time) tideui.GPUMetrics
 	Network(time.Time) tideui.NetworkMetrics
 	Markets(time.Time) []tideui.MarketQuote
 }
@@ -42,6 +43,7 @@ func newLiveSource(cfg config) *liveSource {
 	dashboard := &provider.Dashboard{
 		Clock:   provider.NewFetcher(time.Minute, provider.Clock(location, list(cfg.Zones)...)),
 		System:  provider.NewFetcher(time.Second, provider.System()),
+		GPU:     provider.NewFetcher(time.Second, provider.GPU()),
 		Network: provider.NewFetcher(time.Second, provider.Network(strings.TrimSpace(cfg.Interface))),
 		Storage: provider.NewFetcher(2*time.Minute, provider.Storage()),
 	}
@@ -54,6 +56,9 @@ func newLiveSource(cfg config) *liveSource {
 			WindMPH:    cfg.Weather.WindMPH,
 		}))
 	}
+	// checkupdates syncs a temporary package database over the network, so this
+	// is deliberately slow-polled rather than driven by the one-second tick.
+	dashboard.Updates = provider.NewFetcher(30*time.Minute, provider.Updates(cfg.AURHelper))
 	if feeds := list(cfg.Feeds); len(feeds) > 0 {
 		dashboard.Headlines = provider.NewFetcher(5*time.Minute, provider.Feed(feeds...))
 	}
@@ -126,6 +131,13 @@ func (s *liveSource) System(time.Time) tideui.SystemMetrics {
 		return *snapshot.System
 	}
 	return tideui.SystemMetrics{}
+}
+
+func (s *liveSource) GPU(time.Time) tideui.GPUMetrics {
+	if snapshot := s.snapshotCopy(); snapshot.GPU != nil {
+		return *snapshot.GPU
+	}
+	return tideui.GPUMetrics{}
 }
 
 func (s *liveSource) Network(time.Time) tideui.NetworkMetrics {

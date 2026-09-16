@@ -117,6 +117,23 @@ func (f *demoFeed) Clock(now time.Time) tideui.ClockData {
 	}
 }
 
+func (f *demoFeed) GPU(now time.Time) tideui.GPUMetrics {
+	t := f.elapsed(now)
+	busy := clampRange(24+18*wave(t, 11, 1), 2, 99)
+	return tideui.GPUMetrics{
+		Name:         "amdgpu",
+		BusyPercent:  busy,
+		BusySpark:    series(t, 18, 6, 1, 0.3, 0.45),
+		MemoryUsed:   "5.4 GB",
+		MemoryTotal:  "8.0 GB",
+		MemoryLabel:  "VRAM",
+		MemoryFrac:   0.67,
+		TemperatureC: int(clampRange(58+7*wave(t, 30, 2), 40, 92)),
+		PowerWatts:   clampRange(42+16*wave(t, 13, 3), 8, 140),
+		ClockMHz:     int(clampRange(1800+300*wave(t, 8, 4), 300, 2600)),
+	}
+}
+
 func (f *demoFeed) System(now time.Time) tideui.SystemMetrics {
 	t := f.elapsed(now)
 	cpu := clampRange(18+10*wave(t, 9, 0)+4*wave(t, 3, 1), 3, 98)
@@ -200,6 +217,22 @@ func (f *demoFeed) Services() []tideui.ServiceStatus {
 	}
 }
 
+// Updates is the demo update status: a pending Omarchy bump and a couple of
+// packages, so the panel has something to show without touching pacman.
+func (f *demoFeed) Updates(now time.Time) tideui.UpdateStatus {
+	return tideui.UpdateStatus{
+		Omarchy:        "4.0.3-1",
+		OmarchyPending: "4.0.4-1",
+		Repo: []tideui.UpdatePackage{
+			{Name: "omarchy", From: "4.0.3-1", To: "4.0.4-1"},
+			{Name: "omarchy-settings", From: "4.0.3-1", To: "4.0.4-1"},
+			{Name: "linux", From: "6.17.2.arch1-1", To: "6.17.4.arch1-1"},
+		},
+		AUR:     []tideui.UpdatePackage{{Name: "yay", From: "12.4.2-1", To: "12.5.0-1"}},
+		Checked: now,
+	}
+}
+
 func (f *demoFeed) Headlines() []tideui.Headline {
 	return []tideui.Headline{
 		{Title: "Linux 6.12 released", Source: "kernel.org", Age: "18m", Unread: true, Tone: tideui.ToneAccent},
@@ -231,8 +264,10 @@ func (f *demoFeed) Notes() []tideui.Note {
 
 func (f *demoFeed) RepoActivity() []tideui.RepoActivity {
 	return []tideui.RepoActivity{
-		{Name: "tideui", Branch: "main", Summary: "workspace polish", Commits: 3, Tone: tideui.ToneAccent},
-		{Name: "tidegit", Branch: "main", Summary: "clean", Commits: 0, Tone: tideui.ToneGood},
-		{Name: "tidemail", Branch: "feat/rules", Summary: "2 changes", Commits: 2, Tone: tideui.ToneWarning},
+		{Name: "tideui", Branch: "main", Summary: "3 today", Commits: 3, Tone: tideui.ToneAccent},
+		{Name: "tidegit", Branch: "main", Summary: "clean", Tone: tideui.ToneGood},
+		{Name: "tidemail", Branch: "feat/rules", Summary: "2 unpushed · 2 changed",
+			Commits: 2, Ahead: 2, Changes: 2, Tone: tideui.ToneWarning},
+		{Name: "z13control", Branch: "main", Summary: "6 unpushed", Ahead: 6, Tone: tideui.ToneWarning},
 	}
 }

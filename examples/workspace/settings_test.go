@@ -1,9 +1,13 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/allisonhere/tideui"
 	"github.com/allisonhere/tideui/provider"
@@ -448,5 +452,298 @@ func TestSettingsCategoryNavigation(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("Weather category is missing the coordinate lookup")
+	}
+}
+
+// openNews moves the form into the News category and returns its fields.
+func openNews(t *testing.T, form *settingsForm) []formField {
+	t.Helper()
+	for i, category := range form.categories {
+		if category.name != "News" {
+			continue
+		}
+		form.category = i
+		form.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		return form.currentFields()
+	}
+	t.Fatal("no News category")
+	return nil
+}
+
+// selectNewsField walks down to the row with the given label.
+func selectNewsField(t *testing.T, form *settingsForm, label string) *formField {
+	t.Helper()
+	for i := 0; i < 60; i++ {
+		if field := form.currentField(); field != nil && field.label == label {
+			return field
+		}
+		form.Update(tea.KeyMsg{Type: tea.KeyDown})
+	}
+	t.Fatalf("no field labelled %q", label)
+	return nil
+}
+
+func TestSettingsNewsPresetToggle(t *testing.T) {
+	ws := tideui.NewWorkspace()
+	ws.Panel("news", nil).Title("News")
+	form := newSettingsForm()
+	form.SetWorkspace(ws)
+	form.Open(config{})
+
+	catalogue := provider.NewsSources()
+	fields := openNews(t, form)
+	if len(fields) < len(catalogue) {
+		t.Fatalf("News has %d fields, want a row per source plus the text row", len(fields))
+	}
+	field := selectNewsField(t, form, catalogue[0].Name)
+	if field.kind != fieldBool {
+		t.Fatalf("%s row kind = %v, want a tick", catalogue[0].Name, field.kind)
+	}
+	// Starts off, because Open was given an empty config.
+	if *field.flag {
+		t.Fatalf("%s should start unticked", catalogue[0].Name)
+	}
+	form.Update(tea.KeyMsg{Type: tea.KeySpace})
+	if action := form.Update(tea.KeyMsg{Type: tea.KeyCtrlS}); action != settingsSaved {
+		t.Fatalf("save action = %v", action)
+	}
+	if !strings.Contains(form.SavedConfig().Feeds, catalogue[0].URL) {
+		t.Fatalf("ticked source not saved: %q", form.SavedConfig().Feeds)
+	}
+}
+
+func TestSettingsNewsSplitsCustomURLs(t *testing.T) {
+	const custom = "https://example.com/custom.xml"
+	catalogue := provider.NewsSources()
+	form := newSettingsForm()
+	form.Open(config{Feeds: catalogue[0].URL + "," + custom})
+
+	openNews(t, form)
+	if field := selectNewsField(t, form, catalogue[0].Name); !*field.flag {
+		t.Fatalf("%s should be ticked from the saved config", catalogue[0].Name)
+	}
+	// The catalogue URL is not also left sitting in the text row.
+	if got := *selectNewsField(t, form, "other feed urls").text; got != custom {
+		t.Fatalf("other feed urls = %q, want %q", got, custom)
+	}
+	form.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	saved := form.SavedConfig().Feeds
+	if !strings.Contains(saved, catalogue[0].URL) || !strings.Contains(saved, custom) {
+		t.Fatalf("saving dropped a feed: %q", saved)
+	}
+}
+
+// The tick rows hold pointers into a slice on the form state. If anything
+// re-allocates that slice after the rows are built, ticks land in an orphaned
+// array and vanish on save without any error.
+func TestSettingsNewsTicksSurviveTogether(t *testing.T) {
+	catalogue := provider.NewsSources()
+	form := newSettingsForm()
+	form.Open(config{})
+
+	openNews(t, form)
+	form.Update(tea.KeyMsg{Type: tea.KeySpace}) // tick whichever row is first
+	first := form.currentField().label
+	second := catalogue[len(catalogue)-1].Name
+	selectNewsField(t, form, second)
+	form.Update(tea.KeyMsg{Type: tea.KeySpace})
+	form.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+
+	saved := form.SavedConfig().Feeds
+	for _, name := range []string{first, second} {
+		var want string
+		for _, source := range catalogue {
+			if source.Name == name {
+				want = source.URL
+			}
+		}
+		if !strings.Contains(saved, want) {
+			t.Fatalf("%s (%s) missing from saved feeds %q", name, want, saved)
+		}
+	}
+}
+
+// A refresh returns fresh Headline values with Unread set, so read state has
+// to be re-applied or the mark read action is undone a second later.
+func TestReadHeadlinesSurviveRefresh(t *testing.T) {
+	state := &demoState{headlines: []tideui.Headline{
+		{Title: "First story", Source: "BBC World", Unread: true},
+		{Title: "Second story", Source: "BBC World", Unread: true},
+	}}
+	state.headlines[0].Unread = false
+	state.markHeadlineRead(state.headlines[0])
+
+	// A later fetch hands back both stories as unread, plus a new one.
+	state.headlines = []tideui.Headline{
+		{Title: "Brand new", Source: "BBC World", Unread: true},
+		{Title: "First story", Source: "BBC World", Unread: true},
+		{Title: "Second story", Source: "BBC World", Unread: true},
+	}
+	state.applyReadHeadlines()
+
+	if state.headlines[1].Unread {
+		t.Fatal("a story marked read came back unread after a refresh")
+	}
+	if !state.headlines[0].Unread || !state.headlines[2].Unread {
+		t.Fatalf("unrelated stories should stay unread: %+v", state.headlines)
+	}
+	// The same title from a different source is a different story.
+	state.headlines = []tideui.Headline{{Title: "First story", Source: "NPR News", Unread: true}}
+	state.applyReadHeadlines()
+	if !state.headlines[0].Unread {
+		t.Fatal("read state leaked across sources")
+	}
+}
+
+// Both new panels need a settings category, or their enabled/gauge/spark rows
+// never appear and they cannot be toggled from the UI.
+func TestSettingsHasNewPanelCategories(t *testing.T) {
+	ws := tideui.NewWorkspace()
+	ws.Panel("gpu", nil).Title("GPU")
+	ws.Panel("updates", nil).Title("Updates")
+	form := newSettingsForm()
+	form.SetWorkspace(ws)
+	form.Open(config{AURHelper: "paru"})
+
+	found := map[string]bool{}
+	for _, category := range form.categories {
+		found[category.name] = true
+	}
+	for _, want := range []string{"GPU", "Updates"} {
+		if !found[want] {
+			t.Fatalf("no %s category in settings", want)
+		}
+	}
+
+	// The AUR helper round-trips.
+	openCategory(t, form, "Updates")
+	field := selectNewsField(t, form, "aur helper")
+	if got := *field.text; got != "paru" {
+		t.Fatalf("aur helper = %q, want paru", got)
+	}
+	form.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	if got := form.SavedConfig().AURHelper; got != "paru" {
+		t.Fatalf("saved aur helper = %q, want paru", got)
+	}
+}
+
+// openCategory moves the form into a named category.
+func openCategory(t *testing.T, form *settingsForm, name string) {
+	t.Helper()
+	for i, category := range form.categories {
+		if category.name == name {
+			form.category = i
+			form.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			return
+		}
+	}
+	t.Fatalf("no %s category", name)
+}
+
+func TestEditingViewFollowsCaret(t *testing.T) {
+	const value = "~/Projects/tidedeck, ~/Projects/tideui, ~/Projects/tidegit, ~/Projects/tidemail"
+	runes := []rune(value)
+
+	// A value that fits is shown whole, with the caret where it belongs.
+	if got := editingView("main", 2, 46); got != "ma"+caretMark+"in" {
+		t.Fatalf("short value = %q", got)
+	}
+	// The caret marker used to be pinned to the end of the value whatever the
+	// caret position, so typing after Home inserted text away from the cursor.
+	for _, caret := range []int{0, 20, 42, len(runes)} {
+		got := editingView(value, caret, 46)
+		if lipgloss.Width(got) != 46 {
+			t.Fatalf("caret %d: width = %d, want 46 (%q)", caret, lipgloss.Width(got), got)
+		}
+		if !strings.Contains(got, caretMark) {
+			t.Fatalf("caret %d: no caret drawn in %q", caret, got)
+		}
+		// Text before the caret marker must be text that precedes it in the
+		// value, which is what makes the cursor position believable.
+		before := strings.TrimPrefix(strings.Split(got, caretMark)[0], "…")
+		if before != "" && !strings.Contains(value, before) {
+			t.Fatalf("caret %d: %q is not part of the value", caret, before)
+		}
+	}
+	// Clipping is marked at whichever end is cut.
+	if got := editingView(value, 0, 46); !strings.HasSuffix(got, "…") || strings.HasPrefix(got, "…") {
+		t.Fatalf("caret at start should clip only the tail: %q", got)
+	}
+	if got := editingView(value, len(runes), 46); !strings.HasPrefix(got, "…") || strings.HasSuffix(got, "…") {
+		t.Fatalf("caret at end should clip only the head: %q", got)
+	}
+	// Degenerate inputs must not panic or overflow.
+	for _, c := range []struct {
+		value        string
+		caret, width int
+	}{{"", 0, 46}, {value, 999, 46}, {value, -5, 46}, {value, 40, 2}, {"ünïcödé-brånch", 6, 10}} {
+		got := editingView(c.value, c.caret, c.width)
+		if lipgloss.Width(got) > max(6, c.width) {
+			t.Fatalf("editingView(%q, %d, %d) = %q overflows", c.value, c.caret, c.width, got)
+		}
+	}
+}
+
+// A long path list used to render raw: it truncated mid-path and pushed the
+// field's own label off the row entirely.
+func TestSettingsRepoFieldSummarizes(t *testing.T) {
+	real := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(real, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ws := tideui.NewWorkspace()
+	ws.Panel("git", nil).Title("Git")
+	form := newSettingsForm()
+	form.SetWorkspace(ws)
+	form.Open(config{Repos: real + "," + filepath.Join(real, "missing")})
+
+	openCategory(t, form, "Git")
+	field := selectNewsField(t, form, "repositories")
+	summary := form.value(*field)
+	if !strings.Contains(summary, "2 repos") || !strings.Contains(summary, "1 not found") {
+		t.Fatalf("summary = %q, want a count and the missing one", summary)
+	}
+	if strings.Contains(summary, real) {
+		t.Fatalf("the row should summarize, not print the raw paths: %q", summary)
+	}
+	// An empty list says so rather than rendering as a blank row.
+	form.Open(config{})
+	openCategory(t, form, "Git")
+	if got := form.value(*selectNewsField(t, form, "repositories")); got != "none set" {
+		t.Fatalf("empty repos = %q, want none set", got)
+	}
+	// Saving normalizes what was typed.
+	form.Open(config{Repos: " " + real + " ," + real})
+	form.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	if got := form.SavedConfig().Repos; strings.Count(got, real) != 1 {
+		t.Fatalf("saved repos = %q, want the duplicate collapsed", got)
+	}
+}
+
+func TestSettingsIconStyleChoice(t *testing.T) {
+	form := newSettingsForm()
+	form.Open(config{Icons: "emoji"})
+	openCategory(t, form, "General")
+	field := selectNewsField(t, form, "icons")
+	if field.kind != fieldChoice {
+		t.Fatalf("icons row = %+v, want a choice", field)
+	}
+	if got := form.value(*field); got != "emoji" {
+		t.Fatalf("icons = %q, want emoji", got)
+	}
+	if form.Icons() != "emoji" {
+		t.Fatal("the live preview accessor should follow the form state")
+	}
+	form.Update(tea.KeyMsg{Type: tea.KeyRight})
+	if form.Icons() == "emoji" {
+		t.Fatal("the choice did not cycle")
+	}
+	form.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	if saved := form.SavedConfig().Icons; saved == "emoji" || saved == "" {
+		t.Fatalf("saved icons = %q, want the cycled value", saved)
+	}
+	// An unknown value falls back rather than rendering nothing.
+	if got := iconStyleOrDefault("sparkles"); got != string(tideui.IconEmoji) {
+		t.Fatalf("iconStyleOrDefault(sparkles) = %q", got)
 	}
 }

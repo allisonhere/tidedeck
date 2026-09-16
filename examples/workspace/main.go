@@ -72,16 +72,22 @@ type demoState struct {
 	gauge        tideui.GaugeStyle
 	spark        tideui.SparklineStyle
 	clockFont    tideui.ClockFont
+	icons        tideui.IconStyle
 
 	lastStatus string
 	statusAge  int
 
 	tasks     []tideui.Task
+	updates   tideui.UpdateStatus
 	headlines []tideui.Headline
-	services  []tideui.ServiceStatus
-	notes     []tideui.Note
-	repos     []tideui.RepoActivity
-	mounts    []tideui.StorageMount
+	// readHeadlines remembers what has been marked read. Every refresh returns
+	// fresh Headline values with Unread set, so without this the mark read
+	// action is undone by the next tick and the badge never clears.
+	readHeadlines map[string]bool
+	services      []tideui.ServiceStatus
+	notes         []tideui.Note
+	repos         []tideui.RepoActivity
+	mounts        []tideui.StorageMount
 }
 
 type model struct {
@@ -119,7 +125,9 @@ func newModel() model {
 		gauge:     tideui.GaugeStyle(gaugeOrDefault(cfg.GaugeStyle)),
 		spark:     tideui.SparklineStyle(sparkOrDefault(cfg.SparkStyle)),
 		clockFont: tideui.ClockFont(clockFontOrDefault(cfg.ClockFont)),
+		icons:     tideui.IconStyle(iconStyleOrDefault(cfg.Icons)),
 		tasks:     feed.Tasks(),
+		updates:   feed.Updates(time.Now()),
 		headlines: feed.Headlines(),
 		services:  feed.Services(),
 		notes:     feed.Notes(),
@@ -183,6 +191,7 @@ func (m *model) applyConfig() {
 	m.state.gauge = tideui.GaugeStyle(gaugeOrDefault(m.cfg.GaugeStyle))
 	m.state.spark = tideui.SparklineStyle(sparkOrDefault(m.cfg.SparkStyle))
 	m.state.clockFont = tideui.ClockFont(clockFontOrDefault(m.cfg.ClockFont))
+	m.state.icons = tideui.IconStyle(iconStyleOrDefault(m.cfg.Icons))
 	applyPanelGauges(m.ws, m.cfg)
 	applyPanelSparks(m.ws, m.cfg)
 	if m.cfg.Live {
@@ -190,10 +199,12 @@ func (m *model) applyConfig() {
 		m.state.source = m.state.live
 		m.state.tasks, m.state.headlines, m.state.services = nil, nil, nil
 		m.state.notes, m.state.repos, m.state.mounts = nil, nil, nil
+		m.state.updates = tideui.UpdateStatus{}
 	} else {
 		m.state.live = nil
 		m.state.source = m.feed
 		m.state.tasks = m.feed.Tasks()
+		m.state.updates = m.feed.Updates(time.Now())
 		m.state.headlines = m.feed.Headlines()
 		m.state.services = m.feed.Services()
 		m.state.notes = m.feed.Notes()
@@ -208,6 +219,7 @@ func (m *model) applyStylePreview() {
 	m.state.gauge = tideui.GaugeStyle(m.settings.GaugeStyle())
 	m.state.spark = tideui.SparklineStyle(m.settings.SparkStyle())
 	m.state.clockFont = tideui.ClockFont(m.settings.ClockFont())
+	m.state.icons = tideui.IconStyle(m.settings.Icons())
 	for _, panel := range m.ws.Panels() {
 		id := panel.ID()
 		switch style := m.settings.PanelGaugeStyle(id); style {
@@ -282,6 +294,14 @@ func registerPanels(ws *tideui.Workspace, state *demoState) {
 		Badge("healthy").BadgeTone(tideui.ToneGood).
 		Actions(tideui.Action("refresh", "r", func(*tideui.Workspace) { state.status = "system sampled" }).Labeled("refresh"))
 
+	ws.Panel("gpu", gpuPanel(state)).
+		Title("GPU").Role(tideui.RoleSecondary).Priority(72).MinWidth(18).MinHeight(6).HideBelow(104).
+		Actions(tideui.Action("refresh", "r", func(*tideui.Workspace) { state.status = "gpu sampled" }).Labeled("refresh"))
+
+	ws.Panel("updates", updatesPanel(state)).
+		Title("Updates").Subtitle("system").Role(tideui.RoleOptional).Priority(50).MinWidth(20).MinHeight(5).HideBelow(120).
+		Actions(tideui.Action("refresh", "r", func(*tideui.Workspace) { state.status = "checked for updates" }).Labeled("refresh"))
+
 	ws.Panel("network", networkPanel(state)).
 		Title("Network").Role(tideui.RoleSecondary).Priority(70).MinWidth(18).MinHeight(7).HideBelow(104).
 		Badge("up").BadgeTone(tideui.ToneGood).
@@ -316,6 +336,7 @@ func registerPanels(ws *tideui.Workspace, state *demoState) {
 				for i := range state.headlines {
 					if state.headlines[i].Unread {
 						state.headlines[i].Unread = false
+						state.markHeadlineRead(state.headlines[i])
 						state.status = "marked read"
 						return
 					}
@@ -379,6 +400,7 @@ func overviewLayout() tideui.LayoutNode {
 		tideui.Weighted(tideui.HStack(
 			tideui.Leaf("tasks"),
 			tideui.Leaf("storage"),
+			tideui.Leaf("gpu"),
 			tideui.Leaf("clock"),
 		), 4),
 	)
@@ -386,26 +408,26 @@ func overviewLayout() tideui.LayoutNode {
 
 func registerPresets(ws *tideui.Workspace) {
 	ws.AddPreset("Overview", overviewLayout(),
-		"notes", "git", "markets")
+		"notes", "git", "markets", "updates")
 	ws.AddPreset("System", tideui.VStack(
 		tideui.Weighted(tideui.HStack(
-			tideui.Weighted(tideui.Leaf("system"), 2), tideui.Leaf("network"), tideui.Leaf("services"),
+			tideui.Weighted(tideui.Leaf("system"), 2), tideui.Leaf("gpu"), tideui.Leaf("network"),
 		), 6),
 		tideui.Weighted(tideui.HStack(
-			tideui.Leaf("storage"), tideui.Leaf("markets"), tideui.Leaf("clock"),
+			tideui.Leaf("storage"), tideui.Leaf("services"), tideui.Leaf("updates"),
 		), 4),
-	), "weather", "agenda", "news", "tasks", "notes", "git")
+	), "weather", "agenda", "news", "tasks", "notes", "git", "markets", "clock")
 	ws.AddPreset("Productivity", tideui.HStack(
 		tideui.Weighted(tideui.VStack(tideui.Weighted(tideui.Leaf("agenda"), 2), tideui.Leaf("tasks")), 2),
 		tideui.VStack(tideui.Leaf("notes"), tideui.Leaf("clock")),
-	), "weather", "system", "network", "storage", "services", "news", "git", "markets")
+	), "weather", "system", "gpu", "network", "storage", "services", "news", "git", "markets", "updates")
 	ws.AddPreset("Developer", tideui.VStack(
 		tideui.HStack(tideui.Leaf("git"), tideui.Leaf("system")),
 		tideui.HStack(tideui.Weighted(tideui.Leaf("services"), 2), tideui.Leaf("news")),
-	), "weather", "agenda", "clock", "network", "storage", "tasks", "notes", "markets")
+	), "weather", "agenda", "clock", "gpu", "network", "storage", "tasks", "notes", "markets", "updates")
 	ws.AddPreset("Minimal", tideui.HStack(
 		tideui.Leaf("clock"), tideui.Weighted(tideui.Leaf("agenda"), 2), tideui.Leaf("weather"),
-	), "system", "network", "storage", "services", "news", "tasks", "notes", "git", "markets")
+	), "system", "gpu", "network", "storage", "services", "news", "tasks", "notes", "git", "markets", "updates")
 }
 
 func (m model) Init() tea.Cmd { return tickCmd(time.Second) }
@@ -422,8 +444,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if snapshot.Tasks != nil {
 				m.state.tasks = snapshot.Tasks
 			}
+			if snapshot.Updates != nil {
+				m.state.updates = *snapshot.Updates
+			}
 			if snapshot.Headlines != nil {
 				m.state.headlines = snapshot.Headlines
+				m.state.applyReadHeadlines()
 			}
 			if snapshot.Services != nil {
 				m.state.services = snapshot.Services
@@ -485,11 +511,48 @@ func lookupCmd(query string) tea.Cmd {
 	}
 }
 
+// headlineKey identifies a story across refreshes. Headline carries no link,
+// so title and source are what there is to go on; a repeat of both is the
+// same story for this purpose.
+func headlineKey(h tideui.Headline) string {
+	return h.Source + "\x00" + h.Title
+}
+
+// markHeadlineRead records a story as read so a refresh cannot resurrect it.
+func (s *demoState) markHeadlineRead(h tideui.Headline) {
+	if s.readHeadlines == nil {
+		s.readHeadlines = make(map[string]bool)
+	}
+	s.readHeadlines[headlineKey(h)] = true
+}
+
+// applyReadHeadlines re-applies what has been read to a freshly fetched list.
+func (s *demoState) applyReadHeadlines() {
+	if len(s.readHeadlines) == 0 {
+		return
+	}
+	for i := range s.headlines {
+		if s.readHeadlines[headlineKey(s.headlines[i])] {
+			s.headlines[i].Unread = false
+		}
+	}
+}
+
 func (m model) refreshBadges() {
 	unread := 0
 	for _, h := range m.state.headlines {
 		if h.Unread {
 			unread++
+		}
+	}
+	if panel, ok := m.ws.Lookup("updates"); ok {
+		switch pending := m.state.updates.Pending(); {
+		case m.state.updates.Unavailable != "":
+			panel.Badge("?").BadgeTone(tideui.ToneMuted)
+		case pending > 0:
+			panel.Badge(fmt.Sprintf("%d", pending)).BadgeTone(tideui.ToneWarning)
+		default:
+			panel.Badge("ok").BadgeTone(tideui.ToneGood)
 		}
 	}
 	if panel, ok := m.ws.Lookup("news"); ok {
@@ -709,6 +772,7 @@ func (m model) View() string {
 	renderer := tideui.NewRenderer(m.state.theme, tideui.StyleOptions{
 		Density: m.state.density, PaneCorners: tideui.RoundCorners,
 		Gauge: m.state.gauge, Sparkline: m.state.spark, ClockFont: m.state.clockFont,
+		IconStyle:   m.state.icons,
 		ModalShadow: true,
 	})
 	wr := tideui.NewWorkspaceRenderer(renderer)

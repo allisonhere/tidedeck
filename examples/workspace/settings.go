@@ -36,6 +36,10 @@ type formField struct {
 	// gauges) instead of a single string.
 	choiceMap map[string]string
 	choiceKey string
+	// summary renders a long text value as something that fits a row. The raw
+	// text is still what gets edited; this is only what the row shows when the
+	// field is not being edited.
+	summary func(string) string
 }
 
 // choiceValue reads the field's current choice from its pointer or map.
@@ -85,9 +89,12 @@ type formState struct {
 	gauge          string
 	spark          string
 	clockFont      string
+	icons          string
 	panelGauges    map[string]string
 	panelSparks    map[string]string
-	feeds          string
+	aurHelper      string
+	feeds          string // custom URLs only; catalogue URLs live in feedPresets
+	feedPresets    []bool // one per provider.NewsSources(), same order
 	calendars      string
 	todo           string
 	notes          string
@@ -99,6 +106,7 @@ type formState struct {
 }
 
 func formFromConfig(cfg config) formState {
+	feedPresets, customFeeds := splitFeeds(cfg.Feeds)
 	return formState{
 		live:           cfg.Live,
 		weatherEnabled: cfg.Weather.Enabled,
@@ -113,9 +121,12 @@ func formFromConfig(cfg config) formState {
 		gauge:          gaugeOrDefault(cfg.GaugeStyle),
 		spark:          sparkOrDefault(cfg.SparkStyle),
 		clockFont:      clockFontOrDefault(cfg.ClockFont),
+		icons:          iconStyleOrDefault(cfg.Icons),
 		panelGauges:    copyStringMap(cfg.PanelGauges),
 		panelSparks:    copyStringMap(cfg.PanelSparks),
-		feeds:          cfg.Feeds,
+		aurHelper:      cfg.AURHelper,
+		feeds:          customFeeds,
+		feedPresets:    feedPresets,
 		calendars:      cfg.Calendars,
 		todo:           cfg.Todo,
 		notes:          cfg.Notes,
@@ -151,18 +162,40 @@ func (s formState) toConfig() (config, error) {
 		GaugeStyle:  gaugeOrDefault(s.gauge),
 		SparkStyle:  sparkOrDefault(s.spark),
 		ClockFont:   clockFontOrDefault(s.clockFont),
+		Icons:       iconStyleOrDefault(s.icons),
 		PanelGauges: panelOverrides(s.panelGauges),
 		PanelSparks: panelOverrides(s.panelSparks),
-		Feeds:       s.feeds,
+		AURHelper:   strings.TrimSpace(s.aurHelper),
+		Feeds:       joinFeeds(s.feedPresets, s.feeds),
 		Calendars:   s.calendars,
 		Todo:        s.todo,
 		Notes:       s.notes,
-		Repos:       s.repos,
+		Repos:       normalizeRepoList(s.repos),
 		Symbols:     s.symbols,
 		Systemd:     s.systemd,
 		Docker:      s.docker,
 		Interface:   s.iface,
 	}, nil
+}
+
+// iconStyleNames lists the selectable icon styles as strings.
+func iconStyleNames() []string {
+	styles := tideui.IconStyles()
+	names := make([]string, len(styles))
+	for i, style := range styles {
+		names[i] = string(style)
+	}
+	return names
+}
+
+// iconStyleOrDefault falls back to plain icons, which render in any font.
+func iconStyleOrDefault(style string) string {
+	for _, known := range tideui.IconStyles() {
+		if string(known) == style {
+			return style
+		}
+	}
+	return string(tideui.IconEmoji)
 }
 
 // gaugeStyleNames lists the selectable gauge styles as strings.
@@ -291,6 +324,11 @@ type settingsForm struct {
 	problem    string
 	dirty      bool
 
+	// Cached repository summary, so a row that renders on every keystroke does
+	// not stat the filesystem each time.
+	repoSummarySource string
+	repoSummaryText   string
+
 	// ws backs the per-category panel toggles, which change live visibility
 	// rather than a config value. It is nil when the form runs without a
 	// workspace (as in unit tests), which simply omits those fields.
@@ -339,6 +377,10 @@ func (s settingsForm) PanelSparkStyle(id string) string {
 }
 
 // ClockFont returns the large-clock font currently selected in the form.
+// Icons reports the live icon style, so the preview updates while the setting
+// is being changed.
+func (s settingsForm) Icons() string { return iconStyleOrDefault(s.state.icons) }
+
 func (s settingsForm) ClockFont() string {
 	if s.state == nil {
 		return string(tideui.ClockFontDash)
@@ -347,6 +389,49 @@ func (s settingsForm) ClockFont() string {
 }
 
 func newSettingsForm() *settingsForm { return &settingsForm{} }
+
+// repoSummary describes the configured repositories in the space a row has:
+// how many there are, and how many of them are not actually repositories. The
+// full value is still what gets edited; showing it raw truncated mid-path and
+// pushed the field's own label off the row.
+func (s *settingsForm) repoSummary(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "none set"
+	}
+	// Checking paths touches the filesystem, and a row renders on every
+	// keystroke, so the answer is kept until the value changes.
+	if s.repoSummarySource != value || s.repoSummaryText == "" {
+		repos := parseRepoList(value)
+		missing, remote := 0, 0
+		for _, repo := range repos {
+			switch {
+			case repo.Remote:
+				remote++
+			case !repo.IsRepo:
+				missing++
+			}
+		}
+		text := fmt.Sprintf("%d %s", len(repos), plural(len(repos), "repo", "repos"))
+		if missing > 0 {
+			text += fmt.Sprintf(" · %d not found", missing)
+		}
+		// A clone URL is a different mistake from a wrong path, and saying
+		// which one it is saves a round of guessing.
+		if remote > 0 {
+			text += fmt.Sprintf(" · %d not cloned", remote)
+		}
+		s.repoSummarySource, s.repoSummaryText = value, text
+	}
+	return s.repoSummaryText
+}
+
+// plural picks a word form for a count.
+func plural(count int, one, many string) string {
+	if count == 1 {
+		return one
+	}
+	return many
+}
 
 // SetWorkspace attaches the workspace whose panels the Panels category toggles.
 func (s *settingsForm) SetWorkspace(ws *tideui.Workspace) { s.ws = ws }
@@ -376,6 +461,7 @@ func (s *settingsForm) buildCategories() []settingsCategory {
 			{label: "gauge style", kind: fieldChoice, choice: &s.state.gauge, options: gaugeStyleNames(), gaugePreview: true},
 			{label: "spark style", kind: fieldChoice, choice: &s.state.spark, options: sparkStyleNames(), sparkPreview: true},
 			{label: "clock font", kind: fieldChoice, choice: &s.state.clockFont, options: clockFontNames()},
+			{label: "icons", kind: fieldChoice, choice: &s.state.icons, options: iconStyleNames()},
 		}},
 		{name: "Weather", panelID: "weather", fields: []formField{
 			{label: "live weather", kind: fieldBool, flag: &s.state.weatherEnabled},
@@ -393,6 +479,10 @@ func (s *settingsForm) buildCategories() []settingsCategory {
 			{label: "zones", kind: fieldText, text: &s.state.zones},
 		}},
 		{name: "System", panelID: "system", fields: nil},
+		{name: "GPU", panelID: "gpu", fields: nil},
+		{name: "Updates", panelID: "updates", fields: []formField{
+			{label: "aur helper", kind: fieldText, text: &s.state.aurHelper},
+		}},
 		{name: "Network", panelID: "network", fields: []formField{
 			{label: "interface", kind: fieldText, text: &s.state.iface},
 		}},
@@ -401,9 +491,7 @@ func (s *settingsForm) buildCategories() []settingsCategory {
 			{label: "systemd units", kind: fieldText, text: &s.state.systemd},
 			{label: "docker socket", kind: fieldText, text: &s.state.docker},
 		}},
-		{name: "News", panelID: "news", fields: []formField{
-			{label: "feeds", kind: fieldText, text: &s.state.feeds},
-		}},
+		{name: "News", panelID: "news", fields: s.newsFields()},
 		{name: "Calendar", fields: []formField{
 			{label: ".ics files", kind: fieldText, text: &s.state.calendars},
 		}},
@@ -414,7 +502,7 @@ func (s *settingsForm) buildCategories() []settingsCategory {
 			{label: "paths", kind: fieldText, text: &s.state.notes},
 		}},
 		{name: "Git", panelID: "git", fields: []formField{
-			{label: "repository paths", kind: fieldText, text: &s.state.repos},
+			{label: "repositories", kind: fieldText, text: &s.state.repos, summary: s.repoSummary},
 		}},
 		{name: "Markets", panelID: "markets", fields: []formField{
 			{label: "symbols", kind: fieldText, text: &s.state.symbols},
@@ -500,6 +588,28 @@ func (s *settingsForm) panelSparkField(id string) *formField {
 
 // panelField builds the enable/disable row for a panel, or nil when there is no
 // workspace or the panel cannot be hidden.
+// newsFields builds one tick row per curated source plus the free-text row for
+// any other feed URL. Each row holds a pointer into the presets slice, so the
+// slice is sized once here, before any pointer is taken, and never grown
+// again while the form is open.
+func (s *settingsForm) newsFields() []formField {
+	catalogue := provider.NewsSources()
+	if len(s.state.feedPresets) != len(catalogue) {
+		grown := make([]bool, len(catalogue))
+		copy(grown, s.state.feedPresets)
+		s.state.feedPresets = grown
+	}
+	fields := make([]formField, 0, len(catalogue)+1)
+	for i, source := range catalogue {
+		fields = append(fields, formField{
+			label: source.Name, kind: fieldBool, flag: &s.state.feedPresets[i],
+		})
+	}
+	return append(fields, formField{
+		label: "other feed urls", kind: fieldText, text: &s.state.feeds,
+	})
+}
+
 func (s *settingsForm) panelField(id string) *formField {
 	if s.ws == nil || id == "" {
 		return nil
@@ -760,6 +870,9 @@ func (s settingsForm) value(field formField) string {
 		return "off"
 	case fieldText:
 		if field.text != nil {
+			if field.summary != nil {
+				return field.summary(*field.text)
+			}
 			return *field.text
 		}
 	case fieldChoice:
@@ -890,8 +1003,12 @@ func (s settingsForm) renderFields(r tideui.Renderer, width, rows int) []string 
 		default:
 			row.Prefix = "    "
 		}
-		if index == s.cursor && s.editing && field.kind == fieldText {
-			row.Suffix = s.value(field) + "▏"
+		if index == s.cursor && s.editing && field.kind == fieldText && field.text != nil {
+			// Editing shows the raw value, not a summary: a field cannot be
+			// edited through a description of itself. The window follows the
+			// caret so a value longer than the row stays reachable.
+			budget := max(12, width-len([]rune(row.Text))-8)
+			row.Suffix = editingView(*field.text, s.caret, budget)
 		}
 		lines = append(lines, r.RenderSoftRow(row, width))
 	}
@@ -900,6 +1017,39 @@ func (s settingsForm) renderFields(r tideui.Renderer, width, rows int) []string 
 	}
 	return lines
 }
+
+// editingView renders the part of a value around the caret, marking the caret
+// where it actually is. The marker used to be appended at the end of the
+// value regardless of caret position, so moving left and typing inserted text
+// nowhere near the visible cursor.
+func editingView(value string, caret, width int) string {
+	runes := []rune(value)
+	caret = min(max(caret, 0), len(runes))
+	if width < 6 {
+		width = 6
+	}
+	budget := width - 1 // the caret marker occupies a cell
+	if len(runes) <= budget {
+		return string(runes[:caret]) + caretMark + string(runes[caret:])
+	}
+	start := min(max(caret-budget/2, 0), len(runes)-budget)
+	end := start + budget
+	head, tail := "", ""
+	if start > 0 {
+		head, start = "…", start+1
+	}
+	if end < len(runes) {
+		tail, end = "…", end-1
+	}
+	if start > end {
+		start = end
+	}
+	window := runes[start:end]
+	at := min(max(caret-start, 0), len(window))
+	return head + string(window[:at]) + caretMark + string(window[at:]) + tail
+}
+
+const caretMark = "▏"
 
 func visibleWindow(total, cursor, limit int) (int, int) {
 	if limit >= total {
