@@ -201,22 +201,6 @@ func (f *demoFeed) Services() []tideui.ServiceStatus {
 	}
 }
 
-// Updates is the demo update status: a pending Omarchy bump and a couple of
-// packages, so the panel has something to show without touching pacman.
-func (f *demoFeed) Updates(now time.Time) tideui.UpdateStatus {
-	return tideui.UpdateStatus{
-		Omarchy:        "4.0.3-1",
-		OmarchyPending: "4.0.4-1",
-		Repo: []tideui.UpdatePackage{
-			{Name: "omarchy", From: "4.0.3-1", To: "4.0.4-1"},
-			{Name: "omarchy-settings", From: "4.0.3-1", To: "4.0.4-1"},
-			{Name: "linux", From: "6.17.2.arch1-1", To: "6.17.4.arch1-1"},
-		},
-		AUR:     []tideui.UpdatePackage{{Name: "yay", From: "12.4.2-1", To: "12.5.0-1"}},
-		Checked: now,
-	}
-}
-
 func (f *demoFeed) Headlines() []tideui.Headline {
 	return []tideui.Headline{
 		{Title: "Linux 6.12 released", Source: "kernel.org", Age: "18m", Unread: true, Tone: tideui.ToneAccent},

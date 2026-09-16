@@ -54,9 +54,6 @@ func newLiveSource(cfg config) *liveSource {
 			WindMPH:    cfg.Weather.WindMPH,
 		}))
 	}
-	// checkupdates syncs a temporary package database over the network, so this
-	// is deliberately slow-polled rather than driven by the one-second tick.
-	dashboard.Updates = provider.NewFetcher(30*time.Minute, provider.Updates(cfg.AURHelper))
 	if feeds := list(cfg.Feeds); len(feeds) > 0 {
 		dashboard.Headlines = provider.NewFetcher(5*time.Minute, provider.Feed(feeds...))
 	}

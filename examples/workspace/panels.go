@@ -183,16 +183,6 @@ func newsPanel(state *demoState) tideui.PanelView {
 	}
 }
 
-func updatesPanel(state *demoState) tideui.PanelView {
-	return func(ctx tideui.PanelContext) string {
-		r := panelRenderer(state, ctx)
-		if ctx.Zoomed {
-			return r.RenderUpdatesDetail(state.updates, ctx.Width)
-		}
-		return r.RenderUpdates(state.updates, ctx.Width)
-	}
-}
-
 func tasksPanel(state *demoState) tideui.PanelView {
 	return func(ctx tideui.PanelContext) string {
 		r := panelRenderer(state, ctx)

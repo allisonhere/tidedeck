@@ -273,11 +273,11 @@ func TestSavePreservesUnknownKeys(t *testing.T) {
   "hand_added": "keep me"
 }`)
 	cfg := loadConfig()
-	if cfg.AURHelper != "paru" || !cfg.Live {
+	if !cfg.Live {
 		t.Fatalf("known keys did not load: %+v", cfg)
 	}
 
-	cfg.AURHelper = "yay"
+	cfg.Interface = "wlan0"
 	if err := cfg.save(); err != nil {
 		t.Fatal(err)
 	}
@@ -290,8 +290,13 @@ func TestSavePreservesUnknownKeys(t *testing.T) {
 	if !ok || nested["endpoint"] != "https://example.com" || nested["every"] != float64(30) {
 		t.Fatalf("a nested unknown key was not preserved: %v", saved["some_future_panel"])
 	}
-	if saved["aur_helper"] != "yay" {
-		t.Fatalf("the edited key was not written: %v", saved["aur_helper"])
+	if saved["interface"] != "wlan0" {
+		t.Fatalf("the edited key was not written: %v", saved["interface"])
+	}
+	// aur_helper belongs to the updates panel now, so the struct has no field
+	// for it - and it must survive exactly like any other unowned key.
+	if saved["aur_helper"] != "paru" {
+		t.Fatalf("a panel-owned key was dropped: %v", saved["aur_helper"])
 	}
 }
 
@@ -301,7 +306,7 @@ func TestSavePreservesUnknownKeys(t *testing.T) {
 func TestSaveClearsOwnedKeysThatAreNowEmpty(t *testing.T) {
 	writeConfig(t, `{
   "panel_gauges": {"system": "marker"},
-  "aur_helper": "paru",
+  "interface": "eth0",
   "keep": "this"
 }`)
 	cfg := loadConfig()
@@ -312,7 +317,7 @@ func TestSaveClearsOwnedKeysThatAreNowEmpty(t *testing.T) {
 	// Clearing an omitempty map means the key is absent from the marshalled
 	// struct entirely, which must clear it rather than keep the old value.
 	cfg.PanelGauges = nil
-	cfg.AURHelper = ""
+	cfg.Interface = ""
 	if err := cfg.save(); err != nil {
 		t.Fatal(err)
 	}
@@ -321,8 +326,8 @@ func TestSaveClearsOwnedKeysThatAreNowEmpty(t *testing.T) {
 	if _, present := saved["panel_gauges"]; present {
 		t.Fatalf("cleared panel_gauges came back as %v", saved["panel_gauges"])
 	}
-	if saved["aur_helper"] != "" {
-		t.Fatalf("cleared aur_helper = %v, want empty", saved["aur_helper"])
+	if saved["interface"] != "" {
+		t.Fatalf("cleared interface = %v, want empty", saved["interface"])
 	}
 	if saved["keep"] != "this" {
 		t.Fatal("clearing an owned key dropped an unowned one")
@@ -337,7 +342,7 @@ func TestSettingsSavePreservesUnknownKeys(t *testing.T) {
 
 	form := newSettingsForm()
 	form.Open(cfg)
-	rebuilt, err := form.state.toConfig()
+	rebuilt, err := form.state.toConfig(form.deck)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -388,7 +393,7 @@ func TestSaveWithoutAnExistingFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	saved := readConfigDoc(t)
-	if saved["aur_helper"] != "yay" {
-		t.Fatalf("defaults were not written: %v", saved["aur_helper"])
+	if saved["zones"] != defaultConfig().Zones {
+		t.Fatalf("defaults were not written: %v", saved["zones"])
 	}
 }

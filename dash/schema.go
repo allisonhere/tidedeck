@@ -25,6 +25,11 @@ type Field struct {
 
 	Options []string // FieldChoice
 
+	// Default is the value to show when the key is absent from the document,
+	// so a fresh install displays what the panel will actually use rather
+	// than an empty row.
+	Default string
+
 	// Normalize tidies a value on save, as the repository list does.
 	Normalize func(string) string
 	// Summary renders a long value as something that fits one row, as the

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -93,10 +94,16 @@ type formState struct {
 	icons          string
 	// doc is the document the edited config came from, carried through the
 	// form so saving preserves keys the form never shows.
-	doc         dash.Values
+	doc dash.Values
+	// panelText and panelFlag hold the edit buffer for each panel-owned
+	// setting, keyed by its configuration key. A panel declares its fields
+	// rather than the form hard-coding them, so these are allocated from the
+	// schema when the form opens rather than being struct fields like those
+	// above.
+	panelText   map[string]*string
+	panelFlag   map[string]*bool
 	panelGauges map[string]string
 	panelSparks map[string]string
-	aurHelper   string
 	feeds       string // custom URLs only; catalogue URLs live in feedPresets
 	feedPresets []bool // one per provider.NewsSources(), same order
 	calendars   string
@@ -129,7 +136,6 @@ func formFromConfig(cfg config) formState {
 		icons:          iconStyleOrDefault(cfg.Icons),
 		panelGauges:    copyStringMap(cfg.PanelGauges),
 		panelSparks:    copyStringMap(cfg.PanelSparks),
-		aurHelper:      cfg.AURHelper,
 		feeds:          customFeeds,
 		feedPresets:    feedPresets,
 		calendars:      cfg.Calendars,
@@ -143,7 +149,7 @@ func formFromConfig(cfg config) formState {
 	}
 }
 
-func (s formState) toConfig() (config, error) {
+func (s formState) toConfig(deck *dash.Deck) (config, error) {
 	latitude, err := parseOptionalFloat(s.latitude)
 	if err != nil {
 		return config{}, fmt.Errorf("latitude: %v", err)
@@ -170,7 +176,6 @@ func (s formState) toConfig() (config, error) {
 		Icons:       iconStyleOrDefault(s.icons),
 		PanelGauges: panelOverrides(s.panelGauges),
 		PanelSparks: panelOverrides(s.panelSparks),
-		AURHelper:   strings.TrimSpace(s.aurHelper),
 		Feeds:       joinFeeds(s.feedPresets, s.feeds),
 		Calendars:   s.calendars,
 		Todo:        s.todo,
@@ -180,7 +185,7 @@ func (s formState) toConfig() (config, error) {
 		Systemd:     s.systemd,
 		Docker:      s.docker,
 		Interface:   s.iface,
-	}.withDoc(s.doc), nil
+	}.withDoc(s.applyPanelFields(s.doc, deck)), nil
 }
 
 // iconStyleNames lists the selectable icon styles as strings.
@@ -334,6 +339,10 @@ type settingsForm struct {
 	repoSummarySource string
 	repoSummaryText   string
 
+	// deck supplies the settings of panels that own their own. It may be nil,
+	// in which case only the hand-written categories are shown.
+	deck *dash.Deck
+
 	// ws backs the per-category panel toggles, which change live visibility
 	// rather than a config value. It is nil when the form runs without a
 	// workspace (as in unit tests), which simply omits those fields.
@@ -441,10 +450,14 @@ func plural(count int, one, many string) string {
 // SetWorkspace attaches the workspace whose panels the Panels category toggles.
 func (s *settingsForm) SetWorkspace(ws *tideui.Workspace) { s.ws = ws }
 
+// SetDeck gives the form the registry whose panels declare their own settings.
+func (s *settingsForm) SetDeck(deck *dash.Deck) { s.deck = deck }
+
 // Open loads cfg into the form and displays the category list.
 func (s *settingsForm) Open(cfg config) {
 	state := formFromConfig(cfg)
 	s.state = &state
+	s.loadPanelFields(cfg)
 	s.opened = true
 	s.categories = s.buildCategories()
 	s.view = viewCategories
@@ -487,9 +500,6 @@ func (s *settingsForm) buildCategories() []settingsCategory {
 		}},
 		{name: "System", panelID: "system", fields: nil},
 		{name: "GPU", panelID: "gpu", fields: nil},
-		{name: "Updates", panelID: "updates", fields: []formField{
-			{label: "aur helper", kind: fieldText, text: &s.state.aurHelper},
-		}},
 		{name: "Network", panelID: "network", fields: []formField{
 			{label: "interface", kind: fieldText, text: &s.state.iface},
 		}},
@@ -512,6 +522,13 @@ func (s *settingsForm) buildCategories() []settingsCategory {
 			{label: "symbols", kind: fieldText, text: &s.state.symbols},
 		}},
 	}
+	// Panels that own their settings declare them; the categories above are
+	// the ones not yet migrated. Merging by panel id keeps a panel's page in
+	// the position the list above gives it, so the order does not jump as
+	// panels move over.
+	categories = mergeCategories(categories, s.panelCategories())
+	s.orderCategories(categories)
+
 	// Put each panel's visibility toggle and metric styles at the top of its
 	// own settings page.
 	for i := range categories {
@@ -612,6 +629,156 @@ func (s *settingsForm) newsFields() []formField {
 	return append(fields, formField{
 		label: "other feed urls", kind: fieldText, text: &s.state.feeds,
 	})
+}
+
+// orderCategories puts the panel pages in the order the panels themselves are
+// in, so the settings list matches the dashboard and does not drift as panels
+// move onto the registry. Pages without a panel - General - stay at the front
+// in the order they were written.
+func (s *settingsForm) orderCategories(categories []settingsCategory) {
+	if s.ws == nil {
+		return
+	}
+	rank := map[string]int{}
+	for i, id := range s.ws.PanelIDs() {
+		rank[id] = i
+	}
+	sort.SliceStable(categories, func(i, j int) bool {
+		return categoryRank(categories[i], rank) < categoryRank(categories[j], rank)
+	})
+}
+
+// categoryRank sorts a page by its panel's position, with non-panel pages
+// first and unknown panels last.
+func categoryRank(category settingsCategory, rank map[string]int) int {
+	if category.panelID == "" {
+		return -1
+	}
+	if index, ok := rank[category.panelID]; ok {
+		return index
+	}
+	return len(rank)
+}
+
+// mergeCategories inserts panel-declared categories into the hand-written
+// list: a panel already listed keeps its position and gains its fields, and
+// one that is not listed is appended.
+func mergeCategories(existing, declared []settingsCategory) []settingsCategory {
+	at := make(map[string]int, len(existing))
+	for i, category := range existing {
+		if category.panelID != "" {
+			at[category.panelID] = i
+		}
+	}
+	for _, category := range declared {
+		if index, ok := at[category.panelID]; ok {
+			existing[index].fields = append(existing[index].fields, category.fields...)
+			continue
+		}
+		existing = append(existing, category)
+	}
+	return existing
+}
+
+// loadPanelFields allocates an edit buffer for every field the registered
+// panels declare, seeded from the document. The buffers are addressed by
+// configuration key, so a panel names the key that is already in the file and
+// nothing is renamed by moving a setting onto a panel.
+func (s *settingsForm) loadPanelFields(cfg config) {
+	s.state.panelText = map[string]*string{}
+	s.state.panelFlag = map[string]*bool{}
+	if s.deck == nil {
+		return
+	}
+	document := cfg.doc
+	for _, category := range s.deck.Schema() {
+		for _, field := range category.Fields {
+			if field.Key == "" {
+				continue // an action stores nothing
+			}
+			switch field.Kind {
+			case dash.FieldBool:
+				value := document.Bool(field.Key)
+				s.state.panelFlag[field.Key] = &value
+			default:
+				value := document.String(field.Key)
+				if value == "" {
+					// Absent means the panel's own default applies; show it,
+					// rather than an empty row that hides what is in use.
+					value = field.Default
+				}
+				s.state.panelText[field.Key] = &value
+			}
+		}
+	}
+}
+
+// panelCategories turns each registered panel's declared fields into settings
+// rows. The rows are ordinary formFields, so editing, choices and the summary
+// display work exactly as they do for the hand-written ones.
+func (s *settingsForm) panelCategories() []settingsCategory {
+	if s.deck == nil {
+		return nil
+	}
+	var out []settingsCategory
+	for _, category := range s.deck.Schema() {
+		rows := make([]formField, 0, len(category.Fields))
+		for _, field := range category.Fields {
+			row := formField{label: field.Label, summary: field.Summary}
+			switch field.Kind {
+			case dash.FieldBool:
+				row.kind, row.flag = fieldBool, s.state.panelFlag[field.Key]
+			case dash.FieldChoice:
+				row.kind, row.choice, row.options = fieldChoice, s.state.panelText[field.Key], field.Options
+			case dash.FieldAction:
+				run := field.Run
+				row.kind, row.action = fieldAction, func() settingsAction {
+					if run != nil {
+						s.problem = run()
+					}
+					return settingsNone
+				}
+			default:
+				row.kind, row.text = fieldText, s.state.panelText[field.Key]
+			}
+			if row.kind != fieldAction && row.text == nil && row.flag == nil && row.choice == nil {
+				continue // a field whose buffer is missing would edit nothing
+			}
+			rows = append(rows, row)
+		}
+		out = append(out, settingsCategory{name: category.Name, panelID: category.PanelID, fields: rows})
+	}
+	return out
+}
+
+// applyPanelFields writes the edit buffers back into the document, applying
+// any normalisation the field asked for.
+func (s formState) applyPanelFields(document dash.Values, deck *dash.Deck) dash.Values {
+	out := document.Clone()
+	if deck == nil {
+		return out
+	}
+	for _, category := range deck.Schema() {
+		for _, field := range category.Fields {
+			if field.Key == "" {
+				continue
+			}
+			if flag, ok := s.panelFlag[field.Key]; ok && flag != nil {
+				out.Set(field.Key, *flag)
+				continue
+			}
+			text, ok := s.panelText[field.Key]
+			if !ok || text == nil {
+				continue
+			}
+			value := *text
+			if field.Normalize != nil {
+				value = field.Normalize(value)
+			}
+			out.Set(field.Key, value)
+		}
+	}
+	return out
 }
 
 func (s *settingsForm) panelField(id string) *formField {
@@ -852,7 +1019,7 @@ func (s *settingsForm) save() settingsAction {
 	if s.state == nil {
 		return settingsNone
 	}
-	cfg, err := s.state.toConfig()
+	cfg, err := s.state.toConfig(s.deck)
 	if err != nil {
 		s.problem = err.Error()
 		return settingsNone

@@ -42,10 +42,6 @@ type config struct {
 	Systemd   string `json:"systemd"`
 	Docker    string `json:"docker"`
 	Interface string `json:"interface"`
-	// AURHelper names the AUR wrapper used to count AUR updates ("yay",
-	// "paru"). Empty falls back to yay.
-	AURHelper string `json:"aur_helper"`
-
 	// doc is the document this config was decoded from. Saving writes the
 	// document back rather than only the fields below, so a key this build
 	// does not recognise - one a panel owns, or one a newer build wrote -
@@ -126,7 +122,6 @@ func defaultConfig() config {
 		SparkStyle: "blocks",
 		ClockFont:  "dash",
 		Icons:      "emoji",
-		AURHelper:  "yay",
 	}
 }
 

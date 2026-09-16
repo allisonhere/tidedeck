@@ -39,7 +39,6 @@ type Snapshot struct {
 	Notes     []tideui.Note
 	Repos     []tideui.RepoActivity
 	Markets   []tideui.MarketQuote
-	Updates   *tideui.UpdateStatus
 
 	Updated time.Time
 	Errors  map[string]error
@@ -124,7 +123,6 @@ type Dashboard struct {
 	Notes     *Fetcher[[]tideui.Note]
 	Repos     *Fetcher[[]tideui.RepoActivity]
 	Markets   *Fetcher[[]tideui.MarketQuote]
-	Updates   *Fetcher[tideui.UpdateStatus]
 }
 
 // Refresh kicks off any stale fetches. Call it from the application tick.
@@ -144,7 +142,6 @@ func (d *Dashboard) Refresh(ctx context.Context) {
 	d.Notes.Refresh(ctx)
 	d.Repos.Refresh(ctx)
 	d.Markets.Refresh(ctx)
-	d.Updates.Refresh(ctx)
 }
 
 // Snapshot reads the cached values without blocking on network or disk.
@@ -188,9 +185,6 @@ func (d *Dashboard) Snapshot() Snapshot {
 	}
 	if value, ok := read(d.Markets, snap.Errors, "markets"); ok {
 		snap.Markets = value
-	}
-	if value, ok := read(d.Updates, snap.Errors, "updates"); ok {
-		snap.Updates = &value
 	}
 	return snap
 }

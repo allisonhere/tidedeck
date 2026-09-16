@@ -10,6 +10,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/allisonhere/tideui"
+	"github.com/allisonhere/tideui/dash"
+	"github.com/allisonhere/tideui/dash/panels"
 	"github.com/allisonhere/tideui/provider"
 )
 
@@ -595,15 +597,25 @@ func TestReadHeadlinesSurviveRefresh(t *testing.T) {
 	}
 }
 
-// Both new panels need a settings category, or their enabled/gauge/spark rows
-// never appear and they cannot be toggled from the UI.
-func TestSettingsHasNewPanelCategories(t *testing.T) {
+// Both panels need a settings category, or their enabled/gauge/spark rows
+// never appear and they cannot be toggled from the UI. Both now declare
+// themselves through the deck rather than being listed by hand.
+func TestSettingsHasPanelDeclaredCategories(t *testing.T) {
 	ws := tideui.NewWorkspace()
-	ws.Panel("gpu", nil).Title("GPU")
-	ws.Panel("updates", nil).Title("Updates")
+	deck := dash.New()
+	deck.Register(panels.GPU(), panels.Updates())
+	deck.Attach(ws)
+
 	form := newSettingsForm()
 	form.SetWorkspace(ws)
-	form.Open(config{AURHelper: "paru"})
+	form.SetDeck(deck)
+
+	// The setting lives in the document, which is where a panel-owned key
+	// belongs now that the typed config has no field for it.
+	cfg := defaultConfig()
+	cfg.doc = dash.NewValues()
+	cfg.doc.Set("aur_helper", "paru")
+	form.Open(cfg)
 
 	found := map[string]bool{}
 	for _, category := range form.categories {
@@ -615,15 +627,46 @@ func TestSettingsHasNewPanelCategories(t *testing.T) {
 		}
 	}
 
-	// The AUR helper round-trips.
+	// The panel's declared field is editable and round-trips through the
+	// document rather than through a struct field.
 	openCategory(t, form, "Updates")
 	field := selectNewsField(t, form, "aur helper")
 	if got := *field.text; got != "paru" {
 		t.Fatalf("aur helper = %q, want paru", got)
 	}
+	*field.text = "yay"
 	form.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
-	if got := form.SavedConfig().AURHelper; got != "paru" {
-		t.Fatalf("saved aur helper = %q, want paru", got)
+
+	saved, err := form.SavedConfig().document()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := saved.String("aur_helper"); got != "yay" {
+		t.Fatalf("saved aur helper = %q, want yay", got)
+	}
+	// Saving a panel-owned key must not disturb the keys the struct owns.
+	if saved.String("zones") != defaultConfig().Zones {
+		t.Fatalf("zones changed to %q", saved.String("zones"))
+	}
+}
+
+// A panel that declares a setting is what puts it in the document, so the
+// panel and the settings screen cannot disagree about where it lives.
+func TestPanelOwnedSettingReachesThePanel(t *testing.T) {
+	deck := dash.New()
+	deck.Register(panels.Updates())
+
+	values := dash.NewValues()
+	values.Set("aur_helper", "paru")
+	if errs := deck.Configure(values); len(errs) != 0 {
+		t.Fatalf("configure errors: %v", errs)
+	}
+	schema := deck.Schema()
+	if len(schema) != 1 || len(schema[0].Fields) != 1 {
+		t.Fatalf("schema = %#v", schema)
+	}
+	if got := schema[0].Fields[0].Key; got != "aur_helper" {
+		t.Fatalf("declared key = %q, want the key already in config.json", got)
 	}
 }
 
@@ -745,5 +788,40 @@ func TestSettingsIconStyleChoice(t *testing.T) {
 	// An unknown value falls back rather than rendering nothing.
 	if got := iconStyleOrDefault("sparkles"); got != string(tideui.IconEmoji) {
 		t.Fatalf("iconStyleOrDefault(sparkles) = %q", got)
+	}
+}
+
+// The settings pages must follow the panels, so the list does not reshuffle
+// as panels move onto the registry - a page declared by a panel is appended
+// to the hand-written list, and only the ordering puts it back in place.
+func TestSettingsCategoriesFollowPanelOrder(t *testing.T) {
+	m := newModel()
+	m.settings.Open(m.cfg)
+
+	rank := map[string]int{}
+	for i, id := range m.ws.PanelIDs() {
+		rank[id] = i
+	}
+	previous := -1
+	seen := 0
+	for _, category := range m.settings.categories {
+		if category.panelID == "" {
+			if seen > 0 {
+				t.Fatalf("the non-panel page %q is not first", category.name)
+			}
+			continue
+		}
+		index, ok := rank[category.panelID]
+		if !ok {
+			t.Fatalf("category %q names an unregistered panel %q", category.name, category.panelID)
+		}
+		if index < previous {
+			t.Fatalf("category %q (panel %d) comes after panel %d", category.name, index, previous)
+		}
+		previous = index
+		seen++
+	}
+	if seen != len(m.ws.PanelIDs()) {
+		t.Fatalf("%d panel pages for %d panels", seen, len(m.ws.PanelIDs()))
 	}
 }

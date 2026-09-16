@@ -80,7 +80,6 @@ type demoState struct {
 	statusAge  int
 
 	tasks     []tideui.Task
-	updates   tideui.UpdateStatus
 	headlines []tideui.Headline
 	// readHeadlines remembers what has been marked read. Every refresh returns
 	// fresh Headline values with Unread set, so without this the mark read
@@ -133,7 +132,6 @@ func newModel() model {
 		clockFont: tideui.ClockFont(clockFontOrDefault(cfg.ClockFont)),
 		icons:     tideui.IconStyle(iconStyleOrDefault(cfg.Icons)),
 		tasks:     feed.Tasks(),
-		updates:   feed.Updates(time.Now()),
 		headlines: feed.Headlines(),
 		services:  feed.Services(),
 		notes:     feed.Notes(),
@@ -171,7 +169,7 @@ func newModel() model {
 	)
 
 	deck := dash.New()
-	deck.Register(panels.GPU())
+	deck.Register(panels.GPU(), panels.Updates())
 	deck.OnStatus(func(message string) { state.status = message })
 	registerPanels(ws, state, deck)
 	applyPanelGauges(ws, cfg)
@@ -183,6 +181,7 @@ func newModel() model {
 
 	settings := newSettingsForm()
 	settings.SetWorkspace(ws)
+	settings.SetDeck(deck)
 
 	return model{
 		state:    state,
@@ -204,19 +203,16 @@ func deckMode(live bool) dash.Mode {
 	return dash.ModeDemo
 }
 
-// values exposes the saved configuration to panels. Until every panel is
-// migrated the typed config is still the source of truth, so this re-encodes
-// it rather than holding a second copy that could drift.
+// values is the whole configuration document: the keys the typed config still
+// owns, plus the keys panels own. Panels are configured from this rather than
+// from the struct, so a setting that has moved onto a panel has exactly one
+// source of truth.
 func (m *model) values() dash.Values {
-	data, err := json.Marshal(m.cfg)
+	document, err := m.cfg.document()
 	if err != nil {
 		return dash.NewValues()
 	}
-	values, err := dash.LoadValues(data)
-	if err != nil {
-		return dash.NewValues()
-	}
-	return values
+	return document
 }
 
 func (m *model) applyConfig() {
@@ -234,12 +230,10 @@ func (m *model) applyConfig() {
 		m.state.source = m.state.live
 		m.state.tasks, m.state.headlines, m.state.services = nil, nil, nil
 		m.state.notes, m.state.repos, m.state.mounts = nil, nil, nil
-		m.state.updates = tideui.UpdateStatus{}
 	} else {
 		m.state.live = nil
 		m.state.source = m.feed
 		m.state.tasks = m.feed.Tasks()
-		m.state.updates = m.feed.Updates(time.Now())
 		m.state.headlines = m.feed.Headlines()
 		m.state.services = m.feed.Services()
 		m.state.notes = m.feed.Notes()
@@ -333,10 +327,6 @@ func registerPanels(ws *tideui.Workspace, state *demoState, deck *dash.Deck) {
 	// rather than before or after the block, leaving the picker and settings
 	// lists unchanged.
 	deck.Attach(ws)
-
-	ws.Panel("updates", updatesPanel(state)).
-		Title("Updates").Subtitle("system").Role(tideui.RoleOptional).Priority(50).MinWidth(20).MinHeight(5).HideBelow(120).
-		Actions(tideui.Action("refresh", "r", func(*tideui.Workspace) { state.status = "checked for updates" }).Labeled("refresh"))
 
 	ws.Panel("network", networkPanel(state)).
 		Title("Network").Role(tideui.RoleSecondary).Priority(70).MinWidth(18).MinHeight(7).HideBelow(104).
@@ -484,9 +474,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if snapshot.Tasks != nil {
 				m.state.tasks = snapshot.Tasks
 			}
-			if snapshot.Updates != nil {
-				m.state.updates = *snapshot.Updates
-			}
 			if snapshot.Headlines != nil {
 				m.state.headlines = snapshot.Headlines
 				m.state.applyReadHeadlines()
@@ -585,14 +572,10 @@ func (m model) refreshBadges() {
 			unread++
 		}
 	}
-	if panel, ok := m.ws.Lookup("updates"); ok {
-		switch pending := m.state.updates.Pending(); {
-		case m.state.updates.Unavailable != "":
-			panel.Badge("?").BadgeTone(tideui.ToneMuted)
-		case pending > 0:
-			panel.Badge(fmt.Sprintf("%d", pending)).BadgeTone(tideui.ToneWarning)
-		default:
-			panel.Badge("ok").BadgeTone(tideui.ToneGood)
+	// Panels on the deck advertise their own badges.
+	for id, badge := range m.deck.Badges() {
+		if panel, ok := m.ws.Lookup(id); ok {
+			panel.Badge(badge.Text).BadgeTone(badge.Tone)
 		}
 	}
 	if panel, ok := m.ws.Lookup("news"); ok {
