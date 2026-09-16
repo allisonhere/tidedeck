@@ -15,7 +15,6 @@ import (
 // data is simulated or real.
 type dataSource interface {
 	Agenda(time.Time, int) []tideui.AgendaItem
-	System(time.Time) tideui.SystemMetrics
 	Network(time.Time) tideui.NetworkMetrics
 	Markets(time.Time) []tideui.MarketQuote
 }
@@ -34,7 +33,6 @@ type liveSource struct {
 // empty.
 func newLiveSource(cfg config) *liveSource {
 	dashboard := &provider.Dashboard{
-		System:  provider.NewFetcher(time.Second, provider.System()),
 		Network: provider.NewFetcher(time.Second, provider.Network(strings.TrimSpace(cfg.Interface))),
 		Storage: provider.NewFetcher(2*time.Minute, provider.Storage()),
 	}
@@ -104,13 +102,6 @@ func agendaEndTime(item tideui.AgendaItem) time.Time {
 		return item.Start.AddDate(0, 0, 1)
 	}
 	return item.Start
-}
-
-func (s *liveSource) System(time.Time) tideui.SystemMetrics {
-	if snapshot := s.snapshotCopy(); snapshot.System != nil {
-		return *snapshot.System
-	}
-	return tideui.SystemMetrics{}
 }
 
 func (s *liveSource) Network(time.Time) tideui.NetworkMetrics {

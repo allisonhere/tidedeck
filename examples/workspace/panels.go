@@ -79,17 +79,6 @@ func markedDays(items []tideui.AgendaItem, day time.Time) map[int]bool {
 	return marked
 }
 
-func systemPanel(state *demoState) tideui.PanelView {
-	return func(ctx tideui.PanelContext) string {
-		r := panelRenderer(state, ctx)
-		m := state.source.System(state.now)
-		if ctx.Zoomed {
-			return r.RenderSystemDetail(m, ctx.Width)
-		}
-		return r.RenderSystem(m, ctx.Width)
-	}
-}
-
 func networkPanel(state *demoState) tideui.PanelView {
 	return func(ctx tideui.PanelContext) string {
 		r := panelRenderer(state, ctx)

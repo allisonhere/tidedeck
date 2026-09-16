@@ -156,7 +156,9 @@ func newModel() model {
 	)
 
 	deck := dash.New()
-	deck.Register(panels.Weather(), panels.GPU(), panels.Updates(), panels.Clock())
+	// System is registered first so the deck attaches it where the hand-written
+	// registration used to sit, keeping the panel and settings order stable.
+	deck.Register(panels.System(), panels.Weather(), panels.GPU(), panels.Updates(), panels.Clock())
 	deck.OnStatus(func(message string) { state.status = message })
 	registerPanels(ws, state, deck)
 	registerPresets(ws)
@@ -237,6 +239,10 @@ func (m *model) applyConfig() {
 	// second from now: a panel that holds its own data renders empty until
 	// something fills it, and the first frame is drawn before that tick.
 	m.deck.Tick(m.state.now)
+	// Deck badges are read from the panels, so apply them now too; otherwise a
+	// migrated panel loses the header badge its hand-written registration used
+	// to set directly, until the first tick a second later.
+	m.refreshBadges()
 }
 
 // applyStylePreview mirrors the settings form's current metric styles onto the
@@ -296,11 +302,6 @@ func registerPanels(ws *tideui.Workspace, state *demoState, deck *dash.Deck) {
 			tideui.Action("prev", "p", func(*tideui.Workspace) { state.agendaOffset--; state.status = "calendar: -day" }).Labeled("prev"),
 			tideui.Action("today", "0", func(*tideui.Workspace) { state.agendaOffset = 0; state.status = "calendar: today" }).Labeled("today"),
 		)
-
-	ws.Panel("system", systemPanel(state)).
-		Title("System").Role(tideui.RolePrimary).Priority(95).MinWidth(20).MinHeight(7).
-		Badge("healthy").BadgeTone(tideui.ToneGood).
-		Actions(tideui.Action("refresh", "r", func(*tideui.Workspace) { state.status = "system sampled" }).Labeled("refresh"))
 
 	// Registered panels keep their declared order, so the deck attaches here
 	// rather than before or after the block, leaving the picker and settings

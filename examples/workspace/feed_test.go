@@ -14,9 +14,6 @@ func TestFeedIsDeterministic(t *testing.T) {
 	b := newDemoFeed(7, started)
 	now := started.Add(42 * time.Second)
 
-	if !reflect.DeepEqual(a.System(now), b.System(now)) {
-		t.Fatal("system is not deterministic")
-	}
 	if !reflect.DeepEqual(a.Network(now), b.Network(now)) {
 		t.Fatal("network is not deterministic")
 	}

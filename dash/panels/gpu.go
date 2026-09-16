@@ -1,11 +1,11 @@
-// Package panels holds the built-in dashboard panels. Each file is one
-// panel: what it fetches, how it draws itself, and what it lets you
-// configure. Adding a panel means adding a file here and registering it.
+// Package panels holds the built-in dashboard panels. A panel's file carries
+// what it fetches, how it draws itself, and what it lets you configure, so
+// adding a panel means adding a file here and registering it; demo.go holds
+// the sample-data helpers the Demo methods share.
 package panels
 
 import (
 	"context"
-	"math"
 	"time"
 
 	"github.com/allisonhere/tideui"
@@ -73,13 +73,4 @@ func (g *gpu) Actions() []dash.Action {
 		ID: "refresh", Key: "r", Label: "refresh", Refresh: true,
 		Run: func() string { return "sampling gpu…" },
 	}}
-}
-
-// wave is a smooth repeating signal, so demo data drifts instead of jumping.
-func wave(t, period, phase float64) float64 {
-	return math.Sin(2*math.Pi*(t/period) + phase)
-}
-
-func clamp(value, low, high float64) float64 {
-	return math.Max(low, math.Min(high, value))
 }

@@ -73,32 +73,6 @@ func (f *demoFeed) Agenda(now time.Time, dayOffset int) []tideui.AgendaItem {
 	return upcoming
 }
 
-func (f *demoFeed) System(now time.Time) tideui.SystemMetrics {
-	t := f.elapsed(now)
-	cpu := clampRange(18+10*wave(t, 9, 0)+4*wave(t, 3, 1), 3, 98)
-	mem := clampRange(41+6*wave(t, 60, 2), 18, 94)
-	cores := make([]float64, 8)
-	for i := range cores {
-		cores[i] = clampRange(cpu+9*wave(t, 5, float64(i)), 0, 100)
-	}
-	return tideui.SystemMetrics{
-		CPUPercent:    cpu,
-		CPUSpark:      series(t, 18, 7, 0, 0.35, 0.4),
-		Cores:         cores,
-		MemoryPercent: mem,
-		MemoryUsed:    "13.1 GB",
-		MemoryTotal:   "32 GB",
-		TemperatureC:  54 + int(3*wave(t, 180, 0)),
-		Load: [3]float64{
-			1.4 + 0.5*wave(t, 30, 0),
-			1.1 + 0.4*wave(t, 30, 1),
-			0.9 + 0.3*wave(t, 30, 2),
-		},
-		Uptime:    3*24*time.Hour + 14*time.Hour + time.Duration(t)*time.Second,
-		Processes: 312 + int(4*wave(t, 45, 1)),
-	}
-}
-
 func (f *demoFeed) Network(now time.Time) tideui.NetworkMetrics {
 	t := f.elapsed(now)
 	down := clampRange(87+35*wave(t, 8, 0), 0, 950)

@@ -462,7 +462,6 @@ func (s *settingsForm) buildCategories() []settingsCategory {
 		{name: "Calendar", panelID: "agenda", fields: []formField{
 			{label: "sources (.ics or URL)", kind: fieldText, text: &s.state.calendars},
 		}},
-		{name: "System", panelID: "system", fields: nil},
 		{name: "GPU", panelID: "gpu", fields: nil},
 		{name: "Network", panelID: "network", fields: []formField{
 			{label: "interface", kind: fieldText, text: &s.state.iface},

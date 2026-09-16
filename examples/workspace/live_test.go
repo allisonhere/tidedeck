@@ -11,27 +11,23 @@ import (
 )
 
 // TestLiveSourceCollectsLocalMetrics exercises the live provider path without
-// network: system, network, and storage come from /proc and statfs. Only those
-// local sources are configured.
+// network: network and storage come from /proc and statfs. Only those local
+// sources are configured; system is a registry panel now and is covered in
+// dash/panels.
 func TestLiveSourceCollectsLocalMetrics(t *testing.T) {
 	if runtime.GOOS != "linux" {
-		t.Skip("live system metrics are linux-only")
+		t.Skip("live network and storage metrics are linux-only")
 	}
-	cfg := config{Interface: ""}
-
-	source := newLiveSource(cfg)
+	source := newLiveSource(config{})
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		source.refresh(context.Background())
-		if snapshot := source.snapshotCopy(); snapshot.System != nil {
-			if snapshot.System.CPUPercent < 0 || snapshot.System.CPUPercent > 100 {
-				t.Fatalf("cpu percent = %v", snapshot.System.CPUPercent)
-			}
+		if snapshot := source.snapshotCopy(); len(snapshot.Storage) > 0 {
 			return
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	t.Fatal("no system metrics collected from /proc")
+	t.Fatal("no storage metrics collected from /proc")
 }
 
 func TestAgendaNoticePrefersTheHint(t *testing.T) {

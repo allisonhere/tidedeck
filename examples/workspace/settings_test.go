@@ -405,17 +405,17 @@ func TestSettingsClockFontChoice(t *testing.T) {
 
 func TestSettingsPanelGaugeChoice(t *testing.T) {
 	ws := tideui.NewWorkspace()
-	ws.Panel("system", nil).Title("System")
+	ws.Panel("gpu", nil).Title("GPU")
 	form := newSettingsForm()
 	form.SetWorkspace(ws)
 	form.Open(config{})
 
 	for i, category := range form.categories {
-		if category.name != "System" {
+		if category.name != "GPU" {
 			continue
 		}
 		form.category = i
-		form.Update(tea.KeyMsg{Type: tea.KeyEnter}) // open System
+		form.Update(tea.KeyMsg{Type: tea.KeyEnter}) // open GPU
 		form.Update(tea.KeyMsg{Type: tea.KeyDown})  // enabled -> gauge style
 		field := form.currentField()
 		if field == nil || field.kind != fieldChoice {
@@ -431,12 +431,12 @@ func TestSettingsPanelGaugeChoice(t *testing.T) {
 		if action := form.Update(tea.KeyMsg{Type: tea.KeyCtrlS}); action != settingsSaved {
 			t.Fatalf("save action = %v", action)
 		}
-		if form.SavedConfig().PanelGauges["system"] == "" {
+		if form.SavedConfig().PanelGauges["gpu"] == "" {
 			t.Fatalf("panel gauge not saved: %+v", form.SavedConfig().PanelGauges)
 		}
 		return
 	}
-	t.Fatal("no System category")
+	t.Fatal("no GPU category")
 }
 
 func TestSettingsCategoryNavigation(t *testing.T) {

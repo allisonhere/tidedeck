@@ -31,7 +31,6 @@ const defaultTimeout = 12 * time.Second
 // keyed by source name.
 type Snapshot struct {
 	Agenda    []tideui.AgendaItem
-	System    *tideui.SystemMetrics
 	Network   *tideui.NetworkMetrics
 	Storage   []tideui.StorageMount
 	Services  []tideui.ServiceStatus
@@ -113,7 +112,6 @@ func (f *Fetcher[T]) Value() (T, error, bool) {
 // Dashboard bundles the available sources. Any field may be nil.
 type Dashboard struct {
 	Agenda    *Fetcher[[]tideui.AgendaItem]
-	System    *Fetcher[tideui.SystemMetrics]
 	Network   *Fetcher[tideui.NetworkMetrics]
 	Storage   *Fetcher[[]tideui.StorageMount]
 	Services  *Fetcher[[]tideui.ServiceStatus]
@@ -130,7 +128,6 @@ func (d *Dashboard) Refresh(ctx context.Context) {
 		return
 	}
 	d.Agenda.Refresh(ctx)
-	d.System.Refresh(ctx)
 	d.Network.Refresh(ctx)
 	d.Storage.Refresh(ctx)
 	d.Services.Refresh(ctx)
@@ -149,9 +146,6 @@ func (d *Dashboard) Snapshot() Snapshot {
 	}
 	if value, ok := read(d.Agenda, snap.Errors, "agenda"); ok {
 		snap.Agenda = value
-	}
-	if value, ok := read(d.System, snap.Errors, "system"); ok {
-		snap.System = &value
 	}
 	if value, ok := read(d.Network, snap.Errors, "network"); ok {
 		snap.Network = &value
