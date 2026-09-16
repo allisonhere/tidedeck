@@ -1051,12 +1051,14 @@ func serviceAge(item ServiceStatus) string {
 	return "--"
 }
 
-// RenderHeadlines renders a compact headline list.
+// RenderHeadlines renders each headline as its source followed by the title
+// wrapped as a sentence, with unread stories brightest.
 func (r Renderer) RenderHeadlines(items []Headline, width int) string {
 	return r.renderHeadlines(items, width, false)
 }
 
-// RenderHeadlinesDetail renders more headlines with sources.
+// RenderHeadlinesDetail renders more headlines than the compact list, in the
+// same source-then-wrapped-sentence shape.
 func (r Renderer) RenderHeadlinesDetail(items []Headline, width int) string {
 	return r.renderHeadlines(items, width, true)
 }
@@ -1071,37 +1073,48 @@ func (r Renderer) renderHeadlines(items []Headline, width int, detail bool) stri
 	if detail {
 		limit = 12
 	}
-	twoLine := !r.Styles.Density.IsDense()
+	// A read headline dims; an unread one stays bright. The source is the
+	// item's anchor rather than a right-aligned afterthought, so each entry
+	// reads as "source — sentence" and the sentence wraps under it. No bullet:
+	// the dimming already carries read state, and a glyph per row made the
+	// panel a wall of markers.
+	readStyle := lipgloss.NewStyle().Background(bg).Foreground(ws.BodyDimmedFg)
+	unreadStyle := lipgloss.NewStyle().Background(bg).Foreground(ws.BodyFg)
+	sourceStyle := lipgloss.NewStyle().Background(bg).Foreground(ws.SubtitleFg)
 	var lines []string
 	for i, item := range items {
 		if i >= limit {
 			break
 		}
-		// Headlines stay neutral; only the unread marker carries accent so the
-		// panel never becomes a wall of colour.
-		titleStyle := lipgloss.NewStyle().Background(bg).Foreground(ws.BodyFg)
-		if !item.Unread {
-			titleStyle = titleStyle.Foreground(ws.BodyDimmedFg)
-		}
-		marker := " "
+		style := readStyle
 		if item.Unread {
-			marker = lipgloss.NewStyle().Background(bg).Foreground(r.toneColor(ToneAccent)).
-				Render(StatusHealthy.Glyph(r.Styles.PlainUI))
+			style = unreadStyle
 		}
-		title := titleStyle.Render(item.Title)
-		if twoLine {
-			lines = append(lines, marker+lipgloss.NewStyle().Background(bg).Render(" ")+title)
-			meta := item.Source
-			if item.Age != "" {
-				meta += "  ·  " + item.Age
+		source := item.Source
+		if source == "" {
+			source = "news"
+		}
+		if item.Age != "" {
+			source += " · " + item.Age
+		}
+		indent := lipgloss.Width(source) + 2
+		prefix := sourceStyle.Render(source) + sourceStyle.Render("  ")
+		// A long source with no room beside it gets its own line, so the
+		// sentence still has the full width to wrap into.
+		if indent > width*2/3 || width-indent < 8 {
+			lines = append(lines, sourceStyle.Render(source))
+			indent, prefix = 0, ""
+		}
+		avail := width - indent
+		if avail < 4 {
+			avail, indent, prefix = width, 0, ""
+		}
+		for j, part := range strings.Split(ansi.Wordwrap(item.Title, avail, ""), "\n") {
+			if j == 0 {
+				lines = append(lines, prefix+style.Render(part))
+				continue
 			}
-			lines = append(lines, lipgloss.NewStyle().Background(bg).Foreground(ws.SubtitleFg).Render("   "+meta))
-		} else {
-			meta := item.Source
-			if item.Age != "" {
-				meta += " " + item.Age
-			}
-			lines = append(lines, alignRow(marker+" "+title, "", lipgloss.NewStyle().Background(bg).Foreground(ws.SubtitleFg).Render(meta), width))
+			lines = append(lines, strings.Repeat(" ", indent)+style.Render(part))
 		}
 	}
 	return r.dashBlock(lines, width, bg)

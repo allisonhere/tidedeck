@@ -398,18 +398,21 @@ func TestRenderServicesAndHeadlines(t *testing.T) {
 	}
 
 	headlines := ansi.Strip(r.RenderHeadlines([]Headline{
-		{Title: "A very long headline that must be truncated somewhere", Source: "src", Age: "5m", Unread: true, Tone: ToneAccent},
+		{Title: "A very long headline that must be wrapped somewhere", Source: "src", Age: "5m", Unread: true, Tone: ToneAccent},
 	}, 20))
 	for _, line := range strings.Split(headlines, "\n") {
 		if lipgloss.Width(line) > 20 {
 			t.Fatalf("headline line too wide: %q", line)
 		}
 	}
-	if !strings.Contains(headlines, "…") {
-		t.Fatalf("headline should truncate:\n%s", headlines)
+	if !strings.HasPrefix(headlines, "src") {
+		t.Fatalf("headline should lead with its source:\n%s", headlines)
 	}
-	if !strings.Contains(headlines, "●") {
-		t.Fatalf("unread headline should show a marker:\n%s", headlines)
+	if strings.Contains(headlines, "●") {
+		t.Fatalf("headlines should not use a bullet:\n%s", headlines)
+	}
+	if len(strings.Split(strings.TrimRight(headlines, "\n"), "\n")) < 2 {
+		t.Fatalf("a long headline should wrap:\n%s", headlines)
 	}
 }
 
