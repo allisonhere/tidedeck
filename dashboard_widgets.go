@@ -1074,10 +1074,10 @@ func (r Renderer) renderHeadlines(items []Headline, width int, detail bool) stri
 		limit = 12
 	}
 	// A read headline dims; an unread one stays bright. The source is the
-	// item's anchor rather than a right-aligned afterthought, so each entry
-	// reads as "source — sentence" and the sentence wraps under it. No bullet:
-	// the dimming already carries read state, and a glyph per row made the
-	// panel a wall of markers.
+	// item's anchor rather than a right-aligned afterthought: the sentence
+	// starts beside it and wraps underneath it at the left margin, so the
+	// wrapped lines use the whole width and the panel is not a wall of
+	// markers.
 	readStyle := lipgloss.NewStyle().Background(bg).Foreground(ws.BodyDimmedFg)
 	unreadStyle := lipgloss.NewStyle().Background(bg).Foreground(ws.BodyFg)
 	sourceStyle := lipgloss.NewStyle().Background(bg).Foreground(ws.SubtitleFg)
@@ -1097,27 +1097,48 @@ func (r Renderer) renderHeadlines(items []Headline, width int, detail bool) stri
 		if item.Age != "" {
 			source += " · " + item.Age
 		}
-		indent := lipgloss.Width(source) + 2
-		prefix := sourceStyle.Render(source) + sourceStyle.Render("  ")
+		avail := width - lipgloss.Width(source) - 2
 		// A long source with no room beside it gets its own line, so the
 		// sentence still has the full width to wrap into.
-		if indent > width*2/3 || width-indent < 8 {
+		if avail < 8 {
 			lines = append(lines, sourceStyle.Render(source))
-			indent, prefix = 0, ""
-		}
-		avail := width - indent
-		if avail < 4 {
-			avail, indent, prefix = width, 0, ""
-		}
-		for j, part := range strings.Split(ansi.Wordwrap(item.Title, avail, ""), "\n") {
-			if j == 0 {
-				lines = append(lines, prefix+style.Render(part))
-				continue
+			for _, part := range strings.Split(ansi.Wordwrap(item.Title, width, ""), "\n") {
+				lines = append(lines, style.Render(part))
 			}
-			lines = append(lines, strings.Repeat(" ", indent)+style.Render(part))
+			continue
+		}
+		head, rest := wrapFirst(item.Title, avail)
+		lines = append(lines, sourceStyle.Render(source)+sourceStyle.Render("  ")+style.Render(head))
+		if rest != "" {
+			for _, part := range strings.Split(ansi.Wordwrap(rest, width, ""), "\n") {
+				lines = append(lines, style.Render(part))
+			}
 		}
 	}
 	return r.dashBlock(lines, width, bg)
+}
+
+// wrapFirst takes the words of s that fit in limit as the first line and
+// returns the remainder, so a sentence can start beside a source and its tail
+// can then wrap at the full width. A single word wider than limit is returned
+// whole in the first line, where the caller's own bound truncates it.
+func wrapFirst(s string, limit int) (string, string) {
+	words := strings.Fields(s)
+	if len(words) == 0 {
+		return "", ""
+	}
+	line := ""
+	for i, word := range words {
+		candidate := word
+		if line != "" {
+			candidate = line + " " + word
+		}
+		if line != "" && lipgloss.Width(candidate) > limit {
+			return line, strings.Join(words[i:], " ")
+		}
+		line = candidate
+	}
+	return line, ""
 }
 
 // RenderTasks renders a task list with checkboxes and due dates.

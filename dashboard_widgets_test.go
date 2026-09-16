@@ -416,6 +416,25 @@ func TestRenderServicesAndHeadlines(t *testing.T) {
 	}
 }
 
+// A headline's wrapped tail starts at the left margin, under the source,
+// rather than hanging-indented beneath the sentence.
+func TestHeadlineWrapsUnderSource(t *testing.T) {
+	r := chromeRenderer(Dense)
+	out := ansi.Strip(r.RenderHeadlines([]Headline{
+		{Title: "alpha beta gamma delta epsilon zeta eta theta", Source: "src", Age: "1m", Unread: true},
+	}, 30))
+	lines := strings.Split(out, "\n")
+	if len(lines) < 2 {
+		t.Fatalf("expected a wrapped headline:\n%s", out)
+	}
+	if !strings.HasPrefix(lines[0], "src · 1m  alpha") {
+		t.Fatalf("first line should lead with the source and start the sentence: %q", lines[0])
+	}
+	if strings.HasPrefix(lines[1], " ") {
+		t.Fatalf("wrapped tail should start under the source, got %q", lines[1])
+	}
+}
+
 func TestRenderTasksNotesGitMarkets(t *testing.T) {
 	r := chromeRenderer(Compact)
 	tasks := ansi.Strip(r.RenderTasks([]Task{
