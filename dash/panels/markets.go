@@ -3,6 +3,7 @@ package panels
 import (
 	"context"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/allisonhere/tideui"
@@ -12,6 +13,10 @@ import (
 
 // symbolsKey is the configuration key this panel owns: the ticker symbols.
 const symbolsKey = "symbols"
+
+// defaultSymbols is the watchlist used when none is configured, so the panel
+// is useful out of the box the way the clock has default zones.
+const defaultSymbols = "AMD,NVDA,SPY,GOOG"
 
 // markets shows a quote and day change for each configured symbol. It ships
 // with its own contrasting theme, to show that a panel can opt out of the
@@ -28,7 +33,9 @@ func (m *markets) Meta() dash.Meta {
 	return dash.Meta{
 		ID: "markets", Title: "Markets",
 		Role: tideui.RoleOptional, Priority: 50,
-		MinWidth: 18, MinHeight: 6, HideBelow: 160,
+		// HideBelow matches the storage threshold rather than the old 160, so
+		// enabling the panel actually shows it on a normal wide terminal.
+		MinWidth: 18, MinHeight: 6, HideBelow: 120,
 		Interval: time.Minute,
 		Theme:    tideui.GruvboxLight,
 	}
@@ -36,17 +43,18 @@ func (m *markets) Meta() dash.Meta {
 
 func (m *markets) Schema() []dash.Field {
 	return []dash.Field{{
-		Key: symbolsKey, Label: "symbols", Kind: dash.FieldText,
+		Key: symbolsKey, Label: "symbols", Kind: dash.FieldText, Default: defaultSymbols,
 	}}
 }
 
-// Configure builds the source from the configured symbols. With none there is
-// nothing to quote, so the panel fetches nothing.
+// Configure builds the source from the configured symbols, falling back to the
+// default watchlist when none is set, so the panel is not blank on a fresh
+// install. An explicit empty value is treated the same as unset: there is no
+// way to ask for no quotes and have anything to show.
 func (m *markets) Configure(values dash.Values) error {
 	symbols := values.List(symbolsKey)
 	if len(symbols) == 0 {
-		m.fetch = nil
-		return nil
+		symbols = strings.Split(defaultSymbols, ",")
 	}
 	m.fetch = provider.Markets(symbols...)
 	return nil

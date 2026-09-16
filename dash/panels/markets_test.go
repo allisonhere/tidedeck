@@ -16,7 +16,7 @@ func TestMarketsPanelMeta(t *testing.T) {
 	if meta.ID != "markets" || meta.Title != "Markets" {
 		t.Fatalf("meta = %#v", meta)
 	}
-	if meta.MinWidth != 18 || meta.MinHeight != 6 || meta.HideBelow != 160 || meta.Priority != 50 {
+	if meta.MinWidth != 18 || meta.MinHeight != 6 || meta.HideBelow != 120 || meta.Priority != 50 {
 		t.Fatalf("sizing changed: %#v", meta)
 	}
 	if meta.Interval != time.Minute {
@@ -28,16 +28,15 @@ func TestMarketsPanelMeta(t *testing.T) {
 	}
 }
 
-func TestMarketsConfigureBuildsSourceOrNot(t *testing.T) {
+// With no symbols configured the panel falls back to the default watchlist, so
+// it is not blank on a fresh install; configured symbols replace it.
+func TestMarketsConfigureFallsBackToDefaults(t *testing.T) {
 	panel := Markets().(*markets)
 	if err := panel.Configure(dash.NewValues()); err != nil {
 		t.Fatal(err)
 	}
-	if panel.fetch != nil {
-		t.Fatal("an empty symbol list should build no fetcher")
-	}
-	if err := panel.Refresh(context.Background()); err != nil {
-		t.Fatalf("an unconfigured refresh should be a no-op, got %v", err)
+	if panel.fetch == nil {
+		t.Fatal("no configured symbols should still build the default watchlist")
 	}
 	values := dash.NewValues()
 	values.Set(symbolsKey, "AMD,NVDA")
@@ -46,6 +45,11 @@ func TestMarketsConfigureBuildsSourceOrNot(t *testing.T) {
 	}
 	if panel.fetch == nil {
 		t.Fatal("configured symbols should build a fetcher")
+	}
+	// The declared default is what the settings row shows when the key is absent.
+	field := Markets().(*markets).Schema()[0]
+	if field.Default != defaultSymbols {
+		t.Fatalf("schema default = %q, want %q", field.Default, defaultSymbols)
 	}
 }
 
