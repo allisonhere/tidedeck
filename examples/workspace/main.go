@@ -135,7 +135,7 @@ func newModel() model {
 	// Panels are registered in the order the hand-written registrations used to
 	// sit, so the deck attaches them — and the settings list orders them — the
 	// way the dashboard always did.
-	deck.Register(panels.Agenda(), panels.System(), panels.Weather(), panels.GPU(), panels.Updates(), panels.Clock(), panels.Git(), panels.News(), panels.Network(), panels.Storage(), panels.Services(), panels.Tasks(), panels.Notes(), panels.Markets())
+	deck.Register(panels.Agenda(), panels.System(), panels.Weather(), panels.GPU(), panels.Updates(), panels.Clock(), panels.Git(), panels.News(), panels.Network(), panels.Storage(), panels.Services(), panels.Tasks(), panels.Notes(), panels.Markets(), panels.Calculator())
 
 	// Plugins are discovered once, at startup: drop a directory into
 	// <config>/tidedeck/plugins to add one, delete it to remove one. A
@@ -446,6 +446,16 @@ func (m *model) applyPluginOp(msg pluginOpMsg) {
 	}
 }
 
+// focusedInput returns the focused panel's Input when it accepts typing.
+func (m model) focusedInput() (dash.Input, bool) {
+	panel, ok := m.deck.Lookup(m.ws.Focused())
+	if !ok {
+		return nil, false
+	}
+	input, ok := panel.(dash.Input)
+	return input, ok
+}
+
 func (m model) refreshBadges() {
 	// Panels on the deck advertise their own badges.
 	for id, badge := range m.deck.Badges() {
@@ -492,6 +502,28 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if !m.ws.Arranging() {
+		// A focused panel that accepts typing gets the keys it asks for before
+		// any application shortcut, so typing into a calculator does not
+		// trigger one. It only takes the keys it wants; everything else falls
+		// through.
+		if input, ok := m.focusedInput(); ok {
+			switch msg.Type {
+			case tea.KeyRunes:
+				consumed := false
+				for _, r := range msg.Runes {
+					if input.Type(r) {
+						consumed = true
+					}
+				}
+				if consumed {
+					return m, nil
+				}
+			case tea.KeyBackspace:
+				if input.Backspace() {
+					return m, nil
+				}
+			}
+		}
 		switch msg.String() {
 		case "q", "ctrl+c":
 			_ = m.ws.Persist()

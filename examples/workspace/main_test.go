@@ -222,3 +222,35 @@ func TestPresetShortcutsNeedAlt(t *testing.T) {
 		t.Fatalf("alt+2 did not switch preset (still %q)", got)
 	}
 }
+
+// The calculator takes the keys it wants while focused, and typing must not
+// trigger an application shortcut or change the preset.
+func TestCalculatorTakesTypedInput(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := newModel()
+	m.width, m.height = 120, 40
+	m.ws.Show("calculator")
+	m.ws.Focus("calculator")
+	preset := m.ws.ActivePreset()
+
+	for _, r := range "12*8" {
+		m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	panel, ok := m.ws.Lookup("calculator")
+	if !ok {
+		t.Fatal("no calculator panel")
+	}
+	body := ansi.Strip(panel.Render(tideui.PanelContext{ID: "calculator", Width: 30, Renderer: viewRenderer(m.state)}))
+	if !strings.Contains(body, "= 96") {
+		t.Fatalf("calculator =\n%s", body)
+	}
+	if m.ws.ActivePreset() != preset {
+		t.Fatalf("typing changed the preset: %q -> %q", preset, m.ws.ActivePreset())
+	}
+	// Backspace edits the expression too.
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyBackspace})
+	body = ansi.Strip(panel.Render(tideui.PanelContext{ID: "calculator", Width: 30, Renderer: viewRenderer(m.state)}))
+	if !strings.Contains(body, "12*") {
+		t.Fatalf("calculator after backspace =\n%s", body)
+	}
+}

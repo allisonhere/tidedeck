@@ -874,6 +874,7 @@ the dashboard looks alive before anything is configured.
 | `Ticker` | `Tick(now time.Time)` | changes with the clock between refreshes |
 | `Badger` | `Badge() (string, tideui.Tone)` | advertises a header badge |
 | `Actor` | `Actions() []Action` | offers contextual keys |
+| `Input` | `Type(rune) bool`, `Backspace() bool` | takes typing while focused (see `panels.Calculator`) |
 
 An `Action` with `Refresh: true` makes the deck treat the panel as due again
 before `Run` is called, so a refresh key refetches rather than only printing a

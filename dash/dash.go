@@ -81,6 +81,15 @@ type AlwaysLive interface {
 	AlwaysLive() bool
 }
 
+// Input is implemented by a panel that takes typing while it has focus, so a
+// panel can offer a small live input - a calculator. Only the keys the panel
+// wants are consumed (Type reports whether it took the rune); every other key,
+// including application shortcuts and focus movement, is left to the caller.
+type Input interface {
+	Type(r rune) bool
+	Backspace() bool
+}
+
 // Configurable is implemented by a panel with settings of its own. Schema
 // declares the fields; Configure applies them.
 type Configurable interface {
