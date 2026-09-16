@@ -1089,10 +1089,7 @@ plugin cannot overflow its pane whatever it prints.
 `contrib/ai-usage/` is a working example: a `jq` projection of
 `ai-usagebar usage --json`, which is a projection rather than a translation
 because the two formats already agree on `type`/`label`/`value`/`percent`/
-`severity`. `contrib/calculator/` is a smaller one, and is also published at
-[`allisonhere/tidedeck-plugins`](https://github.com/allisonhere/tidedeck-plugins)
-so you can install it from a live URL with
-`https://github.com/allisonhere/tidedeck-plugins#calculator`.
+`severity`.
 
 #### Running them
 
@@ -1131,9 +1128,9 @@ and registers the panel. Each installed plugin is listed with an **update**
 hand: drop a directory into `~/.config/tidedeck/plugins/` and restart.
 
 A source may name a **subdirectory** so one repository can host several
-plugins: `https://github.com/you/tidedeck-plugins#calculator` installs the
-plugin whose manifest lives in `calculator/`. A local path takes the same form
-(`~/Projects/tidedeck-plugins#calculator`).
+plugins: `https://github.com/you/tidedeck-plugins#my-panel` installs the
+plugin whose manifest lives in `my-panel/`. A local path takes the same form
+(`~/Projects/tidedeck-plugins#my-panel`).
 
 A manifest that does not validate is skipped and its reason is shown in the
 status strip (or on its row in the Plugins page); the others still load.

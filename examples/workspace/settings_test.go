@@ -853,7 +853,7 @@ func TestPluginInstallFieldLooksLikeAnInput(t *testing.T) {
 		t.Fatalf("filled input = %q", got)
 	}
 	// A long value is truncated so the label keeps its room.
-	if got := inputView("https://github.com/you/tidedeck-plugins#calculator", "x", 20); ansi.StringWidth(got) > 20 {
+	if got := inputView("https://github.com/you/tidedeck-plugins#my-panel", "x", 20); ansi.StringWidth(got) > 20 {
 		t.Fatalf("long input = %q, exceeds its budget", got)
 	}
 

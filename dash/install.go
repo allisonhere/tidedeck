@@ -178,7 +178,7 @@ func Update(dir, id string) (Manifest, error) {
 
 // parseSource splits "source#subdir" into the fetch source and the directory
 // inside it that holds the plugin. A subdir may have several segments
-// ("contrib/calculator") but may not escape the fetched source.
+// ("contrib/ai-usage") but may not escape the fetched source.
 func parseSource(source string) (base, subdir string, err error) {
 	base, fragment, hasFragment := strings.Cut(source, "#")
 	base = strings.TrimSpace(base)
