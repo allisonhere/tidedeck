@@ -79,11 +79,17 @@ func TestKeyHintsLabelsAndNarrowFallback(t *testing.T) {
 	}
 }
 
-func TestKeyHintsDenseOmitsLabels(t *testing.T) {
+// Dense keeps a footer label while it fits, because a bare key is not
+// discoverable; the key with no label is the narrow-panel fallback.
+func TestKeyHintsDenseKeepsLabelsWhileTheyFit(t *testing.T) {
 	r := chromeRenderer(Dense)
-	got := ansi.Strip(r.RenderKeyHints([]KeyHint{Hint("w", "save")}, 80))
-	if strings.Contains(got, "save") {
-		t.Fatalf("dense hints should omit labels: %q", got)
+	wide := ansi.Strip(r.RenderKeyHints([]KeyHint{Hint("w", "save")}, 80))
+	if !strings.Contains(wide, "save") {
+		t.Fatalf("dense hints dropped a label that fits: %q", wide)
+	}
+	narrow := ansi.Strip(r.RenderKeyHints([]KeyHint{Hint("w", "save")}, 6))
+	if !strings.Contains(narrow, "w") || strings.Contains(narrow, "save") {
+		t.Fatalf("narrow dense hints = %q, want the bare key", narrow)
 	}
 }
 

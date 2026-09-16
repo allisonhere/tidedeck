@@ -182,10 +182,12 @@ func (r Renderer) RenderBadgeOn(badge Badge, bg lipgloss.Color) string {
 // --- Keyboard hints -------------------------------------------------------
 
 // RenderKeyHints renders compact key capsules for a panel footer. Labels are
-// included while they fit and dropped per-hint as space runs out.
+// included while they fit and dropped per-hint as space runs out, so a footer
+// that shows only "c" is the fallback for a narrow panel, not the rule even in
+// Dense mode: a key without its verb is not discoverable.
 func (r Renderer) RenderKeyHints(hints []KeyHint, maxWidth int) string {
 	ws := r.Styles.Workspace
-	return r.renderHints(ws.Bg, ws.KeyBg, ws.KeyFg, ws.HintFg, maxWidth, hints, !r.Styles.Density.IsDense())
+	return r.renderHints(ws.Bg, ws.KeyBg, ws.KeyFg, ws.HintFg, maxWidth, hints, true)
 }
 
 // RenderStatusKeyHints renders key capsules for the workspace status strip.
