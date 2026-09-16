@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/allisonhere/tideui"
 	"github.com/allisonhere/tideui/dash"
@@ -847,5 +848,24 @@ func TestWeatherCategoryMergesFormAndPanelFields(t *testing.T) {
 		if field := selectNewsField(t, form, label); field.flag == nil || !*field.flag {
 			t.Fatalf("%q defaulted to off", label)
 		}
+	}
+}
+
+func TestPluginInstallFieldLooksLikeAnInput(t *testing.T) {
+	if got := inputView("", "git URL or local path"); got != "[ git URL or local path ]" {
+		t.Fatalf("empty input = %q, want the placeholder boxed", got)
+	}
+	if got := inputView("~/Projects/thing", "x"); got != "[ ~/Projects/thing ]" {
+		t.Fatalf("filled input = %q", got)
+	}
+
+	// The Plugins page shows that box rather than a bare blank value.
+	form := newSettingsForm()
+	form.Open(config{})
+	openCategory(t, form, "Plugins")
+	renderer := tideui.NewRenderer(tideui.CatppuccinMocha, tideui.StyleOptions{Density: tideui.Dense})
+	rendered := ansi.Strip(strings.Join(form.renderFields(renderer, 80, 20), "\n"))
+	if !strings.Contains(rendered, "[ git URL or local path ]") {
+		t.Fatalf("Plugins page has no input box:\n%s", rendered)
 	}
 }

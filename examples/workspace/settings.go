@@ -42,6 +42,11 @@ type formField struct {
 	// text is still what gets edited; this is only what the row shows when the
 	// field is not being edited.
 	summary func(string) string
+	// input draws a text field as an input box, with a placeholder while it is
+	// empty, so a row you are meant to type into reads as one rather than as a
+	// blank value.
+	input       bool
+	placeholder string
 }
 
 // choiceValue reads the field's current choice from its pointer or map.
@@ -688,7 +693,8 @@ func (s formState) applyPanelFields(document dash.Values, deck *dash.Deck) (dash
 // duplicated here.
 func (s *settingsForm) pluginFields() []formField {
 	fields := []formField{
-		{label: "install from URL or path", kind: fieldText, text: &s.state.pluginSource},
+		{label: "plugin source", kind: fieldText, text: &s.state.pluginSource,
+			input: true, placeholder: "git URL or local path"},
 		{label: "Install", kind: fieldAction, action: s.installPlugin},
 	}
 	for _, info := range dash.Installed(pluginsDir()) {
@@ -1213,13 +1219,21 @@ func (s settingsForm) renderFields(r tideui.Renderer, width, rows int) []string 
 			row.Accent = true
 		default:
 			row.Prefix = "    "
+			if field.input {
+				row.Suffix = inputView(s.value(field), field.placeholder)
+			}
 		}
 		if index == s.cursor && s.editing && field.kind == fieldText && field.text != nil {
 			// Editing shows the raw value, not a summary: a field cannot be
 			// edited through a description of itself. The window follows the
 			// caret so a value longer than the row stays reachable.
 			budget := max(12, width-len([]rune(row.Text))-8)
-			row.Suffix = editingView(*field.text, s.caret, budget)
+			view := editingView(*field.text, s.caret, budget)
+			if field.input {
+				row.Suffix = "[ " + view + " ]"
+			} else {
+				row.Suffix = view
+			}
 		}
 		lines = append(lines, r.RenderSoftRow(row, width))
 	}
@@ -1227,6 +1241,18 @@ func (s settingsForm) renderFields(r tideui.Renderer, width, rows int) []string 
 		lines = append(lines, r.Styles.OverlayHint.Width(width).Render("  ▼ more"))
 	}
 	return lines
+}
+
+// inputView draws a text field as an input box. An empty field shows its
+// placeholder, so a row meant to be typed into reads as one.
+func inputView(value, placeholder string) string {
+	if value == "" {
+		if placeholder != "" {
+			return "[ " + placeholder + " ]"
+		}
+		return "[ ]"
+	}
+	return "[ " + value + " ]"
 }
 
 // editingView renders the part of a value around the caret, marking the caret
