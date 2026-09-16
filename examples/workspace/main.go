@@ -68,11 +68,10 @@ type demoState struct {
 	live    *liveSource // non-nil when live data is enabled in settings
 	status  string
 
-	agendaOffset int
-	gauge        tideui.GaugeStyle
-	spark        tideui.SparklineStyle
-	clockFont    tideui.ClockFont
-	icons        tideui.IconStyle
+	gauge     tideui.GaugeStyle
+	spark     tideui.SparklineStyle
+	clockFont tideui.ClockFont
+	icons     tideui.IconStyle
 
 	lastStatus string
 	statusAge  int
@@ -156,9 +155,10 @@ func newModel() model {
 	)
 
 	deck := dash.New()
-	// System is registered first so the deck attaches it where the hand-written
-	// registration used to sit, keeping the panel and settings order stable.
-	deck.Register(panels.System(), panels.Weather(), panels.GPU(), panels.Updates(), panels.Clock())
+	// Panels are registered in the order the hand-written registrations used to
+	// sit, so the deck attaches them — and the settings list orders them — the
+	// way the dashboard always did.
+	deck.Register(panels.Agenda(), panels.System(), panels.Weather(), panels.GPU(), panels.Updates(), panels.Clock())
 	deck.OnStatus(func(message string) { state.status = message })
 	registerPanels(ws, state, deck)
 	registerPresets(ws)
@@ -295,14 +295,6 @@ func applyPanelSparks(ws *tideui.Workspace, cfg config) {
 }
 
 func registerPanels(ws *tideui.Workspace, state *demoState, deck *dash.Deck) {
-	ws.Panel("agenda", agendaPanel(state)).
-		Title("Calendar").Role(tideui.RolePrimary).Priority(100).MinWidth(20).MinHeight(7).
-		Actions(
-			tideui.Action("next", "n", func(*tideui.Workspace) { state.agendaOffset++; state.status = "calendar: +day" }).Labeled("next"),
-			tideui.Action("prev", "p", func(*tideui.Workspace) { state.agendaOffset--; state.status = "calendar: -day" }).Labeled("prev"),
-			tideui.Action("today", "0", func(*tideui.Workspace) { state.agendaOffset = 0; state.status = "calendar: today" }).Labeled("today"),
-		)
-
 	// Registered panels keep their declared order, so the deck attaches here
 	// rather than before or after the block, leaving the picker and settings
 	// lists unchanged.

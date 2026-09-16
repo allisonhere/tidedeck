@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -86,6 +87,22 @@ func googleCalendarFeed(source string) (string, bool) {
 	return "https://calendar.google.com/calendar/ical/" + url.PathEscape(id) + "/public/basic.ics", true
 }
 
+// expandHome resolves a leading ~ in a local path, so a config can name
+// "~/.config/cal.ics" the way a shell would.
+func expandHome(path string) string {
+	if path != "~" && !strings.HasPrefix(path, "~/") {
+		return path
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+	if path == "~" {
+		return home
+	}
+	return filepath.Join(home, path[2:])
+}
+
 // isGoogleCalendar reports whether a source is a Google iCal feed, so a failed
 // fetch can point its owner at the secret address.
 func isGoogleCalendar(source string) bool {
@@ -98,7 +115,7 @@ func isGoogleCalendar(source string) bool {
 func readCalendar(ctx context.Context, source string) (string, error) {
 	source, isURL := normalizeCalendarSource(source)
 	if !isURL {
-		data, err := os.ReadFile(source)
+		data, err := os.ReadFile(expandHome(source))
 		return string(data), err
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, source, nil)

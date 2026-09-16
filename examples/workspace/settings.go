@@ -101,7 +101,6 @@ type formState struct {
 	panelSparks map[string]string
 	feeds       string // custom URLs only; catalogue URLs live in feedPresets
 	feedPresets []bool // one per provider.NewsSources(), same order
-	calendars   string
 	todo        string
 	notes       string
 	repos       string
@@ -125,7 +124,6 @@ func formFromConfig(cfg config) formState {
 		panelSparks: copyStringMap(cfg.PanelSparks),
 		feeds:       customFeeds,
 		feedPresets: feedPresets,
-		calendars:   cfg.Calendars,
 		todo:        cfg.Todo,
 		notes:       cfg.Notes,
 		repos:       cfg.Repos,
@@ -146,7 +144,6 @@ func (s formState) toConfig(deck *dash.Deck) (config, error) {
 		PanelGauges: panelOverrides(s.panelGauges),
 		PanelSparks: panelOverrides(s.panelSparks),
 		Feeds:       joinFeeds(s.feedPresets, s.feeds),
-		Calendars:   s.calendars,
 		Todo:        s.todo,
 		Notes:       s.notes,
 		Repos:       normalizeRepoList(s.repos),
@@ -458,9 +455,6 @@ func (s *settingsForm) buildCategories() []settingsCategory {
 		{name: "Weather", panelID: "weather", fields: []formField{
 			{label: "city or ZIP", kind: fieldText, text: &s.state.place},
 			{label: "Look up coordinates", kind: fieldAction, action: s.lookupCoordinates},
-		}},
-		{name: "Calendar", panelID: "agenda", fields: []formField{
-			{label: "sources (.ics or URL)", kind: fieldText, text: &s.state.calendars},
 		}},
 		{name: "GPU", panelID: "gpu", fields: nil},
 		{name: "Network", panelID: "network", fields: []formField{

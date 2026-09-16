@@ -1,9 +1,6 @@
 package main
 
 import (
-	"strings"
-	"time"
-
 	"github.com/allisonhere/tideui"
 )
 
@@ -27,56 +24,6 @@ func panelRenderer(state *demoState, ctx tideui.PanelContext) tideui.Renderer {
 		return ctx.Renderer
 	}
 	return viewRenderer(state)
-}
-
-// agendaNotice reports why a live calendar is empty, so a mistyped or private
-// feed is not mistaken for a quiet day. The provider wraps the URL in the
-// message, which the panel has no room for, so the trailing hint is preferred.
-func (state *demoState) agendaNotice() string {
-	if state.live == nil {
-		return ""
-	}
-	err := state.live.snapshotCopy().Errors["agenda"]
-	if err == nil {
-		return ""
-	}
-	message := err.Error()
-	if open := strings.Index(message, " ("); open >= 0 {
-		if close := strings.LastIndex(message, ")"); close > open {
-			return strings.TrimSpace(message[open+2 : close])
-		}
-	}
-	return message
-}
-
-func agendaPanel(state *demoState) tideui.PanelView {
-	return func(ctx tideui.PanelContext) string {
-		r := panelRenderer(state, ctx)
-		items := state.source.Agenda(state.now, state.agendaOffset)
-		if len(items) == 0 {
-			if notice := state.agendaNotice(); notice != "" {
-				return r.RenderNotice("Calendar: "+notice, ctx.Width)
-			}
-		}
-		day := state.now.AddDate(0, 0, state.agendaOffset)
-		marked := markedDays(state.source.Agenda(state.now, 0), day)
-		if ctx.Zoomed {
-			return r.RenderCalendarDetail(day, marked, items, state.now, ctx.Width)
-		}
-		return r.RenderCalendar(day, marked, items, state.now, ctx.Width)
-	}
-}
-
-// markedDays collects the days of the displayed month that have an event, so
-// the month grid shows where the quiet days aren't.
-func markedDays(items []tideui.AgendaItem, day time.Time) map[int]bool {
-	marked := map[int]bool{}
-	for _, item := range items {
-		if item.Start.Year() == day.Year() && item.Start.Month() == day.Month() {
-			marked[item.Start.Day()] = true
-		}
-	}
-	return marked
 }
 
 func networkPanel(state *demoState) tideui.PanelView {

@@ -30,7 +30,6 @@ const defaultTimeout = 12 * time.Second
 // nil until the first successful fetch; Errors carries the most recent failure
 // keyed by source name.
 type Snapshot struct {
-	Agenda    []tideui.AgendaItem
 	Network   *tideui.NetworkMetrics
 	Storage   []tideui.StorageMount
 	Services  []tideui.ServiceStatus
@@ -111,7 +110,6 @@ func (f *Fetcher[T]) Value() (T, error, bool) {
 
 // Dashboard bundles the available sources. Any field may be nil.
 type Dashboard struct {
-	Agenda    *Fetcher[[]tideui.AgendaItem]
 	Network   *Fetcher[tideui.NetworkMetrics]
 	Storage   *Fetcher[[]tideui.StorageMount]
 	Services  *Fetcher[[]tideui.ServiceStatus]
@@ -127,7 +125,6 @@ func (d *Dashboard) Refresh(ctx context.Context) {
 	if d == nil {
 		return
 	}
-	d.Agenda.Refresh(ctx)
 	d.Network.Refresh(ctx)
 	d.Storage.Refresh(ctx)
 	d.Services.Refresh(ctx)
@@ -143,9 +140,6 @@ func (d *Dashboard) Snapshot() Snapshot {
 	snap := Snapshot{Updated: time.Now(), Errors: map[string]error{}}
 	if d == nil {
 		return snap
-	}
-	if value, ok := read(d.Agenda, snap.Errors, "agenda"); ok {
-		snap.Agenda = value
 	}
 	if value, ok := read(d.Network, snap.Errors, "network"); ok {
 		snap.Network = &value

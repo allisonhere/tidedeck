@@ -47,32 +47,6 @@ func series(t float64, n int, period, phase, base, amp float64) []float64 {
 	return out
 }
 
-func (f *demoFeed) Agenda(now time.Time, dayOffset int) []tideui.AgendaItem {
-	base := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	at := func(day, hour, minute int) time.Time {
-		return base.AddDate(0, 0, day).Add(time.Duration(hour)*time.Hour + time.Duration(minute)*time.Minute)
-	}
-	all := []tideui.AgendaItem{
-		{Title: "Project review", Start: at(0, 9, 30), End: at(0, 10, 15), Location: "Meet", Category: "Work", Tone: tideui.ToneAccent},
-		{Title: "Dentist", Start: at(0, 11, 0), Location: "Clinic", Category: "Health", Tone: tideui.ToneGood},
-		{Title: "Focus block", Start: at(0, 14, 0), End: at(0, 16, 0), Category: "Deep work", Tone: tideui.ToneAccent},
-		{Title: "Team offsite", Start: at(1, 0, 0), AllDay: true, Category: "Work", Tone: tideui.ToneAccent},
-		{Title: "Standup", Start: at(1, 8, 0), Location: "Meet", Category: "Work", Tone: tideui.ToneAccent},
-		{Title: "Gym", Start: at(1, 18, 30), Category: "Health", Tone: tideui.ToneGood},
-		{Title: "Ship TideDeck", Start: at(2, 10, 0), Category: "Work", Tone: tideui.ToneWarning},
-	}
-	// Like a live calendar, the offset moves the starting day rather than
-	// shifting the schedule, so "next" drops a day off the front.
-	target := base.AddDate(0, 0, dayOffset)
-	upcoming := make([]tideui.AgendaItem, 0, len(all))
-	for _, item := range all {
-		if !item.Start.Before(target) {
-			upcoming = append(upcoming, item)
-		}
-	}
-	return upcoming
-}
-
 func (f *demoFeed) Network(now time.Time) tideui.NetworkMetrics {
 	t := f.elapsed(now)
 	down := clampRange(87+35*wave(t, 8, 0), 0, 950)

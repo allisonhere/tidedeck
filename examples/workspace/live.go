@@ -14,7 +14,6 @@ import (
 // live provider dashboard both satisfy it, so the UI is identical whether the
 // data is simulated or real.
 type dataSource interface {
-	Agenda(time.Time, int) []tideui.AgendaItem
 	Network(time.Time) tideui.NetworkMetrics
 	Markets(time.Time) []tideui.MarketQuote
 }
@@ -48,9 +47,6 @@ func newLiveSource(cfg config) *liveSource {
 	if notes := list(cfg.Notes); len(notes) > 0 {
 		dashboard.Notes = provider.NewFetcher(30*time.Second, provider.Notes(notes...))
 	}
-	if calendars := list(cfg.Calendars); len(calendars) > 0 {
-		dashboard.Agenda = provider.NewFetcher(time.Minute, provider.Calendar(calendars...))
-	}
 	if symbols := list(cfg.Symbols); len(symbols) > 0 {
 		dashboard.Markets = provider.NewFetcher(time.Minute, provider.Markets(symbols...))
 	}
@@ -77,31 +73,6 @@ func (s *liveSource) snapshotCopy() provider.Snapshot {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.snapshot
-}
-
-func (s *liveSource) Agenda(now time.Time, dayOffset int) []tideui.AgendaItem {
-	items := s.snapshotCopy().Agenda
-	from := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, dayOffset)
-	var upcoming []tideui.AgendaItem
-	for _, item := range items {
-		if agendaEndTime(item).After(from) {
-			upcoming = append(upcoming, item)
-		}
-	}
-	return upcoming
-}
-
-// agendaEndTime is when an event stops occupying the calendar: its End, its
-// start for a timed event without one, or the next midnight for an all-day
-// event, whose exclusive End may be absent.
-func agendaEndTime(item tideui.AgendaItem) time.Time {
-	if !item.End.IsZero() {
-		return item.End
-	}
-	if item.AllDay {
-		return item.Start.AddDate(0, 0, 1)
-	}
-	return item.Start
 }
 
 func (s *liveSource) Network(time.Time) tideui.NetworkMetrics {

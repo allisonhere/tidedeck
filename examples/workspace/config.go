@@ -28,17 +28,13 @@ type config struct {
 	// missing entry follows the workspace SparkStyle.
 	PanelSparks map[string]string `json:"panel_sparks,omitempty"`
 	Feeds       string            `json:"feeds"`
-	// Calendars lists comma-separated iCalendar sources: local .ics paths or
-	// https/webcal URLs, such as a Google Calendar "secret address in iCal
-	// format".
-	Calendars string `json:"calendars"`
-	Todo      string `json:"todo"`
-	Notes     string `json:"notes"`
-	Repos     string `json:"repos"`
-	Symbols   string `json:"symbols"`
-	Systemd   string `json:"systemd"`
-	Docker    string `json:"docker"`
-	Interface string `json:"interface"`
+	Todo        string            `json:"todo"`
+	Notes       string            `json:"notes"`
+	Repos       string            `json:"repos"`
+	Symbols     string            `json:"symbols"`
+	Systemd     string            `json:"systemd"`
+	Docker      string            `json:"docker"`
+	Interface   string            `json:"interface"`
 	// doc is the document this config was decoded from. Saving writes the
 	// document back rather than only the fields below, so a key this build
 	// does not recognise - one a panel owns, or one a newer build wrote -

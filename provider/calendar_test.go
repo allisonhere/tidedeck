@@ -177,6 +177,20 @@ func TestReadCalendarMissingFile(t *testing.T) {
 	}
 }
 
+func TestExpandHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if got := expandHome("~/cal.ics"); got != filepath.Join(home, "cal.ics") {
+		t.Fatalf("expandHome(~/cal.ics) = %q", got)
+	}
+	if got := expandHome("~"); got != home {
+		t.Fatalf("expandHome(~) = %q", got)
+	}
+	if got := expandHome("/abs/cal.ics"); got != "/abs/cal.ics" {
+		t.Fatalf("expandHome changed an absolute path: %q", got)
+	}
+}
+
 func TestNormalizeCalendarSource(t *testing.T) {
 	cases := []struct {
 		in    string
