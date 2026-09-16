@@ -139,6 +139,21 @@ func (e *execPanel) Type(r rune) bool {
 	return true
 }
 
+// Copy returns the value of the row the manifest named with "copy", so a
+// plugin offers a copyable value without any code of its own.
+func (e *execPanel) Copy() (string, bool) {
+	label := strings.TrimSpace(e.manifest.Panel.Copy)
+	if label == "" {
+		return "", false
+	}
+	for _, row := range e.Load().Rows {
+		if row.Label == label && row.Value != "" {
+			return row.Value, true
+		}
+	}
+	return "", false
+}
+
 // Backspace removes the last typed rune.
 func (e *execPanel) Backspace() bool {
 	e.mu.Lock()

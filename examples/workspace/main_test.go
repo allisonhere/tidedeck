@@ -348,3 +348,32 @@ func TestCalculatorTypingAfterPickerReveal(t *testing.T) {
 		t.Fatalf("calculator after typing:\n%s", body)
 	}
 }
+
+// Pressing c on a panel with copyable content puts it on the clipboard.
+func TestCopyFromCalculator(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := newModel()
+	m.width, m.height = 120, 40
+	m.ws.Show("calculator")
+	for _, r := range "12*8" {
+		next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = next.(model)
+		if cmd != nil {
+			m = update(t, m, cmd())
+		}
+	}
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	m = next.(model)
+	if cmd == nil {
+		t.Fatal("c produced no copy command")
+	}
+	if !strings.Contains(m.state.status, "96") {
+		t.Fatalf("status = %q, want the copied value", m.state.status)
+	}
+}
+
+func TestOSC52Encoding(t *testing.T) {
+	if got := osc52("96"); got != "\x1b]52;c;OTY=\x07" {
+		t.Fatalf("osc52 = %q", got)
+	}
+}

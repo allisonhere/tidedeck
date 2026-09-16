@@ -75,11 +75,31 @@ func TestCalculatorClearAction(t *testing.T) {
 		c.Type(r)
 	}
 	actions := c.Actions()
-	if len(actions) != 1 || actions[0].Key != "c" {
+	// Clear cannot be "c" any more: "c" is the copy key.
+	if len(actions) != 1 || actions[0].Key != "x" {
 		t.Fatalf("actions = %#v", actions)
 	}
 	actions[0].Run()
 	if got := c.Load().expr; got != "" {
 		t.Fatalf("clear left %q", got)
+	}
+}
+
+// Copy returns the result once the pad computes, and nothing before that.
+func TestCalculatorCopy(t *testing.T) {
+	c := Calculator().(*calculator)
+	if _, ok := c.Copy(); ok {
+		t.Fatal("an empty pad should copy nothing")
+	}
+	for _, r := range "12*8" {
+		c.Type(r)
+	}
+	if text, ok := c.Copy(); !ok || text != "96" {
+		t.Fatalf("copy = %q,%v want 96", text, ok)
+	}
+	// An expression that does not compute has nothing to copy.
+	c.Type('+')
+	if _, ok := c.Copy(); ok {
+		t.Fatal("an incomplete expression should copy nothing")
 	}
 }

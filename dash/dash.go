@@ -90,6 +90,13 @@ type Input interface {
 	Backspace() bool
 }
 
+// Copier is implemented by a panel whose content can be copied. Copy returns
+// the text and whether there is anything to copy; the caller puts it on the
+// clipboard, so the panel stays independent of the terminal.
+type Copier interface {
+	Copy() (string, bool)
+}
+
 // Configurable is implemented by a panel with settings of its own. Schema
 // declares the fields; Configure applies them.
 type Configurable interface {

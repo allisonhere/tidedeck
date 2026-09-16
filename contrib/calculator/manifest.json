@@ -17,6 +17,7 @@
     "priority": 30,
     "input": "expression",
     "inputChars": "0123456789.+-*/() ",
+    "copy": "value",
     "schema": [
       { "key": "expression", "type": "string", "label": "expression", "defaultValue": "" }
     ]

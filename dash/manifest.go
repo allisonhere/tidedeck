@@ -70,6 +70,11 @@ type PanelManifest struct {
 	// that are accepted, so the rest still reach the application's shortcuts.
 	Input      string `json:"input"`
 	InputChars string `json:"inputChars"`
+
+	// Copy names the row whose value the copy key puts on the clipboard, so a
+	// plugin can offer a copyable value (a token balance, a URL) without any
+	// code of its own.
+	Copy string `json:"copy"`
 }
 
 // SchemaField is one declared setting, in the shape shell plugin manifests

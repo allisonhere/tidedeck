@@ -65,13 +65,23 @@ func (c *calculator) Backspace() bool {
 // reset clears the pad, for the panel's own "clear" action.
 func (c *calculator) reset() { c.Store(calcState{}) }
 
-// Actions offers a clear key. "c" is not an expression key, so Type declines
-// it and it reaches the workspace's action handling.
+// Actions offers a clear key. "c" is reserved for copy, which the application
+// handles, so clearing lives on "x".
 func (c *calculator) Actions() []dash.Action {
 	return []dash.Action{{
-		ID: "clear", Key: "c", Label: "clear",
+		ID: "clear", Key: "x", Label: "clear",
 		Run: func() string { c.reset(); return "calculator cleared" },
 	}}
+}
+
+// Copy returns the result, so "c" puts the value on the clipboard. A pad that
+// does not compute yet has nothing worth copying.
+func (c *calculator) Copy() (string, bool) {
+	state := c.Load()
+	if state.err || state.result == "" {
+		return "", false
+	}
+	return state.result, true
 }
 
 func (c *calculator) View(ctx tideui.PanelContext) string {

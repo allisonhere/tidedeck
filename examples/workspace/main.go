@@ -9,6 +9,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -469,6 +470,47 @@ func (m model) refreshFocusedCmd() tea.Cmd {
 	}
 }
 
+// focusedCopy returns the focused panel's copyable text, if it has any.
+func (m model) focusedCopy() (string, bool) {
+	panel, ok := m.deck.Lookup(m.ws.Focused())
+	if !ok {
+		return "", false
+	}
+	copier, ok := panel.(dash.Copier)
+	if !ok {
+		return "", false
+	}
+	return copier.Copy()
+}
+
+type copiedMsg struct{ text string }
+
+// copyToClipboardCmd puts text on the terminal clipboard. It uses OSC 52, which
+// the terminal answers itself, so copying works over SSH and needs no clipboard
+// program. The write goes to the terminal directly; the clipboard is set even
+// though the next frame repaints over it.
+func copyToClipboardCmd(text string) tea.Cmd {
+	return func() tea.Msg {
+		fmt.Fprint(os.Stdout, osc52(text))
+		return copiedMsg{text: text}
+	}
+}
+
+// osc52 is the escape sequence that sets the system clipboard.
+func osc52(text string) string {
+	encoded := base64.StdEncoding.EncodeToString([]byte(text))
+	return "\x1b]52;c;" + encoded + "\x07"
+}
+
+// summarize shortens a value for the status line.
+func summarize(text string) string {
+	runes := []rune(text)
+	if len(runes) <= 30 {
+		return text
+	}
+	return string(runes[:29]) + "…"
+}
+
 // focusedInput returns the focused panel's Input when it accepts typing.
 func (m model) focusedInput() (dash.Input, bool) {
 	panel, ok := m.deck.Lookup(m.ws.Focused())
@@ -557,6 +599,12 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "s":
 			m.settings.Open(m.cfg)
 			m.state.status = "settings"
+			return m, nil
+		case "c":
+			if text, ok := m.focusedCopy(); ok {
+				m.state.status = "copied: " + summarize(text)
+				return m, copyToClipboardCmd(text)
+			}
 			return m, nil
 		case "d":
 			m.state.density = nextDensity(m.state.density)

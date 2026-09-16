@@ -875,6 +875,7 @@ the dashboard looks alive before anything is configured.
 | `Badger` | `Badge() (string, tideui.Tone)` | advertises a header badge |
 | `Actor` | `Actions() []Action` | offers contextual keys |
 | `Input` | `Type(rune) bool`, `Backspace() bool` | takes typing while focused (see `panels.Calculator`) |
+| `Copier` | `Copy() (string, bool)` | offers content the `c` key copies (see `panels.Calculator`) |
 
 An `Action` with `Refresh: true` makes the deck treat the panel as due again
 before `Run` is called, so a refresh key refetches rather than only printing a
@@ -1067,6 +1068,14 @@ environment variable, and the program is re-run on each keystroke:
 ```
 
 A panel with no `input` is a read-only rendering of its document.
+
+A plugin can also offer a value to copy: `panel.copy` names a row whose value
+the `c` key puts on the clipboard (via OSC 52, so it works over SSH), with no
+code of its own:
+
+```json
+"panel": { "copy": "Balance" }
+```
 
 `detail` is what a zoomed panel shows; absent means reuse `rows`. Colour comes
 from `tone` (`good`, `warning`, `danger`, `muted`, `accent`) or from `severity`

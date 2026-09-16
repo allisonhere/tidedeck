@@ -246,3 +246,24 @@ func TestExecPanelWithoutInputDeclinesTyping(t *testing.T) {
 		t.Fatal("a panel without input should decline typing")
 	}
 }
+
+// A manifest can name a row to copy, so a plugin offers a copyable value with
+// no code of its own.
+func TestExecPanelCopyNamesARow(t *testing.T) {
+	manifest := plugin(t,
+		`echo '{"rows":[{"type":"text","label":"Balance","value":"$7.02"},{"type":"text","label":"Plan","value":"Pro"}]}'`,
+		map[string]any{"panel": map[string]any{"copy": "Balance"}})
+	panel := Exec(manifest).(*execPanel)
+	if err := panel.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if text, ok := panel.Copy(); !ok || text != "$7.02" {
+		t.Fatalf("copy = %q,%v want $7.02", text, ok)
+	}
+
+	// A panel with no copy, or a missing row, copies nothing.
+	plain := Exec(plugin(t, `echo '{"rows":[]}'`, nil))
+	if _, ok := plain.(Copier).Copy(); ok {
+		t.Fatal("a panel with no copy field should copy nothing")
+	}
+}
