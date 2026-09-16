@@ -2,6 +2,7 @@ package main
 
 import (
 	"math"
+	"strings"
 
 	"github.com/allisonhere/tideui"
 )
@@ -70,10 +71,35 @@ func convertTemperatures(w tideui.WeatherData, convert func(int) int, unit strin
 	return w
 }
 
+// agendaNotice reports why a live calendar is empty, so a mistyped or private
+// feed is not mistaken for a quiet day. The provider wraps the URL in the
+// message, which the panel has no room for, so the trailing hint is preferred.
+func (state *demoState) agendaNotice() string {
+	if state.live == nil {
+		return ""
+	}
+	err := state.live.snapshotCopy().Errors["agenda"]
+	if err == nil {
+		return ""
+	}
+	message := err.Error()
+	if open := strings.Index(message, " ("); open >= 0 {
+		if close := strings.LastIndex(message, ")"); close > open {
+			return strings.TrimSpace(message[open+2 : close])
+		}
+	}
+	return message
+}
+
 func agendaPanel(state *demoState) tideui.PanelView {
 	return func(ctx tideui.PanelContext) string {
 		r := panelRenderer(state, ctx)
 		items := state.source.Agenda(state.now, state.agendaOffset)
+		if len(items) == 0 {
+			if notice := state.agendaNotice(); notice != "" {
+				return r.RenderNotice("Calendar: "+notice, ctx.Width)
+			}
+		}
 		day := state.now.AddDate(0, 0, state.agendaOffset)
 		if ctx.Zoomed {
 			return r.RenderCalendarDetail(day, items, state.now, ctx.Width)

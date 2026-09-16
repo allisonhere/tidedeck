@@ -229,6 +229,15 @@ func (r Renderer) RenderAgendaDetail(items []AgendaItem, now time.Time, width in
 	return r.renderAgenda(items, now, width, true)
 }
 
+// RenderNotice renders a muted one-line message, for a panel that has nothing
+// to show or whose source failed. Showing the failure beats an empty panel that
+// looks like a quiet calendar.
+func (r Renderer) RenderNotice(text string, width int) string {
+	bg := r.Styles.Workspace.Bg
+	line := lipgloss.NewStyle().Background(bg).Foreground(r.Styles.Workspace.HintFg).Render(text)
+	return r.dashBlock([]string{line}, width, bg)
+}
+
 // RenderCalendar lays a month grid beside the day's agenda, highlighting the
 // selected day. The grid covers the day's own month, so stepping the day across
 // a month boundary turns the calendar page.
@@ -282,9 +291,8 @@ func (r Renderer) renderCalendar(day time.Time, items []AgendaItem, now time.Tim
 
 func (r Renderer) renderAgenda(items []AgendaItem, now time.Time, width int, detail bool) string {
 	bg := r.Styles.Workspace.Bg
-	ws := r.Styles.Workspace
 	if len(items) == 0 {
-		return r.dashBlock([]string{lipgloss.NewStyle().Background(bg).Foreground(ws.HintFg).Render("No upcoming events")}, width, bg)
+		return r.RenderNotice("No upcoming events", width)
 	}
 	sorted := append([]AgendaItem(nil), items...)
 	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Start.Before(sorted[j].Start) })
