@@ -116,6 +116,14 @@ func (v Values) String(path string) string {
 	}
 }
 
+// Has reports whether a key is present. A panel needs this to tell "absent"
+// from "false": a boolean setting whose default is true cannot be read with
+// Bool alone, because an unset key and a deliberate false look identical.
+func (v Values) Has(path string) bool {
+	_, ok := v.lookup(path)
+	return ok
+}
+
 // Bool returns a boolean value, or false when absent.
 func (v Values) Bool(path string) bool {
 	value, _ := v.lookup(path)

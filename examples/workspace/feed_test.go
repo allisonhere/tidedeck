@@ -29,9 +29,6 @@ func TestFeedIsDeterministic(t *testing.T) {
 	if !reflect.DeepEqual(a.Agenda(now, 0), b.Agenda(now, 0)) {
 		t.Fatal("agenda is not deterministic")
 	}
-	if !reflect.DeepEqual(a.Clock(now), b.Clock(now)) {
-		t.Fatal("clock is not deterministic")
-	}
 	if !reflect.DeepEqual(a.Storage(), b.Storage()) || !reflect.DeepEqual(a.Tasks(), b.Tasks()) {
 		t.Fatal("static fixtures are not deterministic")
 	}
@@ -57,9 +54,6 @@ func TestFeedUpdatesOverTime(t *testing.T) {
 	t0 := started
 	t1 := started.Add(7 * time.Second)
 
-	if f.Clock(t0).Local.Equal(f.Clock(t1).Local) {
-		t.Fatal("clock did not advance")
-	}
 	if reflect.DeepEqual(f.Network(t0).DownSpark, f.Network(t1).DownSpark) {
 		t.Fatal("network sparkline did not advance")
 	}

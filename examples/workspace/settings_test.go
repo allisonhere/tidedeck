@@ -231,29 +231,48 @@ func TestSettingsPanelToggles(t *testing.T) {
 	}
 }
 
-func TestSettingsClockHasHourFormat(t *testing.T) {
+// The clock's settings are declared by the panel now rather than listed by
+// hand, and they still write the keys that are already in the config file.
+func TestSettingsClockFieldsComeFromThePanel(t *testing.T) {
+	ws := tideui.NewWorkspace()
+	deck := dash.New()
+	deck.Register(panels.Clock())
+	deck.Attach(ws)
+
 	form := newSettingsForm()
-	form.Open(config{Clock24: true})
-	for i, category := range form.categories {
-		if category.name != "Clock" {
-			continue
-		}
-		form.category = i
-		form.Update(tea.KeyMsg{Type: tea.KeyEnter}) // open Clock
-		field := form.currentField()
-		if field == nil || field.label != "24-hour" || field.flag == nil {
-			t.Fatalf("first Clock field = %+v, want the 24-hour toggle", field)
-		}
-		form.Update(tea.KeyMsg{Type: tea.KeyEnter}) // toggle off
-		if action := form.Update(tea.KeyMsg{Type: tea.KeyCtrlS}); action != settingsSaved {
-			t.Fatalf("save action = %v", action)
-		}
-		if form.SavedConfig().Clock24 {
-			t.Fatal("24-hour toggle did not save as off")
-		}
-		return
+	form.SetWorkspace(ws)
+	form.SetDeck(deck)
+	cfg := defaultConfig()
+	cfg.doc = dash.NewValues()
+	cfg.doc.Set("clock_24", true)
+	cfg.doc.Set("zones", "Europe/London")
+	form.Open(cfg)
+
+	openCategory(t, form, "Clock")
+	hour := selectNewsField(t, form, "24-hour")
+	if hour.flag == nil || !*hour.flag {
+		t.Fatalf("24-hour row = %+v, want a tick that is on", hour)
 	}
-	t.Fatal("no Clock category")
+	if got := *selectNewsField(t, form, "zones").text; got != "Europe/London" {
+		t.Fatalf("zones = %q", got)
+	}
+
+	*hour.flag = false
+	if action := form.Update(tea.KeyMsg{Type: tea.KeyCtrlS}); action != settingsSaved {
+		t.Fatalf("save action = %v", action)
+	}
+	saved, err := form.SavedConfig().document()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The keys keep the spelling they already had: moving a setting onto a
+	// panel must not rewrite anyone's config.
+	if saved.Bool("clock_24") {
+		t.Fatal("24-hour toggle did not save as off")
+	}
+	if got := saved.String("zones"); got != "Europe/London" {
+		t.Fatalf("zones = %q", got)
+	}
 }
 
 func TestSettingsGaugeStyleChoice(t *testing.T) {
@@ -645,8 +664,8 @@ func TestSettingsHasPanelDeclaredCategories(t *testing.T) {
 		t.Fatalf("saved aur helper = %q, want yay", got)
 	}
 	// Saving a panel-owned key must not disturb the keys the struct owns.
-	if saved.String("zones") != defaultConfig().Zones {
-		t.Fatalf("zones changed to %q", saved.String("zones"))
+	if saved.String("gauge_style") != defaultConfig().GaugeStyle {
+		t.Fatalf("gauge_style changed to %q", saved.String("gauge_style"))
 	}
 }
 

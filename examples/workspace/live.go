@@ -15,7 +15,6 @@ import (
 // data is simulated or real.
 type dataSource interface {
 	Weather(time.Time) tideui.WeatherData
-	Clock(time.Time) tideui.ClockData
 	Agenda(time.Time, int) []tideui.AgendaItem
 	System(time.Time) tideui.SystemMetrics
 	Network(time.Time) tideui.NetworkMetrics
@@ -40,7 +39,6 @@ func newLiveSource(cfg config) *liveSource {
 		location = "Local"
 	}
 	dashboard := &provider.Dashboard{
-		Clock:   provider.NewFetcher(time.Minute, provider.Clock(location, list(cfg.Zones)...)),
 		System:  provider.NewFetcher(time.Second, provider.System()),
 		Network: provider.NewFetcher(time.Second, provider.Network(strings.TrimSpace(cfg.Interface))),
 		Storage: provider.NewFetcher(2*time.Minute, provider.Storage()),
@@ -105,16 +103,6 @@ func (s *liveSource) Weather(now time.Time) tideui.WeatherData {
 		return data
 	}
 	return tideui.WeatherData{Location: "loading", Condition: "…", Unit: "F"}
-}
-
-func (s *liveSource) Clock(now time.Time) tideui.ClockData {
-	snapshot := s.snapshotCopy()
-	if snapshot.Clock != nil {
-		data := *snapshot.Clock
-		data.Local = now
-		return data
-	}
-	return tideui.ClockData{Local: now}
 }
 
 func (s *liveSource) Agenda(now time.Time, dayOffset int) []tideui.AgendaItem {

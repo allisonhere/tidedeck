@@ -86,8 +86,6 @@ type formState struct {
 	place          string // city or ZIP to look up
 	fahrenheit     bool
 	windMPH        bool
-	zones          string
-	clock24        bool
 	gauge          string
 	spark          string
 	clockFont      string
@@ -128,8 +126,6 @@ func formFromConfig(cfg config) formState {
 		place:          cfg.Weather.Location,
 		fahrenheit:     cfg.Weather.Fahrenheit,
 		windMPH:        cfg.Weather.WindMPH,
-		zones:          cfg.Zones,
-		clock24:        cfg.Clock24,
 		gauge:          gaugeOrDefault(cfg.GaugeStyle),
 		spark:          sparkOrDefault(cfg.SparkStyle),
 		clockFont:      clockFontOrDefault(cfg.ClockFont),
@@ -168,8 +164,6 @@ func (s formState) toConfig(deck *dash.Deck) (config, error) {
 			Fahrenheit: s.fahrenheit,
 			WindMPH:    s.windMPH,
 		},
-		Zones:       s.zones,
-		Clock24:     s.clock24,
 		GaugeStyle:  gaugeOrDefault(s.gauge),
 		SparkStyle:  sparkOrDefault(s.spark),
 		ClockFont:   clockFontOrDefault(s.clockFont),
@@ -493,10 +487,6 @@ func (s *settingsForm) buildCategories() []settingsCategory {
 		}},
 		{name: "Calendar", panelID: "agenda", fields: []formField{
 			{label: "sources (.ics or URL)", kind: fieldText, text: &s.state.calendars},
-		}},
-		{name: "Clock", panelID: "clock", fields: []formField{
-			{label: "24-hour", kind: fieldBool, flag: &s.state.clock24},
-			{label: "zones", kind: fieldText, text: &s.state.zones},
 		}},
 		{name: "System", panelID: "system", fields: nil},
 		{name: "GPU", panelID: "gpu", fields: nil},

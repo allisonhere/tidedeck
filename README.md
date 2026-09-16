@@ -747,7 +747,6 @@ dashboard := &provider.Dashboard{
     System:  provider.NewFetcher(time.Second, provider.System()),
     Network: provider.NewFetcher(time.Second, provider.Network("wlan0")),
     Storage: provider.NewFetcher(2*time.Minute, provider.Storage()),
-    Clock:   provider.NewFetcher(time.Minute, provider.Clock("Local", "Europe/London", "Asia/Tokyo")),
     // ...
 }
 

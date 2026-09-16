@@ -70,7 +70,6 @@ type demoState struct {
 
 	weatherUnit  string
 	agendaOffset int
-	clock24      bool
 	gauge        tideui.GaugeStyle
 	spark        tideui.SparklineStyle
 	clockFont    tideui.ClockFont
@@ -126,17 +125,17 @@ func newModel() model {
 	var source dataSource = feed
 	state := &demoState{
 		theme: tideui.CatppuccinMocha, density: tideui.Dense, now: started, source: source,
-		weatherUnit: "F", clock24: cfg.Clock24,
-		gauge:     tideui.GaugeStyle(gaugeOrDefault(cfg.GaugeStyle)),
-		spark:     tideui.SparklineStyle(sparkOrDefault(cfg.SparkStyle)),
-		clockFont: tideui.ClockFont(clockFontOrDefault(cfg.ClockFont)),
-		icons:     tideui.IconStyle(iconStyleOrDefault(cfg.Icons)),
-		tasks:     feed.Tasks(),
-		headlines: feed.Headlines(),
-		services:  feed.Services(),
-		notes:     feed.Notes(),
-		repos:     feed.RepoActivity(),
-		mounts:    feed.Storage(),
+		weatherUnit: "F",
+		gauge:       tideui.GaugeStyle(gaugeOrDefault(cfg.GaugeStyle)),
+		spark:       tideui.SparklineStyle(sparkOrDefault(cfg.SparkStyle)),
+		clockFont:   tideui.ClockFont(clockFontOrDefault(cfg.ClockFont)),
+		icons:       tideui.IconStyle(iconStyleOrDefault(cfg.Icons)),
+		tasks:       feed.Tasks(),
+		headlines:   feed.Headlines(),
+		services:    feed.Services(),
+		notes:       feed.Notes(),
+		repos:       feed.RepoActivity(),
+		mounts:      feed.Storage(),
 	}
 	// Live data is configured in the settings panel (s) and persisted; when
 	// enabled the dashboard reads real providers and the static collections
@@ -169,7 +168,7 @@ func newModel() model {
 	)
 
 	deck := dash.New()
-	deck.Register(panels.GPU(), panels.Updates())
+	deck.Register(panels.GPU(), panels.Updates(), panels.Clock())
 	deck.OnStatus(func(message string) { state.status = message })
 	registerPanels(ws, state, deck)
 	applyPanelGauges(ws, cfg)
@@ -216,7 +215,6 @@ func (m *model) values() dash.Values {
 }
 
 func (m *model) applyConfig() {
-	m.state.clock24 = m.cfg.Clock24
 	m.state.gauge = tideui.GaugeStyle(gaugeOrDefault(m.cfg.GaugeStyle))
 	m.state.spark = tideui.SparklineStyle(sparkOrDefault(m.cfg.SparkStyle))
 	m.state.clockFont = tideui.ClockFont(clockFontOrDefault(m.cfg.ClockFont))
@@ -313,10 +311,6 @@ func registerPanels(ws *tideui.Workspace, state *demoState, deck *dash.Deck) {
 			tideui.Action("prev", "p", func(*tideui.Workspace) { state.agendaOffset--; state.status = "calendar: -day" }).Labeled("prev"),
 			tideui.Action("today", "0", func(*tideui.Workspace) { state.agendaOffset = 0; state.status = "calendar: today" }).Labeled("today"),
 		)
-
-	ws.Panel("clock", clockPanel(state)).
-		Title("Clock").Role(tideui.RoleSecondary).Priority(50).MinWidth(16).MinHeight(7).HideBelow(96).
-		Actions(tideui.Action("refresh", "r", func(*tideui.Workspace) { state.status = "clock synced" }).Labeled("sync"))
 
 	ws.Panel("system", systemPanel(state)).
 		Title("System").Role(tideui.RolePrimary).Priority(95).MinWidth(20).MinHeight(7).

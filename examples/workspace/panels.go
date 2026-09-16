@@ -122,18 +122,6 @@ func markedDays(items []tideui.AgendaItem, day time.Time) map[int]bool {
 	return marked
 }
 
-func clockPanel(state *demoState) tideui.PanelView {
-	return func(ctx tideui.PanelContext) string {
-		r := panelRenderer(state, ctx)
-		c := state.source.Clock(state.now)
-		c.Hour24 = state.clock24
-		if ctx.Zoomed {
-			return r.RenderClockDetail(c, ctx.Width)
-		}
-		return r.RenderClock(c, ctx.Width)
-	}
-}
-
 func systemPanel(state *demoState) tideui.PanelView {
 	return func(ctx tideui.PanelContext) string {
 		r := panelRenderer(state, ctx)

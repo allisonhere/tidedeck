@@ -104,20 +104,6 @@ func (f *demoFeed) Agenda(now time.Time, dayOffset int) []tideui.AgendaItem {
 	return upcoming
 }
 
-func (f *demoFeed) Clock(now time.Time) tideui.ClockData {
-	utc := now.UTC()
-	return tideui.ClockData{
-		Local:    now,
-		Location: now.Format("MST"),
-		Zones: []tideui.WorldClock{
-			{City: "London", Time: utc, Offset: "UTC"},
-			{City: "Tokyo", Time: utc.Add(9 * time.Hour), Offset: "+9"},
-			{City: "Sydney", Time: utc.Add(10 * time.Hour), Offset: "+10"},
-			{City: "New York", Time: utc.Add(-5 * time.Hour), Offset: "-5"},
-		},
-	}
-}
-
 func (f *demoFeed) System(now time.Time) tideui.SystemMetrics {
 	t := f.elapsed(now)
 	cpu := clampRange(18+10*wave(t, 9, 0)+4*wave(t, 3, 1), 3, 98)

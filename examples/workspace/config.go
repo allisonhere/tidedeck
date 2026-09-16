@@ -18,8 +18,6 @@ import (
 type config struct {
 	Live       bool          `json:"live"`
 	Weather    weatherConfig `json:"weather"`
-	Zones      string        `json:"zones"`
-	Clock24    bool          `json:"clock_24"`
 	GaugeStyle string        `json:"gauge_style"`
 	SparkStyle string        `json:"spark_style"`
 	ClockFont  string        `json:"clock_font"`
@@ -115,9 +113,7 @@ func defaultConfig() config {
 			WindMPH:    true,
 			Location:   "Local",
 		},
-		Zones:      "Europe/London,Asia/Tokyo,Sydney",
 		Feeds:      defaultFeeds(),
-		Clock24:    true,
 		GaugeStyle: "solid",
 		SparkStyle: "blocks",
 		ClockFont:  "dash",

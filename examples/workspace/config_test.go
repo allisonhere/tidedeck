@@ -20,9 +20,6 @@ func TestConfigDefaultsWhenMissing(t *testing.T) {
 	if !cfg.Weather.Enabled || !cfg.Weather.Fahrenheit {
 		t.Fatalf("unexpected weather defaults: %+v", cfg.Weather)
 	}
-	if !cfg.Clock24 {
-		t.Fatal("clock should default to 24-hour")
-	}
 }
 
 func TestConfigRoundTrip(t *testing.T) {
@@ -33,8 +30,6 @@ func TestConfigRoundTrip(t *testing.T) {
 			Enabled: true, Latitude: 52.52, Longitude: 13.405,
 			Location: "Berlin", Fahrenheit: false, WindMPH: true,
 		},
-		Zones:       "Europe/London",
-		Clock24:     false,
 		GaugeStyle:  "circles",
 		SparkStyle:  "braille",
 		ClockFont:   "block",
@@ -52,9 +47,6 @@ func TestConfigRoundTrip(t *testing.T) {
 	}
 	if got.Weather.Fahrenheit {
 		t.Fatal("fahrenheit did not round-trip as false")
-	}
-	if got.Clock24 {
-		t.Fatal("clock_24 did not round-trip as false")
 	}
 	if got.GaugeStyle != "circles" {
 		t.Fatalf("gauge_style = %q, want circles", got.GaugeStyle)
@@ -393,7 +385,7 @@ func TestSaveWithoutAnExistingFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	saved := readConfigDoc(t)
-	if saved["zones"] != defaultConfig().Zones {
-		t.Fatalf("defaults were not written: %v", saved["zones"])
+	if saved["gauge_style"] != defaultConfig().GaugeStyle {
+		t.Fatalf("defaults were not written: %v", saved["gauge_style"])
 	}
 }
