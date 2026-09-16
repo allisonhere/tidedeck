@@ -68,18 +68,6 @@ func (f *demoFeed) Markets(now time.Time) []tideui.MarketQuote {
 // Static collections live in the demo state so actions can mutate them while
 // still originating from the same deterministic feed.
 
-func (f *demoFeed) Services() []tideui.ServiceStatus {
-	return []tideui.ServiceStatus{
-		{Name: "jellyfin", Status: tideui.StatusHealthy, Age: "3d", Detail: "HTTP 200", Uptime: "3d 14h"},
-		{Name: "postgres", Status: tideui.StatusHealthy, Age: "12d", Detail: "12 connections", Uptime: "12d"},
-		{Name: "forgejo", Status: tideui.StatusWarning, Age: "6d", Detail: "high memory", Uptime: "6d 2h"},
-		{Name: "backup", Status: tideui.StatusStopped, Age: "--", Detail: "last run 2d ago"},
-		{Name: "caddy", Status: tideui.StatusHealthy, Age: "24d", Detail: "3 sites", Uptime: "24d"},
-		{Name: "redis", Status: tideui.StatusActive, Age: "9d", Detail: "cache warm", Uptime: "9d"},
-		{Name: "syncthing", Status: tideui.StatusUpdating, Age: "2m", Detail: "scanning", Uptime: "2m"},
-	}
-}
-
 func (f *demoFeed) Tasks() []tideui.Task {
 	return []tideui.Task{
 		{Title: "Finish TideDeck", Due: "today", Tone: tideui.ToneWarning, Tags: []string{"#tide"}},

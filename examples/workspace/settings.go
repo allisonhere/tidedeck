@@ -104,8 +104,6 @@ type formState struct {
 	todo        string
 	notes       string
 	symbols     string
-	systemd     string
-	docker      string
 }
 
 func formFromConfig(cfg config) formState {
@@ -125,8 +123,6 @@ func formFromConfig(cfg config) formState {
 		todo:        cfg.Todo,
 		notes:       cfg.Notes,
 		symbols:     cfg.Symbols,
-		systemd:     cfg.Systemd,
-		docker:      cfg.Docker,
 	}
 }
 
@@ -143,8 +139,6 @@ func (s formState) toConfig(deck *dash.Deck) (config, error) {
 		Todo:        s.todo,
 		Notes:       s.notes,
 		Symbols:     s.symbols,
-		Systemd:     s.systemd,
-		Docker:      s.docker,
 	}
 	document, err := s.applyPanelFields(s.doc, deck)
 	if err != nil {
@@ -403,10 +397,6 @@ func (s *settingsForm) buildCategories() []settingsCategory {
 			{label: "Look up coordinates", kind: fieldAction, action: s.lookupCoordinates},
 		}},
 		{name: "GPU", panelID: "gpu", fields: nil},
-		{name: "Services", panelID: "services", fields: []formField{
-			{label: "systemd units", kind: fieldText, text: &s.state.systemd},
-			{label: "docker socket", kind: fieldText, text: &s.state.docker},
-		}},
 		{name: "News", panelID: "news", fields: s.newsFields()},
 		{name: "Tasks", panelID: "tasks", fields: []formField{
 			{label: "todo.txt", kind: fieldText, text: &s.state.todo},

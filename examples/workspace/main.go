@@ -76,9 +76,8 @@ type demoState struct {
 	lastStatus string
 	statusAge  int
 
-	tasks    []tideui.Task
-	services []tideui.ServiceStatus
-	notes    []tideui.Note
+	tasks []tideui.Task
+	notes []tideui.Note
 }
 
 type model struct {
@@ -121,7 +120,6 @@ func newModel() model {
 		clockFont: tideui.ClockFont(clockFontOrDefault(cfg.ClockFont)),
 		icons:     tideui.IconStyle(iconStyleOrDefault(cfg.Icons)),
 		tasks:     feed.Tasks(),
-		services:  feed.Services(),
 		notes:     feed.Notes(),
 	}
 	store := fileStore{path: filepath.Join(userConfigDir(), "tidedeck", "layout.json")}
@@ -148,7 +146,7 @@ func newModel() model {
 	// Panels are registered in the order the hand-written registrations used to
 	// sit, so the deck attaches them — and the settings list orders them — the
 	// way the dashboard always did.
-	deck.Register(panels.Agenda(), panels.System(), panels.Weather(), panels.GPU(), panels.Updates(), panels.Clock(), panels.Git(), panels.News(), panels.Network(), panels.Storage())
+	deck.Register(panels.Agenda(), panels.System(), panels.Weather(), panels.GPU(), panels.Updates(), panels.Clock(), panels.Git(), panels.News(), panels.Network(), panels.Storage(), panels.Services())
 	deck.OnStatus(func(message string) { state.status = message })
 	registerPanels(ws, state, deck)
 	registerPresets(ws)
@@ -213,13 +211,12 @@ func (m *model) applyConfig() {
 	if m.cfg.Live {
 		m.state.live = newLiveSource(m.cfg)
 		m.state.source = m.state.live
-		m.state.tasks, m.state.services = nil, nil
+		m.state.tasks = nil
 		m.state.notes = nil
 	} else {
 		m.state.live = nil
 		m.state.source = m.feed
 		m.state.tasks = m.feed.Tasks()
-		m.state.services = m.feed.Services()
 		m.state.notes = m.feed.Notes()
 	}
 	// Give the deck's panels their first data now rather than on the tick a
@@ -286,23 +283,6 @@ func registerPanels(ws *tideui.Workspace, state *demoState, deck *dash.Deck) {
 	// rather than before or after the block, leaving the picker and settings
 	// lists unchanged.
 	deck.Attach(ws)
-
-	ws.Panel("services", servicesPanel(state)).
-		Title("Services").Role(tideui.RoleSecondary).Priority(65).MinWidth(20).MinHeight(6).HideBelow(92).
-		Actions(
-			tideui.Action("restart", "r", func(*tideui.Workspace) {
-				for i := range state.services {
-					if state.services[i].Tone != tideui.ToneGood {
-						state.services[i].State = "healthy"
-						state.services[i].Tone = tideui.ToneGood
-						state.status = state.services[i].Name + " restarted"
-						return
-					}
-				}
-				state.status = "all services healthy"
-			}).Labeled("restart"),
-			tideui.Action("logs", "l", func(*tideui.Workspace) { state.status = "opening service logs" }).Labeled("logs"),
-		)
 
 	ws.Panel("tasks", tasksPanel(state)).
 		Title("Tasks").Role(tideui.RoleSecondary).Priority(72).MinWidth(20).MinHeight(6).HideBelow(88).
@@ -403,9 +383,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if snapshot.Tasks != nil {
 				m.state.tasks = snapshot.Tasks
 			}
-			if snapshot.Services != nil {
-				m.state.services = snapshot.Services
-			}
 			if snapshot.Notes != nil {
 				m.state.notes = snapshot.Notes
 			}
@@ -475,19 +452,6 @@ func (m model) refreshBadges() {
 			panel.Badge(fmt.Sprintf("%d", open)).BadgeTone(tideui.ToneMuted)
 		} else {
 			panel.Badge("")
-		}
-	}
-	issues := 0
-	for _, s := range m.state.services {
-		if s.Tone != tideui.ToneGood {
-			issues++
-		}
-	}
-	if panel, ok := m.ws.Lookup("services"); ok {
-		if issues > 0 {
-			panel.Badge(fmt.Sprintf("%d", issues)).BadgeTone(tideui.ToneWarning)
-		} else {
-			panel.Badge("").BadgeTone(tideui.ToneGood)
 		}
 	}
 }

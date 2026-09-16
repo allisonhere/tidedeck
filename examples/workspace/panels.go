@@ -26,16 +26,6 @@ func panelRenderer(state *demoState, ctx tideui.PanelContext) tideui.Renderer {
 	return viewRenderer(state)
 }
 
-func servicesPanel(state *demoState) tideui.PanelView {
-	return func(ctx tideui.PanelContext) string {
-		r := panelRenderer(state, ctx)
-		if ctx.Zoomed {
-			return r.RenderServicesDetail(state.services, ctx.Width)
-		}
-		return r.RenderServices(state.services, ctx.Width)
-	}
-}
-
 func tasksPanel(state *demoState) tideui.PanelView {
 	return func(ctx tideui.PanelContext) string {
 		r := panelRenderer(state, ctx)

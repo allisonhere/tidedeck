@@ -40,14 +40,6 @@ func newLiveSource(cfg config) *liveSource {
 	if symbols := list(cfg.Symbols); len(symbols) > 0 {
 		dashboard.Markets = provider.NewFetcher(time.Minute, provider.Markets(symbols...))
 	}
-	if units := list(cfg.Systemd); len(units) > 0 {
-		dashboard.Services = provider.NewFetcher(15*time.Second, provider.Systemd(units...))
-	} else if socket := strings.TrimSpace(cfg.Docker); socket != "" {
-		if socket == "1" {
-			socket = ""
-		}
-		dashboard.Services = provider.NewFetcher(15*time.Second, provider.Docker(socket))
-	}
 	return &liveSource{dashboard: dashboard}
 }
 

@@ -31,8 +31,6 @@ type config struct {
 	Todo        string            `json:"todo"`
 	Notes       string            `json:"notes"`
 	Symbols     string            `json:"symbols"`
-	Systemd     string            `json:"systemd"`
-	Docker      string            `json:"docker"`
 	// doc is the document this config was decoded from. Saving writes the
 	// document back rather than only the fields below, so a key this build
 	// does not recognise - one a panel owns, or one a newer build wrote -
