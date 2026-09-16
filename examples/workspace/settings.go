@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/allisonhere/tideui"
+	"github.com/allisonhere/tideui/dash"
 	"github.com/allisonhere/tideui/provider"
 )
 
@@ -90,24 +91,28 @@ type formState struct {
 	spark          string
 	clockFont      string
 	icons          string
-	panelGauges    map[string]string
-	panelSparks    map[string]string
-	aurHelper      string
-	feeds          string // custom URLs only; catalogue URLs live in feedPresets
-	feedPresets    []bool // one per provider.NewsSources(), same order
-	calendars      string
-	todo           string
-	notes          string
-	repos          string
-	symbols        string
-	systemd        string
-	docker         string
-	iface          string
+	// doc is the document the edited config came from, carried through the
+	// form so saving preserves keys the form never shows.
+	doc         dash.Values
+	panelGauges map[string]string
+	panelSparks map[string]string
+	aurHelper   string
+	feeds       string // custom URLs only; catalogue URLs live in feedPresets
+	feedPresets []bool // one per provider.NewsSources(), same order
+	calendars   string
+	todo        string
+	notes       string
+	repos       string
+	symbols     string
+	systemd     string
+	docker      string
+	iface       string
 }
 
 func formFromConfig(cfg config) formState {
 	feedPresets, customFeeds := splitFeeds(cfg.Feeds)
 	return formState{
+		doc:            cfg.doc,
 		live:           cfg.Live,
 		weatherEnabled: cfg.Weather.Enabled,
 		latitude:       formatFloat(cfg.Weather.Latitude),
@@ -175,7 +180,7 @@ func (s formState) toConfig() (config, error) {
 		Systemd:     s.systemd,
 		Docker:      s.docker,
 		Interface:   s.iface,
-	}, nil
+	}.withDoc(s.doc), nil
 }
 
 // iconStyleNames lists the selectable icon styles as strings.

@@ -45,6 +45,9 @@ func (v Values) Bytes() ([]byte, error) {
 
 // Clone returns a deep copy, so a settings form can be edited and discarded.
 func (v Values) Clone() Values {
+	if v.raw == nil {
+		return NewValues()
+	}
 	data, err := json.Marshal(v.raw)
 	if err != nil {
 		return NewValues()
@@ -151,6 +154,48 @@ func (v Values) List(path string) []string {
 		}
 	}
 	return out
+}
+
+// Delete removes a key. Removing a key that is not there is not an error.
+func (v *Values) Delete(path string) {
+	if v.raw == nil {
+		return
+	}
+	node := v.raw
+	parts := strings.Split(path, ".")
+	for i, part := range parts {
+		if i == len(parts)-1 {
+			delete(node, part)
+			return
+		}
+		next, ok := node[part].(map[string]any)
+		if !ok {
+			return
+		}
+		node = next
+	}
+}
+
+// Merge overlays another document onto this one, with the other winning.
+// Objects present in both are merged key by key rather than replaced, so
+// overlaying one nested field does not drop its siblings.
+func (v *Values) Merge(other Values) {
+	if v.raw == nil {
+		v.raw = map[string]any{}
+	}
+	mergeInto(v.raw, other.raw)
+}
+
+func mergeInto(dst, src map[string]any) {
+	for key, value := range src {
+		nested, isObject := value.(map[string]any)
+		existing, wasObject := dst[key].(map[string]any)
+		if isObject && wasObject {
+			mergeInto(existing, nested)
+			continue
+		}
+		dst[key] = value
+	}
 }
 
 // Set writes a value, creating intermediate objects as needed.

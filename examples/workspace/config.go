@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 
+	"github.com/allisonhere/tideui/dash"
 	"github.com/allisonhere/tideui/provider"
 )
 
@@ -43,6 +45,55 @@ type config struct {
 	// AURHelper names the AUR wrapper used to count AUR updates ("yay",
 	// "paru"). Empty falls back to yay.
 	AURHelper string `json:"aur_helper"`
+
+	// doc is the document this config was decoded from. Saving writes the
+	// document back rather than only the fields below, so a key this build
+	// does not recognise - one a panel owns, or one a newer build wrote -
+	// survives being edited in settings instead of being silently dropped.
+	// It is unexported, so encoding/json ignores it in both directions.
+	doc dash.Values
+}
+
+// configKeys are the top-level keys the struct above owns. Saving replaces
+// exactly these in the document and leaves everything else untouched, which
+// is what makes an omitted key (an empty panel_gauges, say) actually clear
+// rather than falling back to the stale value on disk.
+func configKeys() []string {
+	fields := reflect.VisibleFields(reflect.TypeOf(config{}))
+	keys := make([]string, 0, len(fields))
+	for _, field := range fields {
+		tag, _, _ := strings.Cut(field.Tag.Get("json"), ",")
+		if tag != "" && tag != "-" {
+			keys = append(keys, tag)
+		}
+	}
+	return keys
+}
+
+// document renders the config as the document to persist: what was loaded,
+// with the keys this struct owns replaced by its current values.
+func (c config) document() (dash.Values, error) {
+	data, err := json.Marshal(c)
+	if err != nil {
+		return dash.Values{}, err
+	}
+	typed, err := dash.LoadValues(data)
+	if err != nil {
+		return dash.Values{}, err
+	}
+	out := c.doc.Clone()
+	for _, key := range configKeys() {
+		out.Delete(key)
+	}
+	out.Merge(typed)
+	return out, nil
+}
+
+// withDoc returns the config carrying a source document, so a config rebuilt
+// from the settings form keeps the keys the form does not know about.
+func (c config) withDoc(doc dash.Values) config {
+	c.doc = doc
+	return c
 }
 
 // weatherConfig configures the Open-Meteo weather source.
@@ -94,12 +145,21 @@ func loadConfig() config {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return defaultConfig()
 	}
+	// Keep what was on disk, so saving does not drop keys this build has no
+	// field for.
+	if doc, err := dash.LoadValues(data); err == nil {
+		cfg.doc = doc
+	}
 	return cfg
 }
 
 // save writes the config to disk, creating the directory if needed.
 func (c config) save() error {
-	data, err := json.MarshalIndent(c, "", "  ")
+	document, err := c.document()
+	if err != nil {
+		return err
+	}
+	data, err := document.Bytes()
 	if err != nil {
 		return err
 	}

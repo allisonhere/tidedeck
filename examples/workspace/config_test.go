@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -231,5 +232,163 @@ func TestRepoListKeepsRemoteURLsIntact(t *testing.T) {
 	mixed := normalizeRepoList(url + "," + filepath.Join(home, "x"))
 	if !strings.Contains(mixed, url) || !strings.Contains(mixed, "~/x") {
 		t.Fatalf("mixed list = %q, want the URL intact and the path collapsed", mixed)
+	}
+}
+
+// writeConfig puts a document at the path loadConfig reads, and returns it.
+func writeConfig(t *testing.T, body string) string {
+	t.Helper()
+	path := configPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func readConfigDoc(t *testing.T) map[string]any {
+	t.Helper()
+	data, err := os.ReadFile(configPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]any{}
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatalf("saved config is not valid JSON: %v", err)
+	}
+	return out
+}
+
+// Saving used to marshal the typed struct alone, so any key the struct had no
+// field for was dropped. That is how a panel-owned setting, or one written by
+// a newer build, would silently disappear the first time someone opened
+// settings and pressed save.
+func TestSavePreservesUnknownKeys(t *testing.T) {
+	writeConfig(t, `{
+  "live": true,
+  "aur_helper": "paru",
+  "some_future_panel": {"endpoint": "https://example.com", "every": 30},
+  "hand_added": "keep me"
+}`)
+	cfg := loadConfig()
+	if cfg.AURHelper != "paru" || !cfg.Live {
+		t.Fatalf("known keys did not load: %+v", cfg)
+	}
+
+	cfg.AURHelper = "yay"
+	if err := cfg.save(); err != nil {
+		t.Fatal(err)
+	}
+
+	saved := readConfigDoc(t)
+	if saved["hand_added"] != "keep me" {
+		t.Fatalf("a key the struct does not know was dropped: %v", saved["hand_added"])
+	}
+	nested, ok := saved["some_future_panel"].(map[string]any)
+	if !ok || nested["endpoint"] != "https://example.com" || nested["every"] != float64(30) {
+		t.Fatalf("a nested unknown key was not preserved: %v", saved["some_future_panel"])
+	}
+	if saved["aur_helper"] != "yay" {
+		t.Fatalf("the edited key was not written: %v", saved["aur_helper"])
+	}
+}
+
+// The other half of the contract: a key the struct owns must be able to go
+// away. Preserving the document naively would let a cleared value fall back
+// to whatever was on disk.
+func TestSaveClearsOwnedKeysThatAreNowEmpty(t *testing.T) {
+	writeConfig(t, `{
+  "panel_gauges": {"system": "marker"},
+  "aur_helper": "paru",
+  "keep": "this"
+}`)
+	cfg := loadConfig()
+	if len(cfg.PanelGauges) != 1 {
+		t.Fatalf("panel_gauges did not load: %+v", cfg.PanelGauges)
+	}
+
+	// Clearing an omitempty map means the key is absent from the marshalled
+	// struct entirely, which must clear it rather than keep the old value.
+	cfg.PanelGauges = nil
+	cfg.AURHelper = ""
+	if err := cfg.save(); err != nil {
+		t.Fatal(err)
+	}
+
+	saved := readConfigDoc(t)
+	if _, present := saved["panel_gauges"]; present {
+		t.Fatalf("cleared panel_gauges came back as %v", saved["panel_gauges"])
+	}
+	if saved["aur_helper"] != "" {
+		t.Fatalf("cleared aur_helper = %v, want empty", saved["aur_helper"])
+	}
+	if saved["keep"] != "this" {
+		t.Fatal("clearing an owned key dropped an unowned one")
+	}
+}
+
+// The settings form rebuilds the config from scratch, so the document has to
+// survive that too - this is the path a user actually takes.
+func TestSettingsSavePreservesUnknownKeys(t *testing.T) {
+	writeConfig(t, `{"aur_helper": "paru", "panel_owned": {"thing": 1}}`)
+	cfg := loadConfig()
+
+	form := newSettingsForm()
+	form.Open(cfg)
+	rebuilt, err := form.state.toConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rebuilt.save(); err != nil {
+		t.Fatal(err)
+	}
+	saved := readConfigDoc(t)
+	nested, ok := saved["panel_owned"].(map[string]any)
+	if !ok || nested["thing"] != float64(1) {
+		t.Fatalf("settings save dropped an unowned key: %v", saved["panel_owned"])
+	}
+	if saved["aur_helper"] != "paru" {
+		t.Fatalf("settings save changed an untouched key: %v", saved["aur_helper"])
+	}
+}
+
+// A config written by this build must load and save unchanged, so opening
+// settings and saving without editing anything is a no-op on disk.
+func TestSaveIsIdempotent(t *testing.T) {
+	writeConfig(t, `{"live": true, "aur_helper": "yay", "extra": [1, 2, 3]}`)
+	cfg := loadConfig()
+	if err := cfg.save(); err != nil {
+		t.Fatal(err)
+	}
+	first, err := os.ReadFile(configPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	again := loadConfig()
+	if err := again.save(); err != nil {
+		t.Fatal(err)
+	}
+	second, err := os.ReadFile(configPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(first) != string(second) {
+		t.Fatalf("saving twice changed the file:\n%s\n---\n%s", first, second)
+	}
+}
+
+// A missing config file must still save, rather than failing on a nil
+// document.
+func TestSaveWithoutAnExistingFile(t *testing.T) {
+	_ = os.Remove(configPath())
+	cfg := defaultConfig()
+	if err := cfg.save(); err != nil {
+		t.Fatal(err)
+	}
+	saved := readConfigDoc(t)
+	if saved["aur_helper"] != "yay" {
+		t.Fatalf("defaults were not written: %v", saved["aur_helper"])
 	}
 }
