@@ -423,3 +423,27 @@ func TestWorkspaceArrangeDownJoinsTargetRow(t *testing.T) {
 		t.Fatalf("a not placed beside c: a=%+v c=%+v", solved.Rects["a"], solved.Rects["c"])
 	}
 }
+
+// A panel declared hidden stays hidden in a preset that does not name it, so a
+// plugin does not drop into every preset just by being installed. It can still
+// be enabled, and once shown it stays shown.
+func TestPresetRespectsStartsHidden(t *testing.T) {
+	ws := NewWorkspace(WithGap(0))
+	ws.Panel("a", Text("a")).MinWidth(4).MinHeight(3)
+	ws.Panel("plugin", Text("p")).MinWidth(4).MinHeight(3).Hide()
+	ws.AddPreset("One", HStack(Leaf("a")))
+
+	ws.ApplyPreset("One")
+	if ws.Hidden("a") {
+		t.Fatal("a placed panel should be visible")
+	}
+	if !ws.Hidden("plugin") {
+		t.Fatal("a panel declared hidden should stay hidden in a preset that does not name it")
+	}
+	if !ws.Show("plugin") {
+		t.Fatal("a hidden panel should be showable")
+	}
+	if ws.Hidden("plugin") {
+		t.Fatal("show did not reveal the panel")
+	}
+}

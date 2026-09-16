@@ -58,6 +58,9 @@ func (e *execPanel) Meta() Meta {
 		Role: tideui.RoleOptional, Priority: panel.Priority,
 		MinWidth: panel.MinWidth, MinHeight: panel.MinHeight,
 		HideBelow: panel.HideBelow, Interval: e.manifest.Interval(),
+		// A freshly installed plugin should not rearrange the dashboard, so
+		// it starts hidden and is enabled from the panel picker or settings.
+		Hidden: true,
 	}
 	if meta.Priority == 0 {
 		meta.Priority = 30
@@ -72,6 +75,10 @@ func (e *execPanel) Meta() Meta {
 }
 
 func (e *execPanel) Schema() []Field { return e.manifest.Fields() }
+
+// AlwaysLive runs the program whatever the deck's mode: a plugin is a real
+// program the user installed, not sample data, so demo mode must not starve it.
+func (e *execPanel) AlwaysLive() bool { return true }
 
 // Configure passes the plugin's declared settings to the program as
 // environment variables. Only declared keys are passed: a plugin gets what it

@@ -1076,6 +1076,22 @@ good document and records the error, exactly as a failing provider does.
 Killing an entry point does not necessarily end what it started, so a script
 that leaves a child holding the output pipe is bounded too.
 
+#### Installing and removing one
+
+Plugins are discovered once, at startup: **drop a directory into
+`~/.config/tidedeck/plugins/` to add one, delete it to remove one**, then
+restart. There is no in-process watcher, so nothing reloads mid-session. A
+manifest that does not validate is skipped and its reason is shown in the
+status strip; the others still load.
+
+A plugin **starts hidden**, so installing one does not rearrange every preset.
+Enable it from the panel picker (`space`) or from its page in settings, which
+is also where its declared settings are edited. It runs whatever the
+demo/live setting says: a plugin is a real program, not the sample data demo
+mode stands in for. Its settings live under `plugins.<id>.<key>` in the
+configuration document, and those keys are preserved when the plugin is
+removed, so reinstalling it restores its settings.
+
 **Plugins run unsandboxed, with your user permissions.** This is an extension
 mechanism for a single-user dashboard, not a security boundary, and there is no
 honest way to describe it otherwise: a plugin can do anything you can do.

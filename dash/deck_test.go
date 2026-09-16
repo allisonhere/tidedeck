@@ -56,6 +56,55 @@ func (f *fake) Actions() []Action {
 	}}}
 }
 
+// A panel whose Meta says Hidden joins the workspace off, so installing a
+// plugin does not rearrange the dashboard.
+func TestAttachStartsWithHiddenPanelHidden(t *testing.T) {
+	panel := newFake("author.plugin", time.Minute)
+	panel.meta.Hidden = true
+	deck := New()
+	deck.Register(panel)
+	ws := tideui.NewWorkspace()
+	deck.Attach(ws)
+
+	registered, ok := ws.Lookup("author.plugin")
+	if !ok {
+		t.Fatal("panel was not attached")
+	}
+	if !registered.StartsHidden() || !ws.Hidden("author.plugin") {
+		t.Fatal("a Hidden panel should attach hidden")
+	}
+}
+
+// A plugin panel starts hidden for the same reason.
+func TestPluginPanelStartsHidden(t *testing.T) {
+	panel := Exec(Manifest{ID: "author.plugin", Name: "Plugin"})
+	if !panel.Meta().Hidden {
+		t.Fatal("a plugin panel should start hidden")
+	}
+}
+
+// alwaysLive wraps a fake so it reports itself as real regardless of mode.
+type alwaysLive struct{ *fake }
+
+func (alwaysLive) AlwaysLive() bool { return true }
+
+// Demo mode skips real sources, but a panel that says it is real regardless -
+// a plugin - still runs, so it is not blank whenever demo mode is on.
+func TestRefreshInDemoRunsOnlyAlwaysLive(t *testing.T) {
+	normal := newFake("normal", 0)
+	plugin := alwaysLive{newFake("author.plugin", 0)}
+	deck := New()
+	deck.Register(normal, plugin)
+
+	deck.Refresh(context.Background(), time.Unix(1700000000, 0)) // demo mode
+	if normal.refresh != 0 {
+		t.Fatalf("a normal source fetched in demo mode: %d", normal.refresh)
+	}
+	if plugin.refresh != 1 {
+		t.Fatalf("an always-live panel did not fetch in demo mode: %d", plugin.refresh)
+	}
+}
+
 func newFake(id string, interval time.Duration) *fake {
 	return &fake{meta: Meta{ID: id, Title: id, Interval: interval, MinWidth: 10, MinHeight: 4}}
 }

@@ -1309,7 +1309,10 @@ func (ws *Workspace) ApplyPreset(name string) bool {
 	ws.explicitRoot = true
 	ws.hidden = map[string]bool{}
 	for _, id := range ws.order {
-		hidden := false
+		panel := ws.panels[id]
+		// A panel declared hidden stays off unless this preset names it, so a
+		// plugin does not appear in every preset just by being installed.
+		hidden := panel != nil && panel.StartsHidden()
 		for _, hiddenID := range preset.Hidden {
 			if hiddenID == id {
 				hidden = true
@@ -1317,7 +1320,7 @@ func (ws *Workspace) ApplyPreset(name string) bool {
 			}
 		}
 		ws.hidden[id] = hidden
-		if panel := ws.panels[id]; panel != nil {
+		if panel != nil {
 			panel.hidden = hidden
 		}
 	}

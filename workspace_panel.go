@@ -204,6 +204,10 @@ type Panel struct {
 	actions   []PanelAction
 	fallbacks []Fallback
 	hidden    bool
+	// startHidden remembers that the panel was declared hidden, so a preset
+	// that does not mention it cannot reveal a panel meant to stay off until
+	// it is enabled. hidden is the current state; this is the default.
+	startHidden bool
 }
 
 func newPanel(id string, view PanelView) *Panel {
@@ -270,8 +274,9 @@ func (p *Panel) Fallbacks() []Fallback { return p.fallbacks }
 // ActionList returns the panel's contextual actions.
 func (p *Panel) ActionList() []PanelAction { return p.actions }
 
-// StartsHidden reports whether the panel starts hidden.
-func (p *Panel) StartsHidden() bool { return p.hidden }
+// StartsHidden reports whether the panel was declared hidden, which is its
+// default until a preset or an explicit Show changes it.
+func (p *Panel) StartsHidden() bool { return p.startHidden }
 
 // CanFocus reports whether focus traversal may select this panel.
 func (p *Panel) CanFocus() bool { return p.focusable }
@@ -461,10 +466,10 @@ func (p *Panel) Body(content string) *Panel { p.view = Text(content); return p }
 
 // Visible marks the panel visible at construction time. Panels are visible by
 // default; this exists for fluent symmetry with Hide.
-func (p *Panel) Visible() *Panel { p.hidden = false; return p }
+func (p *Panel) Visible() *Panel { p.hidden, p.startHidden = false, false; return p }
 
 // Hide starts the panel hidden.
-func (p *Panel) Hide() *Panel { p.hidden = true; return p }
+func (p *Panel) Hide() *Panel { p.hidden, p.startHidden = true, true; return p }
 
 // Actions registers contextual actions. They automatically flow into the
 // command palette, so they only need to be declared once.

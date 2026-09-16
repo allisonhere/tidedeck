@@ -120,6 +120,9 @@ func (d *Deck) Attach(ws *tideui.Workspace) {
 		if meta.Theme.Name != "" {
 			builder = builder.Theme(meta.Theme)
 		}
+		if meta.Hidden {
+			builder = builder.Hide()
+		}
 		if actor, ok := panel.(Actor); ok {
 			builder.Actions(d.actions(meta.ID, actor)...)
 		}
@@ -156,13 +159,18 @@ func (d *Deck) actions(id string, actor Actor) []tideui.PanelAction {
 // this from a command rather than from its update loop: a panel is bounded by
 // the deck's timeout, but a slow source would still hold up the frame.
 func (d *Deck) Refresh(ctx context.Context, now time.Time) {
-	if d.mode != ModeLive {
-		return
-	}
 	for _, panel := range d.order {
 		fetcher, ok := panel.(Fetcher)
 		if !ok {
 			continue
+		}
+		// Demo mode stands in sample data for real sources, so it skips them
+		// all - except a panel that says it is real regardless, like a plugin.
+		if d.mode != ModeLive {
+			live, ok := panel.(AlwaysLive)
+			if !ok || !live.AlwaysLive() {
+				continue
+			}
 		}
 		meta := panel.Meta()
 		if interval := meta.Interval; interval > 0 {

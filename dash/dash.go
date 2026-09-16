@@ -39,6 +39,11 @@ type Meta struct {
 	// workspace's, the way the hand-written registration could.
 	Theme tideui.Theme
 
+	// Hidden starts the panel hidden, so it joins the workspace off until it
+	// is enabled rather than dropping into every preset. A plugin uses this:
+	// installing one should not rearrange the dashboard.
+	Hidden bool
+
 	// Interval is how often Refresh is worth calling. Zero means the panel
 	// has no data of its own, or fetches once and keeps it.
 	Interval time.Duration
@@ -60,6 +65,14 @@ type Panel interface {
 // error, so View never has to handle failure.
 type Fetcher interface {
 	Refresh(context.Context) error
+}
+
+// AlwaysLive is implemented by a panel whose source is real even in demo mode,
+// so the deck refreshes it whatever its mode. A plugin program is the example:
+// it is a program the user installed, not the sample data the demo mode exists
+// to stand in for.
+type AlwaysLive interface {
+	AlwaysLive() bool
 }
 
 // Configurable is implemented by a panel with settings of its own. Schema

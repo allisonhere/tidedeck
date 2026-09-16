@@ -136,7 +136,21 @@ func newModel() model {
 	// sit, so the deck attaches them — and the settings list orders them — the
 	// way the dashboard always did.
 	deck.Register(panels.Agenda(), panels.System(), panels.Weather(), panels.GPU(), panels.Updates(), panels.Clock(), panels.Git(), panels.News(), panels.Network(), panels.Storage(), panels.Services(), panels.Tasks(), panels.Notes(), panels.Markets())
+
+	// Plugins are discovered once, at startup: drop a directory into
+	// <config>/tidedeck/plugins to add one, delete it to remove one. A
+	// manifest that does not validate is skipped with its reason rather than
+	// failing the rest, and a plugin starts hidden until it is enabled from
+	// the panel picker or settings.
+	plugins, problems := dash.LoadPlugins(filepath.Join(userConfigDir(), "tidedeck", "plugins"))
+	deck.Register(plugins...)
 	deck.OnStatus(func(message string) { state.status = message })
+	switch {
+	case len(problems) > 0:
+		state.status = "plugin skipped: " + problems[0].Error()
+	case len(plugins) > 0:
+		state.status = "plugin loaded: " + plugins[0].Meta().Title
+	}
 	deck.Attach(ws)
 	registerPresets(ws)
 
