@@ -117,6 +117,9 @@ func (d *Deck) Attach(ws *tideui.Workspace) {
 		if meta.HideBelow > 0 {
 			builder = builder.HideBelow(meta.HideBelow)
 		}
+		if meta.Theme.Name != "" {
+			builder = builder.Theme(meta.Theme)
+		}
 		if actor, ok := panel.(Actor); ok {
 			builder.Actions(d.actions(meta.ID, actor)...)
 		}

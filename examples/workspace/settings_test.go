@@ -100,9 +100,6 @@ func TestSavingSettingsAppliesLiveSource(t *testing.T) {
 	if !m.cfg.Live {
 		t.Fatal("save did not persist live mode")
 	}
-	if m.state.live == nil {
-		t.Fatal("live source was not applied after save")
-	}
 	if m.settings.Opened() {
 		t.Fatal("settings should close after save")
 	}

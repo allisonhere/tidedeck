@@ -6,8 +6,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/allisonhere/tideui"
 )
 
 func waitFor(t *testing.T, cond func() bool) {
@@ -66,34 +64,5 @@ func TestNilFetcherIsSafe(t *testing.T) {
 	fetcher.Refresh(context.Background())
 	if _, _, ok := fetcher.Value(); ok {
 		t.Fatal("nil fetcher reported a value")
-	}
-}
-
-func TestDashboardSnapshotCollects(t *testing.T) {
-	dashboard := &Dashboard{
-		Markets: NewFetcher(0, func(context.Context) ([]tideui.MarketQuote, error) {
-			return []tideui.MarketQuote{{Symbol: "AMD"}}, nil
-		}),
-	}
-	dashboard.Refresh(context.Background())
-	waitFor(t, func() bool { _, _, ok := dashboard.Markets.Value(); return ok })
-
-	snapshot := dashboard.Snapshot()
-	if len(snapshot.Markets) != 1 || snapshot.Markets[0].Symbol != "AMD" {
-		t.Fatalf("markets missing: %+v", snapshot.Markets)
-	}
-	if snapshot.Updated.IsZero() {
-		t.Fatal("snapshot has no timestamp")
-	}
-}
-
-func TestNilDashboardSnapshotIsSafe(t *testing.T) {
-	var dashboard *Dashboard
-	snapshot := dashboard.Snapshot()
-	if snapshot.Updated.IsZero() {
-		t.Fatal("nil dashboard snapshot missing timestamp")
-	}
-	if snapshot.Markets != nil {
-		t.Fatal("nil dashboard produced markets")
 	}
 }

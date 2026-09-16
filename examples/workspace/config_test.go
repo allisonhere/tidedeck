@@ -28,7 +28,6 @@ func TestConfigRoundTrip(t *testing.T) {
 		PanelGauges: map[string]string{"system": "blocks"},
 		PanelSparks: map[string]string{"network": "dots"},
 		Feeds:       "https://a,https://b",
-		Symbols:     "AMD,NVDA",
 	}
 	if err := cfg.save(); err != nil {
 		t.Fatal(err)
@@ -52,24 +51,14 @@ func TestConfigRoundTrip(t *testing.T) {
 	if got.ClockFont != "block" {
 		t.Fatalf("clock_font = %q, want block", got.ClockFont)
 	}
-	if got.Feeds != "https://a,https://b" || got.Symbols != "AMD,NVDA" {
+	if got.Feeds != "https://a,https://b" {
 		t.Fatalf("lists did not round trip: %+v", got)
-	}
-}
-
-func TestListParsing(t *testing.T) {
-	got := list("a, b ,, c")
-	if len(got) != 3 || got[0] != "a" || got[1] != "b" || got[2] != "c" {
-		t.Fatalf("list = %v", got)
-	}
-	if list("  ") != nil {
-		t.Fatal("blank list should be empty")
 	}
 }
 
 func TestDefaultFeedsAreSeeded(t *testing.T) {
 	cfg := defaultConfig()
-	urls := list(cfg.Feeds)
+	urls := strings.Split(cfg.Feeds, ",")
 	if len(urls) == 0 {
 		t.Fatal("default config has no feeds: the News panel would start empty")
 	}

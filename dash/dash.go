@@ -35,6 +35,10 @@ type Meta struct {
 	MinHeight int
 	HideBelow int // auto-hide under this many columns; 0 never hides
 
+	// Theme, when set, gives the panel its own palette instead of the
+	// workspace's, the way the hand-written registration could.
+	Theme tideui.Theme
+
 	// Interval is how often Refresh is worth calling. Zero means the panel
 	// has no data of its own, or fetches once and keeps it.
 	Interval time.Duration

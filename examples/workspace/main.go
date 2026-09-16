@@ -58,14 +58,13 @@ func (s fileStore) Save(key string, value []byte) error {
 	return os.WriteFile(s.path, out, 0o644)
 }
 
-// demoState is the mutable demo data. Time-varying widgets read from the feed;
-// collections the user can act on are held here so actions persist.
+// demoState is the application's mutable state: the current time, the
+// presentation styles the settings screen edits, and transient status. Panel
+// data lives on the deck, not here.
 type demoState struct {
 	theme   tideui.Theme
 	density tideui.Density
 	now     time.Time
-	source  dataSource
-	live    *liveSource // non-nil when live data is enabled in settings
 	status  string
 
 	gauge     tideui.GaugeStyle
@@ -75,9 +74,6 @@ type demoState struct {
 
 	lastStatus string
 	statusAge  int
-
-	tasks []tideui.Task
-	notes []tideui.Note
 }
 
 type model struct {
@@ -87,11 +83,8 @@ type model struct {
 	picker        tideui.ThemePicker
 
 	cfg      config
-	feed     *demoFeed
 	settings *settingsForm
 	// deck holds the panels that own their own data, rendering and settings.
-	// Panels are migrated onto it one at a time; everything not yet migrated
-	// still goes through demoState and the provider snapshot below.
 	deck *dash.Deck
 
 	// pickerTarget is "" when the picker is editing the workspace theme, or a
@@ -110,11 +103,9 @@ func tickCmd(rate time.Duration) tea.Cmd {
 
 func newModel() model {
 	started := time.Now()
-	feed := newDemoFeed(7, started)
 	cfg := loadConfig()
-	var source dataSource = feed
 	state := &demoState{
-		theme: tideui.CatppuccinMocha, density: tideui.Dense, now: started, source: source,
+		theme: tideui.CatppuccinMocha, density: tideui.Dense, now: started,
 		gauge:     tideui.GaugeStyle(gaugeOrDefault(cfg.GaugeStyle)),
 		spark:     tideui.SparklineStyle(sparkOrDefault(cfg.SparkStyle)),
 		clockFont: tideui.ClockFont(clockFontOrDefault(cfg.ClockFont)),
@@ -144,9 +135,9 @@ func newModel() model {
 	// Panels are registered in the order the hand-written registrations used to
 	// sit, so the deck attaches them — and the settings list orders them — the
 	// way the dashboard always did.
-	deck.Register(panels.Agenda(), panels.System(), panels.Weather(), panels.GPU(), panels.Updates(), panels.Clock(), panels.Git(), panels.News(), panels.Network(), panels.Storage(), panels.Services(), panels.Tasks(), panels.Notes())
+	deck.Register(panels.Agenda(), panels.System(), panels.Weather(), panels.GPU(), panels.Updates(), panels.Clock(), panels.Git(), panels.News(), panels.Network(), panels.Storage(), panels.Services(), panels.Tasks(), panels.Notes(), panels.Markets())
 	deck.OnStatus(func(message string) { state.status = message })
-	registerPanels(ws, state, deck)
+	deck.Attach(ws)
 	registerPresets(ws)
 
 	ws.Layout(overviewLayout())
@@ -163,7 +154,6 @@ func newModel() model {
 		ws:       ws,
 		picker:   tideui.NewThemePicker(tideui.ThemePickerOptions{InitialTheme: state.theme.Name}),
 		cfg:      cfg,
-		feed:     feed,
 		settings: settings,
 	}
 	// Apply the saved configuration the same way a save does. Doing it here
@@ -176,7 +166,7 @@ func newModel() model {
 	return m
 }
 
-// applyConfig switches the data source to match the saved configuration.
+// applyConfig hands the saved configuration to the deck and the styles.
 // deckMode maps the live-data setting onto the deck's mode.
 func deckMode(live bool) dash.Mode {
 	if live {
@@ -206,13 +196,6 @@ func (m *model) applyConfig() {
 	applyPanelSparks(m.ws, m.cfg)
 	m.deck.SetMode(deckMode(m.cfg.Live))
 	m.deck.Configure(m.values())
-	if m.cfg.Live {
-		m.state.live = newLiveSource(m.cfg)
-		m.state.source = m.state.live
-	} else {
-		m.state.live = nil
-		m.state.source = m.feed
-	}
 	// Give the deck's panels their first data now rather than on the tick a
 	// second from now: a panel that holds its own data renders empty until
 	// something fills it, and the first frame is drawn before that tick.
@@ -272,21 +255,6 @@ func applyPanelSparks(ws *tideui.Workspace, cfg config) {
 	}
 }
 
-func registerPanels(ws *tideui.Workspace, state *demoState, deck *dash.Deck) {
-	// Registered panels keep their declared order, so the deck attaches here
-	// rather than before or after the block, leaving the picker and settings
-	// lists unchanged.
-	deck.Attach(ws)
-
-	// Markets ships with its own contrasting theme to show that a panel can
-	// opt out of the workspace palette entirely. Press T / ctrl+T to assign or
-	// clear the focused panel's theme at runtime.
-	ws.Panel("markets", marketsPanel(state)).
-		Title("Markets").Role(tideui.RoleOptional).Priority(50).MinWidth(18).MinHeight(6).HideBelow(160).
-		Theme(tideui.GruvboxLight).
-		Actions(tideui.Action("refresh", "r", func(*tideui.Workspace) { state.status = "quotes refreshed" }).Labeled("refresh"))
-}
-
 // overviewLayout balances the dashboard by content density: dense panels
 // (Calendar, News) get taller rows and more width, while the sparse bottom row
 // (Tasks, Storage, Clock) is deliberately short so it does not stretch.
@@ -343,13 +311,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 	case tickMsg:
 		m.state.now = time.Now()
-		// Panels on the deck fetch on their own intervals and hold their own
-		// data; only the markets source is still on the old collector.
+		// Panels fetch on their own intervals and hold their own data.
 		m.deck.Refresh(context.Background(), m.state.now)
 		m.deck.Tick(m.state.now)
-		if m.state.live != nil {
-			m.state.live.refresh(context.Background())
-		}
 		// Auto-clear transient status feedback a few seconds after it stops
 		// changing, so it is prominent but never sticks around.
 		if m.state.status != m.state.lastStatus {
@@ -598,7 +562,7 @@ func (m model) View() string {
 		primary += "  ·  " + preset
 	}
 	dataLabel := "demo data"
-	if m.state.live != nil {
+	if m.deck.Mode() == dash.ModeLive {
 		dataLabel = "live"
 	}
 	secondary := "updated " + m.state.now.Format("15:04") + "  ·  " + dataLabel

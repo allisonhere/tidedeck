@@ -29,7 +29,6 @@ type config struct {
 	PanelSparks map[string]string `json:"panel_sparks,omitempty"`
 	Feeds       string            `json:"feeds"`
 	Todo        string            `json:"todo"`
-	Symbols     string            `json:"symbols"`
 	// doc is the document this config was decoded from. Saving writes the
 	// document back rather than only the fields below, so a key this build
 	// does not recognise - one a panel owns, or one a newer build wrote -
@@ -202,31 +201,6 @@ func joinFeeds(presets []bool, custom string) string {
 
 // list splits a comma-separated config value, trims blanks, and expands a
 // leading ~.
-func list(value string) []string {
-	var out []string
-	for _, part := range strings.Split(value, ",") {
-		part = expandPath(strings.TrimSpace(part))
-		if part != "" {
-			out = append(out, part)
-		}
-	}
-	return out
-}
-
-func expandPath(path string) string {
-	if path == "~" {
-		if home, err := os.UserHomeDir(); err == nil {
-			return home
-		}
-	}
-	if strings.HasPrefix(path, "~/") {
-		if home, err := os.UserHomeDir(); err == nil {
-			return filepath.Join(home, path[2:])
-		}
-	}
-	return path
-}
-
 func formatFloat(value float64) string {
 	return fmt.Sprintf("%g", value)
 }

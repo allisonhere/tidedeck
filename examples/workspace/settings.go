@@ -101,7 +101,6 @@ type formState struct {
 	panelSparks map[string]string
 	feeds       string // custom URLs only; catalogue URLs live in feedPresets
 	feedPresets []bool // one per provider.NewsSources(), same order
-	symbols     string
 }
 
 func formFromConfig(cfg config) formState {
@@ -118,7 +117,6 @@ func formFromConfig(cfg config) formState {
 		panelSparks: copyStringMap(cfg.PanelSparks),
 		feeds:       customFeeds,
 		feedPresets: feedPresets,
-		symbols:     cfg.Symbols,
 	}
 }
 
@@ -132,7 +130,6 @@ func (s formState) toConfig(deck *dash.Deck) (config, error) {
 		PanelGauges: panelOverrides(s.panelGauges),
 		PanelSparks: panelOverrides(s.panelSparks),
 		Feeds:       joinFeeds(s.feedPresets, s.feeds),
-		Symbols:     s.symbols,
 	}
 	document, err := s.applyPanelFields(s.doc, deck)
 	if err != nil {
@@ -392,9 +389,6 @@ func (s *settingsForm) buildCategories() []settingsCategory {
 		}},
 		{name: "GPU", panelID: "gpu", fields: nil},
 		{name: "News", panelID: "news", fields: s.newsFields()},
-		{name: "Markets", panelID: "markets", fields: []formField{
-			{label: "symbols", kind: fieldText, text: &s.state.symbols},
-		}},
 	}
 	// Panels that own their settings declare them; the categories above are
 	// the ones not yet migrated. Merging by panel id keeps a panel's page in

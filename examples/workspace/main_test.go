@@ -97,9 +97,6 @@ func TestStartupAppliesTheSavedConfig(t *testing.T) {
 	if m.deck.Mode() != dash.ModeLive {
 		t.Fatal("the deck was left in demo mode by a live configuration")
 	}
-	if m.state.live == nil {
-		t.Fatal("the live source was not built at startup")
-	}
 	// Panels that hold their own data are filled before the first frame,
 	// rather than a second later when the first tick arrives.
 	clock, ok := m.ws.Lookup("clock")

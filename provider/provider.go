@@ -2,15 +2,11 @@
 // widgets. Rendering consumes the tideui data models; these types acquire them
 // from the system, local files, or HTTP endpoints.
 //
-// Every source is optional and independent, and a Dashboard degrades
-// gracefully when one fails: a failing fetch keeps the previous value and
-// records the error, while the rest of the dashboard keeps working. Fetches run
-// in the background with per-source intervals, so a slow network call never
-// blocks the UI and a cheap local sample can refresh every second while a
-// remote feed refreshes every five minutes.
-//
-// A panel on the dash registry holds its own source instead, so a Dashboard is
-// only needed for sources whose panel has not moved across yet.
+// Every source is optional and independent, and a failing fetch keeps the
+// previous value while the rest of the dashboard keeps working. A panel on the
+// dash registry owns its source and calls it on its own interval, so a slow
+// network call never blocks the UI and a cheap local sample can refresh every
+// second while a remote feed refreshes every five minutes.
 //
 // The package uses only the standard library.
 package provider
@@ -19,27 +15,10 @@ import (
 	"context"
 	"sync"
 	"time"
-
-	"github.com/allisonhere/tideui"
 )
 
 // defaultTimeout bounds a single fetch.
 const defaultTimeout = 12 * time.Second
-
-// Snapshot is the latest value of every configured source. Pointer fields are
-// nil until the first successful fetch; Errors carries the most recent failure
-// keyed by source name.
-type Snapshot struct {
-	Network  *tideui.NetworkMetrics
-	Storage  []tideui.StorageMount
-	Services []tideui.ServiceStatus
-	Tasks    []tideui.Task
-	Notes    []tideui.Note
-	Markets  []tideui.MarketQuote
-
-	Updated time.Time
-	Errors  map[string]error
-}
 
 // Fetcher caches one source, refreshing it in the background when stale. A nil
 // *Fetcher is a no-op, so optional sources need no special casing.
@@ -104,42 +83,4 @@ func (f *Fetcher[T]) Value() (T, error, bool) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 	return f.value, f.err, f.have
-}
-
-// Dashboard bundles the available sources. Any field may be nil.
-type Dashboard struct {
-	Network  *Fetcher[tideui.NetworkMetrics]
-	Storage  *Fetcher[[]tideui.StorageMount]
-	Services *Fetcher[[]tideui.ServiceStatus]
-	Tasks    *Fetcher[[]tideui.Task]
-	Notes    *Fetcher[[]tideui.Note]
-	Markets  *Fetcher[[]tideui.MarketQuote]
-}
-
-// Refresh kicks off any stale fetches. Call it from the application tick.
-func (d *Dashboard) Refresh(ctx context.Context) {
-	if d == nil {
-		return
-	}
-	d.Markets.Refresh(ctx)
-}
-
-// Snapshot reads the cached values without blocking on network or disk.
-func (d *Dashboard) Snapshot() Snapshot {
-	snap := Snapshot{Updated: time.Now(), Errors: map[string]error{}}
-	if d == nil {
-		return snap
-	}
-	if value, ok := read(d.Markets, snap.Errors, "markets"); ok {
-		snap.Markets = value
-	}
-	return snap
-}
-
-func read[T any](fetcher *Fetcher[T], errors map[string]error, name string) (T, bool) {
-	value, err, ok := fetcher.Value()
-	if err != nil && name != "" {
-		errors[name] = err
-	}
-	return value, ok
 }
