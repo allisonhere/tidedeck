@@ -94,4 +94,10 @@ type Action struct {
 	Key   string
 	Label string
 	Run   func() string
+
+	// Refresh makes the deck treat the panel as due again before Run is
+	// called, so a refresh key actually refetches. Without it a panel cannot
+	// refresh itself - it has no reference to the deck - and a "refresh"
+	// action can only print a message claiming it did.
+	Refresh bool
 }

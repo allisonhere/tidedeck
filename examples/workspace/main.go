@@ -68,7 +68,6 @@ type demoState struct {
 	live    *liveSource // non-nil when live data is enabled in settings
 	status  string
 
-	weatherUnit  string
 	agendaOffset int
 	gauge        tideui.GaugeStyle
 	spark        tideui.SparklineStyle
@@ -125,28 +124,17 @@ func newModel() model {
 	var source dataSource = feed
 	state := &demoState{
 		theme: tideui.CatppuccinMocha, density: tideui.Dense, now: started, source: source,
-		weatherUnit: "F",
-		gauge:       tideui.GaugeStyle(gaugeOrDefault(cfg.GaugeStyle)),
-		spark:       tideui.SparklineStyle(sparkOrDefault(cfg.SparkStyle)),
-		clockFont:   tideui.ClockFont(clockFontOrDefault(cfg.ClockFont)),
-		icons:       tideui.IconStyle(iconStyleOrDefault(cfg.Icons)),
-		tasks:       feed.Tasks(),
-		headlines:   feed.Headlines(),
-		services:    feed.Services(),
-		notes:       feed.Notes(),
-		repos:       feed.RepoActivity(),
-		mounts:      feed.Storage(),
+		gauge:     tideui.GaugeStyle(gaugeOrDefault(cfg.GaugeStyle)),
+		spark:     tideui.SparklineStyle(sparkOrDefault(cfg.SparkStyle)),
+		clockFont: tideui.ClockFont(clockFontOrDefault(cfg.ClockFont)),
+		icons:     tideui.IconStyle(iconStyleOrDefault(cfg.Icons)),
+		tasks:     feed.Tasks(),
+		headlines: feed.Headlines(),
+		services:  feed.Services(),
+		notes:     feed.Notes(),
+		repos:     feed.RepoActivity(),
+		mounts:    feed.Storage(),
 	}
-	// Live data is configured in the settings panel (s) and persisted; when
-	// enabled the dashboard reads real providers and the static collections
-	// start empty, filling from the first snapshot.
-	if cfg.Live {
-		state.live = newLiveSource(cfg)
-		state.source = state.live
-		state.tasks, state.headlines, state.services = nil, nil, nil
-		state.notes, state.repos, state.mounts = nil, nil, nil
-	}
-
 	store := fileStore{path: filepath.Join(userConfigDir(), "tidedeck", "layout.json")}
 	ws := tideui.NewWorkspace(
 		tideui.WithPersistence("tidedeck-demo"),
@@ -168,10 +156,9 @@ func newModel() model {
 	)
 
 	deck := dash.New()
-	deck.Register(panels.GPU(), panels.Updates(), panels.Clock())
+	deck.Register(panels.Weather(), panels.GPU(), panels.Updates(), panels.Clock())
 	deck.OnStatus(func(message string) { state.status = message })
 	registerPanels(ws, state, deck)
-	applyPanelGauges(ws, cfg)
 	registerPresets(ws)
 
 	ws.Layout(overviewLayout())
@@ -182,7 +169,7 @@ func newModel() model {
 	settings.SetWorkspace(ws)
 	settings.SetDeck(deck)
 
-	return model{
+	m := model{
 		state:    state,
 		deck:     deck,
 		ws:       ws,
@@ -191,6 +178,14 @@ func newModel() model {
 		feed:     feed,
 		settings: settings,
 	}
+	// Apply the saved configuration the same way a save does. Doing it here
+	// rather than repeating a shorter version of it is what makes a
+	// configured panel actually configured on the first frame: until this
+	// call the deck has neither its settings nor its mode, so a dashboard
+	// started with live data on used to sit in demo mode until you opened
+	// settings and saved.
+	m.applyConfig()
+	return m
 }
 
 // applyConfig switches the data source to match the saved configuration.
@@ -238,6 +233,10 @@ func (m *model) applyConfig() {
 		m.state.repos = m.feed.RepoActivity()
 		m.state.mounts = m.feed.Storage()
 	}
+	// Give the deck's panels their first data now rather than on the tick a
+	// second from now: a panel that holds its own data renders empty until
+	// something fills it, and the first frame is drawn before that tick.
+	m.deck.Tick(m.state.now)
 }
 
 // applyStylePreview mirrors the settings form's current metric styles onto the
@@ -290,20 +289,6 @@ func applyPanelSparks(ws *tideui.Workspace, cfg config) {
 }
 
 func registerPanels(ws *tideui.Workspace, state *demoState, deck *dash.Deck) {
-	ws.Panel("weather", weatherPanel(state)).
-		Title("Weather").Role(tideui.RolePrimary).Priority(90).MinWidth(18).MinHeight(7).
-		Actions(
-			tideui.Action("refresh", "r", func(*tideui.Workspace) { state.status = "weather refreshed" }).Labeled("refresh"),
-			tideui.Action("units", "u", func(*tideui.Workspace) {
-				if state.weatherUnit == "F" {
-					state.weatherUnit = "C"
-				} else {
-					state.weatherUnit = "F"
-				}
-				state.status = "units: °" + state.weatherUnit
-			}).Labeled("units"),
-		)
-
 	ws.Panel("agenda", agendaPanel(state)).
 		Title("Calendar").Role(tideui.RolePrimary).Priority(100).MinWidth(20).MinHeight(7).
 		Actions(

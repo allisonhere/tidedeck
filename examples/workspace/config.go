@@ -16,11 +16,10 @@ import (
 // through the in-app settings panel (s) and persisted as JSON, so no
 // environment variables or hand-editing are required.
 type config struct {
-	Live       bool          `json:"live"`
-	Weather    weatherConfig `json:"weather"`
-	GaugeStyle string        `json:"gauge_style"`
-	SparkStyle string        `json:"spark_style"`
-	ClockFont  string        `json:"clock_font"`
+	Live       bool   `json:"live"`
+	GaugeStyle string `json:"gauge_style"`
+	SparkStyle string `json:"spark_style"`
+	ClockFont  string `json:"clock_font"`
 	// Icons picks the widget icon family: "plain", "emoji" or "nerd". Nerd
 	// needs a patched font and emoji a colour emoji font.
 	Icons       string            `json:"icons"`
@@ -90,29 +89,8 @@ func (c config) withDoc(doc dash.Values) config {
 	return c
 }
 
-// weatherConfig configures the Open-Meteo weather source.
-type weatherConfig struct {
-	Enabled    bool    `json:"enabled"`
-	Latitude   float64 `json:"latitude"`
-	Longitude  float64 `json:"longitude"`
-	Location   string  `json:"location"`
-	Fahrenheit bool    `json:"fahrenheit"`
-	WindMPH    bool    `json:"wind_mph"`
-}
-
-// usable reports whether the weather source has somewhere to look.
-func (w weatherConfig) usable() bool {
-	return w.Enabled && (w.Latitude != 0 || w.Longitude != 0)
-}
-
 func defaultConfig() config {
 	return config{
-		Weather: weatherConfig{
-			Enabled:    true,
-			Fahrenheit: true,
-			WindMPH:    true,
-			Location:   "Local",
-		},
 		Feeds:      defaultFeeds(),
 		GaugeStyle: "solid",
 		SparkStyle: "blocks",

@@ -742,9 +742,6 @@ records an error; the rest of the dashboard keeps working.
 
 ```go
 dashboard := &provider.Dashboard{
-    Weather: provider.NewFetcher(10*time.Minute, provider.Weather(provider.WeatherOptions{
-        Latitude: 52.52, Longitude: 13.405, Fahrenheit: true, WindMPH: true,
-    })),
     System:  provider.NewFetcher(time.Second, provider.System()),
     Network: provider.NewFetcher(time.Second, provider.Network("wlan0")),
     Storage: provider.NewFetcher(2*time.Minute, provider.Storage()),
@@ -888,6 +885,11 @@ the dashboard looks alive before anything is configured.
 | `Ticker` | `Tick(now time.Time)` | changes with the clock between refreshes |
 | `Badger` | `Badge() (string, tideui.Tone)` | advertises a header badge |
 | `Actor` | `Actions() []Action` | offers contextual keys |
+
+An `Action` with `Refresh: true` makes the deck treat the panel as due again
+before `Run` is called, so a refresh key refetches rather than only printing a
+message claiming it did; a panel has no reference to the deck and cannot ask
+for that itself.
 
 Nothing in `Panel` mentions where data comes from, and no panel's model type
 appears in it. That is deliberate: a panel backed by a local provider and a

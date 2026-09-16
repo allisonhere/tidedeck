@@ -78,18 +78,15 @@ const (
 // formState is the editable view of a config. Numbers and lists are held as
 // text so they can be typed directly, and parsed back into a config on save.
 type formState struct {
-	live           bool
-	weatherEnabled bool
-	latitude       string
-	longitude      string
-	location       string
-	place          string // city or ZIP to look up
-	fahrenheit     bool
-	windMPH        bool
-	gauge          string
-	spark          string
-	clockFont      string
-	icons          string
+	live bool
+	// place is the city or ZIP to geocode. It is the only weather value the
+	// form still owns, because it is a query rather than a setting: nothing
+	// stores it, and the panel has no use for it.
+	place     string
+	gauge     string
+	spark     string
+	clockFont string
+	icons     string
 	// doc is the document the edited config came from, carried through the
 	// form so saving preserves keys the form never shows.
 	doc dash.Values
@@ -117,53 +114,31 @@ type formState struct {
 func formFromConfig(cfg config) formState {
 	feedPresets, customFeeds := splitFeeds(cfg.Feeds)
 	return formState{
-		doc:            cfg.doc,
-		live:           cfg.Live,
-		weatherEnabled: cfg.Weather.Enabled,
-		latitude:       formatFloat(cfg.Weather.Latitude),
-		longitude:      formatFloat(cfg.Weather.Longitude),
-		location:       cfg.Weather.Location,
-		place:          cfg.Weather.Location,
-		fahrenheit:     cfg.Weather.Fahrenheit,
-		windMPH:        cfg.Weather.WindMPH,
-		gauge:          gaugeOrDefault(cfg.GaugeStyle),
-		spark:          sparkOrDefault(cfg.SparkStyle),
-		clockFont:      clockFontOrDefault(cfg.ClockFont),
-		icons:          iconStyleOrDefault(cfg.Icons),
-		panelGauges:    copyStringMap(cfg.PanelGauges),
-		panelSparks:    copyStringMap(cfg.PanelSparks),
-		feeds:          customFeeds,
-		feedPresets:    feedPresets,
-		calendars:      cfg.Calendars,
-		todo:           cfg.Todo,
-		notes:          cfg.Notes,
-		repos:          cfg.Repos,
-		symbols:        cfg.Symbols,
-		systemd:        cfg.Systemd,
-		docker:         cfg.Docker,
-		iface:          cfg.Interface,
+		doc:         cfg.doc,
+		live:        cfg.Live,
+		place:       cfg.doc.String(weatherLocationKey),
+		gauge:       gaugeOrDefault(cfg.GaugeStyle),
+		spark:       sparkOrDefault(cfg.SparkStyle),
+		clockFont:   clockFontOrDefault(cfg.ClockFont),
+		icons:       iconStyleOrDefault(cfg.Icons),
+		panelGauges: copyStringMap(cfg.PanelGauges),
+		panelSparks: copyStringMap(cfg.PanelSparks),
+		feeds:       customFeeds,
+		feedPresets: feedPresets,
+		calendars:   cfg.Calendars,
+		todo:        cfg.Todo,
+		notes:       cfg.Notes,
+		repos:       cfg.Repos,
+		symbols:     cfg.Symbols,
+		systemd:     cfg.Systemd,
+		docker:      cfg.Docker,
+		iface:       cfg.Interface,
 	}
 }
 
 func (s formState) toConfig(deck *dash.Deck) (config, error) {
-	latitude, err := parseOptionalFloat(s.latitude)
-	if err != nil {
-		return config{}, fmt.Errorf("latitude: %v", err)
-	}
-	longitude, err := parseOptionalFloat(s.longitude)
-	if err != nil {
-		return config{}, fmt.Errorf("longitude: %v", err)
-	}
-	return config{
-		Live: s.live,
-		Weather: weatherConfig{
-			Enabled:    s.weatherEnabled,
-			Latitude:   latitude,
-			Longitude:  longitude,
-			Location:   strings.TrimSpace(s.location),
-			Fahrenheit: s.fahrenheit,
-			WindMPH:    s.windMPH,
-		},
+	cfg := config{
+		Live:        s.live,
 		GaugeStyle:  gaugeOrDefault(s.gauge),
 		SparkStyle:  sparkOrDefault(s.spark),
 		ClockFont:   clockFontOrDefault(s.clockFont),
@@ -179,7 +154,12 @@ func (s formState) toConfig(deck *dash.Deck) (config, error) {
 		Systemd:     s.systemd,
 		Docker:      s.docker,
 		Interface:   s.iface,
-	}.withDoc(s.applyPanelFields(s.doc, deck)), nil
+	}
+	document, err := s.applyPanelFields(s.doc, deck)
+	if err != nil {
+		return config{}, err
+	}
+	return cfg.withDoc(document), nil
 }
 
 // iconStyleNames lists the selectable icon styles as strings.
@@ -476,14 +456,8 @@ func (s *settingsForm) buildCategories() []settingsCategory {
 			{label: "icons", kind: fieldChoice, choice: &s.state.icons, options: iconStyleNames()},
 		}},
 		{name: "Weather", panelID: "weather", fields: []formField{
-			{label: "live weather", kind: fieldBool, flag: &s.state.weatherEnabled},
 			{label: "city or ZIP", kind: fieldText, text: &s.state.place},
 			{label: "Look up coordinates", kind: fieldAction, action: s.lookupCoordinates},
-			{label: "latitude", kind: fieldText, text: &s.state.latitude},
-			{label: "longitude", kind: fieldText, text: &s.state.longitude},
-			{label: "location", kind: fieldText, text: &s.state.location},
-			{label: "fahrenheit", kind: fieldBool, flag: &s.state.fahrenheit},
-			{label: "wind mph", kind: fieldBool, flag: &s.state.windMPH},
 		}},
 		{name: "Calendar", panelID: "agenda", fields: []formField{
 			{label: "sources (.ics or URL)", kind: fieldText, text: &s.state.calendars},
@@ -688,7 +662,14 @@ func (s *settingsForm) loadPanelFields(cfg config) {
 			}
 			switch field.Kind {
 			case dash.FieldBool:
-				value := document.Bool(field.Key)
+				// An absent key means the panel's declared default applies,
+				// which Bool alone cannot express: unset and a deliberate
+				// false look the same, so a setting that defaults to on would
+				// show as off on a fresh config.
+				value := field.Default == "true"
+				if document.Has(field.Key) {
+					value = document.Bool(field.Key)
+				}
 				s.state.panelFlag[field.Key] = &value
 			default:
 				value := document.String(field.Key)
@@ -743,10 +724,10 @@ func (s *settingsForm) panelCategories() []settingsCategory {
 
 // applyPanelFields writes the edit buffers back into the document, applying
 // any normalisation the field asked for.
-func (s formState) applyPanelFields(document dash.Values, deck *dash.Deck) dash.Values {
+func (s formState) applyPanelFields(document dash.Values, deck *dash.Deck) (dash.Values, error) {
 	out := document.Clone()
 	if deck == nil {
-		return out
+		return out, nil
 	}
 	for _, category := range deck.Schema() {
 		for _, field := range category.Fields {
@@ -765,10 +746,21 @@ func (s formState) applyPanelFields(document dash.Values, deck *dash.Deck) dash.
 			if field.Normalize != nil {
 				value = field.Normalize(value)
 			}
+			if field.Kind == dash.FieldFloat {
+				// A number stays a number in the file: writing it back as
+				// text would change the shape of a key that has always been
+				// numeric, and a typo is refused here rather than stored.
+				number, err := parseOptionalFloat(value)
+				if err != nil {
+					return out, fmt.Errorf("%s: %v", field.Label, err)
+				}
+				out.Set(field.Key, number)
+				continue
+			}
 			out.Set(field.Key, value)
 		}
 	}
-	return out
+	return out, nil
 }
 
 func (s *settingsForm) panelField(id string) *formField {
@@ -829,16 +821,42 @@ func (s *settingsForm) ApplyLookup(place provider.Place, err error) {
 	s.applyPlace(place)
 }
 
-// applyPlace writes a geocoding result into the form and enables live data,
-// since looking up a real place clearly means "use it".
+// applyPlace writes a geocoding result into the weather panel's fields and
+// enables live data, since looking up a real place clearly means "use it".
+//
+// It writes through the panel's edit buffers rather than into form state: the
+// panel owns those keys, so the lookup fills in the same rows you could have
+// typed by hand, and a panel that is not registered simply has nothing to fill.
 func (s *settingsForm) applyPlace(place provider.Place) {
-	s.state.latitude = formatFloat(place.Latitude)
-	s.state.longitude = formatFloat(place.Longitude)
-	s.state.location = place.Name
-	s.state.weatherEnabled = true
+	s.setPanelText(weatherLatitudeKey, formatFloat(place.Latitude))
+	s.setPanelText(weatherLongitudeKey, formatFloat(place.Longitude))
+	s.setPanelText(weatherLocationKey, place.Name)
+	s.setPanelFlag(weatherEnabledKey, true)
 	s.state.live = true
 	s.dirty = true
 	s.problem = "found " + place.Label() + " — ctrl+s to apply"
+}
+
+// Configuration keys the settings screen fills in on the weather panel's
+// behalf. They are the panel's keys; the form only writes them because the
+// geocoder is a settings affordance, not something a panel can run.
+const (
+	weatherEnabledKey   = "weather.enabled"
+	weatherLatitudeKey  = "weather.latitude"
+	weatherLongitudeKey = "weather.longitude"
+	weatherLocationKey  = "weather.location"
+)
+
+func (s *settingsForm) setPanelText(key, value string) {
+	if buffer, ok := s.state.panelText[key]; ok && buffer != nil {
+		*buffer = value
+	}
+}
+
+func (s *settingsForm) setPanelFlag(key string, value bool) {
+	if buffer, ok := s.state.panelFlag[key]; ok && buffer != nil {
+		*buffer = value
+	}
 }
 
 // Update handles all input while the panel is open.

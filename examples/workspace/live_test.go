@@ -17,7 +17,7 @@ func TestLiveSourceCollectsLocalMetrics(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("live system metrics are linux-only")
 	}
-	cfg := config{Weather: weatherConfig{Enabled: false}, Interface: ""}
+	cfg := config{Interface: ""}
 
 	source := newLiveSource(cfg)
 	deadline := time.Now().Add(5 * time.Second)

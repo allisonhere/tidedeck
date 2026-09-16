@@ -70,22 +70,21 @@ func TestNilFetcherIsSafe(t *testing.T) {
 }
 
 func TestDashboardSnapshotCollects(t *testing.T) {
-	weather := NewFetcher(0, func(context.Context) (tideui.WeatherData, error) {
-		return tideui.WeatherData{Temperature: 72, Unit: "F"}, nil
-	})
 	dashboard := &Dashboard{
-		Weather: weather,
+		Notes: NewFetcher(0, func(context.Context) ([]tideui.Note, error) {
+			return []tideui.Note{{Title: "ideas"}}, nil
+		}),
 		Tasks: NewFetcher(0, func(context.Context) ([]tideui.Task, error) {
 			return []tideui.Task{{Title: "ship"}}, nil
 		}),
 	}
 	dashboard.Refresh(context.Background())
-	waitFor(t, func() bool { _, _, ok := dashboard.Weather.Value(); return ok })
+	waitFor(t, func() bool { _, _, ok := dashboard.Notes.Value(); return ok })
 	waitFor(t, func() bool { _, _, ok := dashboard.Tasks.Value(); return ok })
 
 	snapshot := dashboard.Snapshot()
-	if snapshot.Weather == nil || snapshot.Weather.Temperature != 72 {
-		t.Fatalf("weather missing: %+v", snapshot.Weather)
+	if len(snapshot.Notes) != 1 || snapshot.Notes[0].Title != "ideas" {
+		t.Fatalf("notes missing: %+v", snapshot.Notes)
 	}
 	if len(snapshot.Tasks) != 1 {
 		t.Fatalf("tasks = %d, want 1", len(snapshot.Tasks))
@@ -101,7 +100,7 @@ func TestNilDashboardSnapshotIsSafe(t *testing.T) {
 	if snapshot.Updated.IsZero() {
 		t.Fatal("nil dashboard snapshot missing timestamp")
 	}
-	if snapshot.Weather != nil {
-		t.Fatal("nil dashboard produced weather")
+	if snapshot.Notes != nil {
+		t.Fatal("nil dashboard produced notes")
 	}
 }

@@ -17,19 +17,12 @@ func TestConfigDefaultsWhenMissing(t *testing.T) {
 	if cfg.Live {
 		t.Fatal("a fresh config should default to demo data")
 	}
-	if !cfg.Weather.Enabled || !cfg.Weather.Fahrenheit {
-		t.Fatalf("unexpected weather defaults: %+v", cfg.Weather)
-	}
 }
 
 func TestConfigRoundTrip(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	cfg := config{
-		Live: true,
-		Weather: weatherConfig{
-			Enabled: true, Latitude: 52.52, Longitude: 13.405,
-			Location: "Berlin", Fahrenheit: false, WindMPH: true,
-		},
+		Live:        true,
 		GaugeStyle:  "circles",
 		SparkStyle:  "braille",
 		ClockFont:   "block",
@@ -42,11 +35,8 @@ func TestConfigRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := loadConfig()
-	if !got.Live || got.Weather.Latitude != 52.52 || got.Weather.Location != "Berlin" {
+	if !got.Live {
 		t.Fatalf("round trip = %+v", got)
-	}
-	if got.Weather.Fahrenheit {
-		t.Fatal("fahrenheit did not round-trip as false")
 	}
 	if got.GaugeStyle != "circles" {
 		t.Fatalf("gauge_style = %q, want circles", got.GaugeStyle)

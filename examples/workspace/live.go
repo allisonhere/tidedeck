@@ -14,7 +14,6 @@ import (
 // live provider dashboard both satisfy it, so the UI is identical whether the
 // data is simulated or real.
 type dataSource interface {
-	Weather(time.Time) tideui.WeatherData
 	Agenda(time.Time, int) []tideui.AgendaItem
 	System(time.Time) tideui.SystemMetrics
 	Network(time.Time) tideui.NetworkMetrics
@@ -34,23 +33,10 @@ type liveSource struct {
 // Sources with no configuration are simply left unset and their panels stay
 // empty.
 func newLiveSource(cfg config) *liveSource {
-	location := strings.TrimSpace(cfg.Weather.Location)
-	if location == "" {
-		location = "Local"
-	}
 	dashboard := &provider.Dashboard{
 		System:  provider.NewFetcher(time.Second, provider.System()),
 		Network: provider.NewFetcher(time.Second, provider.Network(strings.TrimSpace(cfg.Interface))),
 		Storage: provider.NewFetcher(2*time.Minute, provider.Storage()),
-	}
-	if cfg.Weather.usable() {
-		dashboard.Weather = provider.NewFetcher(10*time.Minute, provider.Weather(provider.WeatherOptions{
-			Latitude:   cfg.Weather.Latitude,
-			Longitude:  cfg.Weather.Longitude,
-			Location:   location,
-			Fahrenheit: cfg.Weather.Fahrenheit,
-			WindMPH:    cfg.Weather.WindMPH,
-		}))
 	}
 	if feeds := list(cfg.Feeds); len(feeds) > 0 {
 		dashboard.Headlines = provider.NewFetcher(5*time.Minute, provider.Feed(feeds...))
@@ -93,16 +79,6 @@ func (s *liveSource) snapshotCopy() provider.Snapshot {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.snapshot
-}
-
-func (s *liveSource) Weather(now time.Time) tideui.WeatherData {
-	snapshot := s.snapshotCopy()
-	if snapshot.Weather != nil {
-		data := *snapshot.Weather
-		data.Updated = now
-		return data
-	}
-	return tideui.WeatherData{Location: "loading", Condition: "…", Unit: "F"}
 }
 
 func (s *liveSource) Agenda(now time.Time, dayOffset int) []tideui.AgendaItem {

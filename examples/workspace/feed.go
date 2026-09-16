@@ -47,37 +47,6 @@ func series(t float64, n int, period, phase, base, amp float64) []float64 {
 	return out
 }
 
-func (f *demoFeed) Weather(now time.Time) tideui.WeatherData {
-	t := f.elapsed(now)
-	return tideui.WeatherData{
-		Location:     "Springfield",
-		Temperature:  int(math.Round(71 + 3*wave(t, 900, 0))),
-		Unit:         "F",
-		Condition:    "Partly Cloudy",
-		FeelsLike:    int(math.Round(70 + 3*wave(t, 900, 0))),
-		HasFeelsLike: true,
-		High:         76,
-		Low:          61,
-		RainChance:   int(clampRange(12+8*wave(t, 420, 1), 0, 100)),
-		WindSpeed:    int(clampRange(9+4*wave(t, 300, 2), 0, 45)),
-		WindUnit:     "mph",
-		Hourly: []tideui.ForecastPoint{
-			{Label: "3PM", Temperature: 74, Condition: "Partly Cloudy", RainChance: 10},
-			{Label: "6PM", Temperature: 70, Condition: "Cloudy", RainChance: 15},
-			{Label: "9PM", Temperature: 64, Condition: "Cloudy", RainChance: 20},
-			{Label: "12AM", Temperature: 61, Condition: "Fog", RainChance: 12},
-		},
-		Daily: []tideui.ForecastPoint{
-			{Label: "Today", Temperature: 74, Condition: "Partly Cloudy"},
-			{Label: "Tue", Temperature: 71, Condition: "Rain"},
-			{Label: "Wed", Temperature: 68, Condition: "Cloudy"},
-			{Label: "Thu", Temperature: 75, Condition: "Sunny"},
-			{Label: "Fri", Temperature: 73, Condition: "Sunny"},
-		},
-		Updated: now,
-	}
-}
-
 func (f *demoFeed) Agenda(now time.Time, dayOffset int) []tideui.AgendaItem {
 	base := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	at := func(day, hour, minute int) time.Time {

@@ -15,27 +15,26 @@ import (
 	"github.com/allisonhere/tideui/provider"
 )
 
-func TestWeatherWiredFromConfig(t *testing.T) {
-	cfg := config{Weather: weatherConfig{
-		Enabled: true, Latitude: 52.52, Longitude: 13.405,
-		Location: "Berlin", Fahrenheit: true, WindMPH: true,
-	}}
-	source := newLiveSource(cfg)
-	if source.dashboard.Weather == nil {
-		t.Fatal("weather fetcher was not wired from config")
-	}
-}
+// weatherForm opens a settings form with the weather panel registered, which
+// is where the weather settings live now.
+func weatherForm(t *testing.T) *settingsForm {
+	t.Helper()
+	ws := tideui.NewWorkspace()
+	deck := dash.New()
+	deck.Register(panels.Weather())
+	deck.Attach(ws)
 
-func TestWeatherSkippedWithoutCoordinates(t *testing.T) {
-	source := newLiveSource(config{Weather: weatherConfig{Enabled: true}})
-	if source.dashboard.Weather != nil {
-		t.Fatal("weather should be unset when no coordinates are configured")
-	}
+	form := newSettingsForm()
+	form.SetWorkspace(ws)
+	form.SetDeck(deck)
+	cfg := defaultConfig()
+	cfg.doc = dash.NewValues()
+	form.Open(cfg)
+	return form
 }
 
 func TestSettingsFormEditsAndSaves(t *testing.T) {
-	form := newSettingsForm()
-	form.Open(config{})
+	form := weatherForm(t)
 
 	// The panel opens on the category list; General holds "Live data".
 	form.Update(tea.KeyMsg{Type: tea.KeyEnter})                     // open General
@@ -43,19 +42,12 @@ func TestSettingsFormEditsAndSaves(t *testing.T) {
 	if !form.state.live {
 		t.Fatal("space did not toggle live data")
 	}
-	// Back out, open Weather, move to latitude, clear it, and type a value.
-	form.Update(tea.KeyMsg{Type: tea.KeyEsc})  // back to categories
-	form.Update(tea.KeyMsg{Type: tea.KeyDown}) // Weather
+	// Back out, open Weather, and type a latitude into the panel's own row.
+	form.Update(tea.KeyMsg{Type: tea.KeyEsc}) // back to categories
+	openCategory(t, form, "Weather")
+	latitude := selectNewsField(t, form, "latitude")
+	*latitude.text = ""
 	form.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	fields := form.currentFields()
-	for i := 0; i < len(fields) && form.currentField().label != "latitude"; i++ {
-		form.Update(tea.KeyMsg{Type: tea.KeyDown})
-	}
-	if got := form.currentField().label; got != "latitude" {
-		t.Fatalf("could not navigate to latitude, landed on %q", got)
-	}
-	form.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	form.state.latitude = ""
 	for _, r := range "52.52" {
 		form.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
@@ -65,15 +57,23 @@ func TestSettingsFormEditsAndSaves(t *testing.T) {
 		t.Fatalf("save action = %v, want settingsSaved", action)
 	}
 	cfg := form.SavedConfig()
-	if !cfg.Live || cfg.Weather.Latitude != 52.52 {
+	if !cfg.Live {
 		t.Fatalf("saved config = %+v", cfg)
+	}
+	saved, err := cfg.document()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A coordinate stays a JSON number: moving it onto a panel must not
+	// change the shape of a key that has always been numeric.
+	if saved.Float("weather.latitude") != 52.52 {
+		t.Fatalf("saved latitude = %v", saved.Float("weather.latitude"))
 	}
 }
 
 func TestSettingsFormRejectsBadNumber(t *testing.T) {
-	form := newSettingsForm()
-	form.Open(config{})
-	form.state.latitude = "not-a-number"
+	form := weatherForm(t)
+	*form.state.panelText["weather.latitude"] = "not-a-number"
 	if action := form.Update(tea.KeyMsg{Type: tea.KeyCtrlS}); action != settingsNone {
 		t.Fatalf("save should be rejected, got %v", action)
 	}
@@ -109,8 +109,7 @@ func TestSavingSettingsAppliesLiveSource(t *testing.T) {
 }
 
 func TestSettingsLookupValidatesInput(t *testing.T) {
-	form := newSettingsForm()
-	form.Open(config{})
+	form := weatherForm(t)
 	form.state.place = ""
 	if action := form.lookupCoordinates(); action != settingsNone {
 		t.Fatalf("blank lookup action = %v", action)
@@ -121,8 +120,7 @@ func TestSettingsLookupValidatesInput(t *testing.T) {
 }
 
 func TestLookupAppliesPlaceAndEnablesLive(t *testing.T) {
-	form := newSettingsForm()
-	form.Open(config{})
+	form := weatherForm(t)
 	if form.state.live {
 		t.Fatal("live should start off")
 	}
@@ -130,8 +128,13 @@ func TestLookupAppliesPlaceAndEnablesLive(t *testing.T) {
 	if !form.state.live {
 		t.Fatal("a lookup should enable live data")
 	}
-	if !form.state.weatherEnabled || form.state.latitude != "52.52" {
-		t.Fatalf("place not applied: %+v", form.state)
+	// The lookup fills in the panel's own rows, so what it writes is exactly
+	// what you could have typed there yourself.
+	if !*form.state.panelFlag["weather.enabled"] {
+		t.Fatal("lookup did not enable the weather panel")
+	}
+	if got := *form.state.panelText["weather.latitude"]; got != "52.52" {
+		t.Fatalf("latitude = %q", got)
 	}
 	if !form.dirty {
 		t.Fatal("a lookup should mark the form dirty")
@@ -145,8 +148,7 @@ func TestLookupAppliesPlaceAndEnablesLive(t *testing.T) {
 }
 
 func TestLookupQueuesQuery(t *testing.T) {
-	form := newSettingsForm()
-	form.Open(config{})
+	form := weatherForm(t)
 	form.state.place = "Berlin"
 	if action := form.lookupCoordinates(); action != settingsNone {
 		t.Fatalf("lookup action = %v", action)
@@ -163,23 +165,22 @@ func TestLookupQueuesQuery(t *testing.T) {
 }
 
 func TestApplyLookupFillsPlace(t *testing.T) {
-	form := newSettingsForm()
-	form.Open(config{})
+	form := weatherForm(t)
 	form.ApplyLookup(provider.Place{Name: "Berlin", Latitude: 52.52, Longitude: 13.405, Country: "Germany"}, nil)
 	if form.lookingUp {
 		t.Fatal("lookingUp should be cleared")
 	}
-	if !form.state.live || !form.state.weatherEnabled {
+	if !form.state.live || !*form.state.panelFlag["weather.enabled"] {
 		t.Fatal("lookup should enable live weather")
 	}
-	if form.state.latitude != "52.52" || form.state.location != "Berlin" {
-		t.Fatalf("place not applied: %+v", form.state)
+	if *form.state.panelText["weather.latitude"] != "52.52" ||
+		*form.state.panelText["weather.location"] != "Berlin" {
+		t.Fatalf("place not applied: %+v", form.state.panelText)
 	}
 }
 
 func TestApplyLookupError(t *testing.T) {
-	form := newSettingsForm()
-	form.Open(config{})
+	form := weatherForm(t)
 	form.ApplyLookup(provider.Place{}, errLookup)
 	if form.problem == "" {
 		t.Fatal("expected the error to be shown")
@@ -842,5 +843,33 @@ func TestSettingsCategoriesFollowPanelOrder(t *testing.T) {
 	}
 	if seen != len(m.ws.PanelIDs()) {
 		t.Fatalf("%d panel pages for %d panels", seen, len(m.ws.PanelIDs()))
+	}
+}
+
+// The Weather page is assembled from two places: the geocoder the form owns,
+// and the fields the panel declares. This pins the order they appear in, so
+// the lookup button still sits under the query it uses.
+func TestWeatherCategoryMergesFormAndPanelFields(t *testing.T) {
+	form := weatherForm(t)
+	openCategory(t, form, "Weather")
+
+	var labels []string
+	for _, field := range form.currentFields() {
+		labels = append(labels, field.label)
+	}
+	want := []string{
+		"enabled", "gauge style", "spark style", // added to every panel's page
+		"city or ZIP", "Look up coordinates", // the form's geocoder
+		"live weather", "latitude", "longitude", "location", "fahrenheit", "wind mph",
+	}
+	if strings.Join(labels, "|") != strings.Join(want, "|") {
+		t.Fatalf("Weather page rows =\n%v\nwant\n%v", labels, want)
+	}
+	// The booleans that default to true show ticked on a fresh config, where
+	// the keys are absent: an unset key means the panel's default applies.
+	for _, label := range []string{"live weather", "fahrenheit", "wind mph"} {
+		if field := selectNewsField(t, form, label); field.flag == nil || !*field.flag {
+			t.Fatalf("%q defaulted to off", label)
+		}
 	}
 }

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"math"
 	"strings"
 	"time"
 
@@ -28,48 +27,6 @@ func panelRenderer(state *demoState, ctx tideui.PanelContext) tideui.Renderer {
 		return ctx.Renderer
 	}
 	return viewRenderer(state)
-}
-
-func weatherPanel(state *demoState) tideui.PanelView {
-	return func(ctx tideui.PanelContext) string {
-		r := panelRenderer(state, ctx)
-		w := convertWeatherUnit(state.source.Weather(state.now), state.weatherUnit)
-		if ctx.Zoomed {
-			return r.RenderWeatherDetail(w, ctx.Width)
-		}
-		return r.RenderWeather(w, ctx.Width)
-	}
-}
-
-// convertWeatherUnit converts a reading into the requested unit, regardless of
-// the unit the source reported (live weather follows the configured unit).
-func convertWeatherUnit(w tideui.WeatherData, target string) tideui.WeatherData {
-	if target == "" || w.Unit == "" || w.Unit == target {
-		return w
-	}
-	if target == "C" && w.Unit == "F" {
-		w = convertTemperatures(w, func(v int) int { return int(math.Round(float64(v-32) * 5 / 9)) }, "C")
-	} else if target == "F" && w.Unit == "C" {
-		w = convertTemperatures(w, func(v int) int { return int(math.Round(float64(v)*9/5 + 32)) }, "F")
-	}
-	return w
-}
-
-func convertTemperatures(w tideui.WeatherData, convert func(int) int, unit string) tideui.WeatherData {
-	w.Temperature = convert(w.Temperature)
-	w.High = convert(w.High)
-	w.Low = convert(w.Low)
-	if w.HasFeelsLike {
-		w.FeelsLike = convert(w.FeelsLike)
-	}
-	w.Unit = unit
-	for i := range w.Hourly {
-		w.Hourly[i].Temperature = convert(w.Hourly[i].Temperature)
-	}
-	for i := range w.Daily {
-		w.Daily[i].Temperature = convert(w.Daily[i].Temperature)
-	}
-	return w
 }
 
 // agendaNotice reports why a live calendar is empty, so a mistyped or private

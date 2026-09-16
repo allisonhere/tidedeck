@@ -4,6 +4,10 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/allisonhere/tideui"
+	"github.com/allisonhere/tideui/dash"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // TestMain points the demo's persistence at a throwaway config directory so
@@ -56,5 +60,50 @@ func TestNewPanelsRenderInTheirPreset(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("System preset does not render %q", want)
 		}
+	}
+}
+
+// A dashboard started with live data configured must be live on the first
+// frame. The deck's settings and mode used to be applied only when settings
+// were saved, so a configured panel sat in demo mode until you opened the
+// settings screen and pressed ctrl+s.
+func TestStartupAppliesTheSavedConfig(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	cfg := defaultConfig()
+	cfg.Live = true
+	cfg.doc = dash.NewValues()
+	cfg.doc.Set("weather.latitude", 52.52)
+	cfg.doc.Set("weather.longitude", 13.405)
+	cfg.doc.Set("weather.location", "Berlin")
+	if err := cfg.save(); err != nil {
+		t.Fatal(err)
+	}
+
+	m := newModel()
+	if m.deck.Mode() != dash.ModeLive {
+		t.Fatal("the deck was left in demo mode by a live configuration")
+	}
+	if m.state.live == nil {
+		t.Fatal("the live source was not built at startup")
+	}
+	// Panels that hold their own data are filled before the first frame,
+	// rather than a second later when the first tick arrives.
+	clock, ok := m.ws.Lookup("clock")
+	if !ok {
+		t.Fatal("no clock panel")
+	}
+	body := ansi.Strip(clock.Render(tideui.PanelContext{
+		ID: "clock", Width: 40, Renderer: viewRenderer(m.state),
+	}))
+	if strings.Contains(body, "Jan 1") {
+		t.Fatalf("the clock rendered a zero time on the first frame:\n%s", body)
+	}
+	// A configured weather panel is told where it is, so it says it is
+	// loading rather than that it has nowhere to look.
+	weather, _ := m.ws.Lookup("weather")
+	if got := ansi.Strip(weather.Render(tideui.PanelContext{
+		ID: "weather", Width: 40, Renderer: viewRenderer(m.state),
+	})); !strings.Contains(got, "Loading") {
+		t.Fatalf("weather was not configured at startup: %q", got)
 	}
 }

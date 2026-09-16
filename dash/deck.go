@@ -118,19 +118,22 @@ func (d *Deck) Attach(ws *tideui.Workspace) {
 			builder = builder.HideBelow(meta.HideBelow)
 		}
 		if actor, ok := panel.(Actor); ok {
-			builder.Actions(d.actions(actor)...)
+			builder.Actions(d.actions(meta.ID, actor)...)
 		}
 	}
 }
 
 // actions adapts a panel's actions to the workspace's handler shape, so panel
 // code never takes a workspace reference.
-func (d *Deck) actions(actor Actor) []tideui.PanelAction {
+func (d *Deck) actions(id string, actor Actor) []tideui.PanelAction {
 	declared := actor.Actions()
 	out := make([]tideui.PanelAction, 0, len(declared))
 	for _, action := range declared {
-		run := action.Run
+		run, refresh := action.Run, action.Refresh
 		out = append(out, tideui.Action(action.ID, action.Key, func(*tideui.Workspace) {
+			if refresh {
+				d.RefreshNow(id)
+			}
 			if run == nil {
 				return
 			}

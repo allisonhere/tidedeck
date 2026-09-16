@@ -116,7 +116,7 @@ func (u *updates) Demo(now time.Time) {
 
 func (u *updates) Actions() []dash.Action {
 	return []dash.Action{{
-		ID: "refresh", Key: "r", Label: "refresh",
-		Run: func() string { return "checked for updates" },
+		ID: "refresh", Key: "r", Label: "refresh", Refresh: true,
+		Run: func() string { return "checking for updates…" },
 	}}
 }

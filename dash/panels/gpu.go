@@ -70,8 +70,8 @@ func (g *gpu) Demo(now time.Time) {
 
 func (g *gpu) Actions() []dash.Action {
 	return []dash.Action{{
-		ID: "refresh", Key: "r", Label: "refresh",
-		Run: func() string { return "gpu sampled" },
+		ID: "refresh", Key: "r", Label: "refresh", Refresh: true,
+		Run: func() string { return "sampling gpu…" },
 	}}
 }
 

@@ -6,8 +6,11 @@
 // gracefully when one fails: a failing fetch keeps the previous value and
 // records the error, while the rest of the dashboard keeps working. Fetches run
 // in the background with per-source intervals, so a slow network call never
-// blocks the UI and a cheap local sample can refresh every second while weather
-// refreshes every ten minutes.
+// blocks the UI and a cheap local sample can refresh every second while a
+// remote feed refreshes every five minutes.
+//
+// A panel on the dash registry holds its own source instead, so a Dashboard is
+// only needed for sources whose panel has not moved across yet.
 //
 // The package uses only the standard library.
 package provider
@@ -27,7 +30,6 @@ const defaultTimeout = 12 * time.Second
 // nil until the first successful fetch; Errors carries the most recent failure
 // keyed by source name.
 type Snapshot struct {
-	Weather   *tideui.WeatherData
 	Agenda    []tideui.AgendaItem
 	System    *tideui.SystemMetrics
 	Network   *tideui.NetworkMetrics
@@ -110,7 +112,6 @@ func (f *Fetcher[T]) Value() (T, error, bool) {
 
 // Dashboard bundles the available sources. Any field may be nil.
 type Dashboard struct {
-	Weather   *Fetcher[tideui.WeatherData]
 	Agenda    *Fetcher[[]tideui.AgendaItem]
 	System    *Fetcher[tideui.SystemMetrics]
 	Network   *Fetcher[tideui.NetworkMetrics]
@@ -128,7 +129,6 @@ func (d *Dashboard) Refresh(ctx context.Context) {
 	if d == nil {
 		return
 	}
-	d.Weather.Refresh(ctx)
 	d.Agenda.Refresh(ctx)
 	d.System.Refresh(ctx)
 	d.Network.Refresh(ctx)
@@ -146,9 +146,6 @@ func (d *Dashboard) Snapshot() Snapshot {
 	snap := Snapshot{Updated: time.Now(), Errors: map[string]error{}}
 	if d == nil {
 		return snap
-	}
-	if value, ok := read(d.Weather, snap.Errors, "weather"); ok {
-		snap.Weather = &value
 	}
 	if value, ok := read(d.Agenda, snap.Errors, "agenda"); ok {
 		snap.Agenda = value

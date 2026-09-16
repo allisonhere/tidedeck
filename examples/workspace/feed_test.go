@@ -14,9 +14,6 @@ func TestFeedIsDeterministic(t *testing.T) {
 	b := newDemoFeed(7, started)
 	now := started.Add(42 * time.Second)
 
-	if !reflect.DeepEqual(a.Weather(now), b.Weather(now)) {
-		t.Fatal("weather is not deterministic")
-	}
 	if !reflect.DeepEqual(a.System(now), b.System(now)) {
 		t.Fatal("system is not deterministic")
 	}
@@ -56,9 +53,6 @@ func TestFeedUpdatesOverTime(t *testing.T) {
 
 	if reflect.DeepEqual(f.Network(t0).DownSpark, f.Network(t1).DownSpark) {
 		t.Fatal("network sparkline did not advance")
-	}
-	if f.Weather(t0).Updated.Equal(f.Weather(t1).Updated) {
-		t.Fatal("weather timestamp did not advance")
 	}
 }
 
