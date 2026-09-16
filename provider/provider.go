@@ -31,6 +31,7 @@ type Snapshot struct {
 	Clock     *tideui.ClockData
 	Agenda    []tideui.AgendaItem
 	System    *tideui.SystemMetrics
+	GPU       *tideui.GPUMetrics
 	Network   *tideui.NetworkMetrics
 	Storage   []tideui.StorageMount
 	Services  []tideui.ServiceStatus
@@ -39,6 +40,7 @@ type Snapshot struct {
 	Notes     []tideui.Note
 	Repos     []tideui.RepoActivity
 	Markets   []tideui.MarketQuote
+	Updates   *tideui.UpdateStatus
 
 	Updated time.Time
 	Errors  map[string]error
@@ -115,6 +117,7 @@ type Dashboard struct {
 	Clock     *Fetcher[tideui.ClockData]
 	Agenda    *Fetcher[[]tideui.AgendaItem]
 	System    *Fetcher[tideui.SystemMetrics]
+	GPU       *Fetcher[tideui.GPUMetrics]
 	Network   *Fetcher[tideui.NetworkMetrics]
 	Storage   *Fetcher[[]tideui.StorageMount]
 	Services  *Fetcher[[]tideui.ServiceStatus]
@@ -123,6 +126,7 @@ type Dashboard struct {
 	Notes     *Fetcher[[]tideui.Note]
 	Repos     *Fetcher[[]tideui.RepoActivity]
 	Markets   *Fetcher[[]tideui.MarketQuote]
+	Updates   *Fetcher[tideui.UpdateStatus]
 }
 
 // Refresh kicks off any stale fetches. Call it from the application tick.
@@ -134,6 +138,7 @@ func (d *Dashboard) Refresh(ctx context.Context) {
 	d.Clock.Refresh(ctx)
 	d.Agenda.Refresh(ctx)
 	d.System.Refresh(ctx)
+	d.GPU.Refresh(ctx)
 	d.Network.Refresh(ctx)
 	d.Storage.Refresh(ctx)
 	d.Services.Refresh(ctx)
@@ -142,6 +147,7 @@ func (d *Dashboard) Refresh(ctx context.Context) {
 	d.Notes.Refresh(ctx)
 	d.Repos.Refresh(ctx)
 	d.Markets.Refresh(ctx)
+	d.Updates.Refresh(ctx)
 }
 
 // Snapshot reads the cached values without blocking on network or disk.
@@ -161,6 +167,9 @@ func (d *Dashboard) Snapshot() Snapshot {
 	}
 	if value, ok := read(d.System, snap.Errors, "system"); ok {
 		snap.System = &value
+	}
+	if value, ok := read(d.GPU, snap.Errors, "gpu"); ok {
+		snap.GPU = &value
 	}
 	if value, ok := read(d.Network, snap.Errors, "network"); ok {
 		snap.Network = &value
@@ -185,6 +194,9 @@ func (d *Dashboard) Snapshot() Snapshot {
 	}
 	if value, ok := read(d.Markets, snap.Errors, "markets"); ok {
 		snap.Markets = value
+	}
+	if value, ok := read(d.Updates, snap.Errors, "updates"); ok {
+		snap.Updates = &value
 	}
 	return snap
 }
