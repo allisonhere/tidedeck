@@ -264,23 +264,57 @@ func gitClone(dir, source, dest string) error {
 }
 
 // runGit runs a git command with a bounded context. The command's stderr is
-// folded into the error, so "repository not found" reaches the user.
+// folded into the error, so "repository not found" reaches the user - the last
+// line, which is where git puts the reason ("fatal: …"), not the "Cloning
+// into …" progress line it prints first. Git is told not to prompt: a TUI has
+// no console to answer a username or password prompt, so a private repository
+// should fail with a message rather than hang.
 func runGit(dir string, args ...string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), cloneTimeout)
 	defer cancel()
 	command := exec.CommandContext(ctx, "git", args...)
 	command.Dir = dir
+	command.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	output, err := command.CombinedOutput()
 	if err != nil {
 		if ctx.Err() != nil {
 			return fmt.Errorf("git %s timed out after %s", args[0], cloneTimeout)
 		}
-		if message := strings.TrimSpace(string(output)); message != "" {
-			return fmt.Errorf("git %s: %s", args[0], firstLine(message))
+		if message := lastLine(string(output)); message != "" {
+			return fmt.Errorf("git %s: %s%s", args[0], message, gitHint(message))
 		}
 		return fmt.Errorf("git %s: %w", args[0], err)
 	}
 	return nil
+}
+
+// gitHint explains the two failures a user is most likely to hit. GitHub
+// answers "not found" with the signal for a private repository, so the message
+// on its own reads as a credentials problem rather than a wrong URL.
+func gitHint(message string) string {
+	switch {
+	case strings.Contains(message, "terminal prompts disabled"),
+		strings.Contains(message, "could not read Username"),
+		strings.Contains(message, "Authentication failed"):
+		return " (the repository does not exist, or it is private and git has no credentials)"
+	case strings.Contains(message, "not found"),
+		strings.Contains(message, "Repository not found"):
+		return " (check the URL, and that the repository is not private)"
+	default:
+		return ""
+	}
+}
+
+// lastLine returns the last non-empty line of some output, which is where git
+// reports a failure.
+func lastLine(text string) string {
+	lines := strings.Split(strings.TrimSpace(text), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if line := strings.TrimSpace(lines[i]); line != "" {
+			return line
+		}
+	}
+	return ""
 }
 
 // copyTree copies a directory, so a plugin can be installed from a local
