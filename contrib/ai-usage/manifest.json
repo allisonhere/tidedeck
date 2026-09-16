@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "tidedeck.ai-usage",
+  "name": "AI Usage",
+  "version": "1.0.0",
+  "author": "tidedeck",
+  "license": "MIT",
+  "description": "Plan usage and balances, read from the ai-usagebar binary.",
+  "kinds": ["panel"],
+  "entryPoints": { "panel": ["./render.sh"] },
+  "panel": {
+    "displayName": "AI Usage",
+    "category": "AI",
+    "refreshSeconds": 300,
+    "minWidth": 22,
+    "minHeight": 5,
+    "priority": 45,
+    "schema": [
+      { "key": "binary", "type": "string", "label": "ai-usagebar binary",
+        "defaultValue": "ai-usagebar" }
+    ]
+  }
+}

@@ -284,13 +284,25 @@ func (r Renderer) RenderMiniCalendar(c MiniCalendar, bg lipgloss.Color) string {
 	return r.dashBlock(lines, c.Width, bg)
 }
 
-// dashBlock truncates and pads every line to width, keeping each line's own
-// styling and background continuous.
-func (r Renderer) dashBlock(lines []string, width int, bg lipgloss.Color) string {
+// RenderLines bounds a block of lines to a width: each line is truncated with
+// an ellipsis and padded, keeping its own styling and its background
+// continuous. Every panel body ends here, which is what guarantees a panel
+// never overflows its pane.
+//
+// It is exported because a panel does not have to live in this package: one
+// rendered from a document supplied by an external program needs the same
+// guarantee, and reimplementing it elsewhere would mean two subtly different
+// notions of "fits".
+func (r Renderer) RenderLines(lines []string, width int, bg lipgloss.Color) string {
 	for i, line := range lines {
 		lines[i] = padStyled(ansi.Truncate(line, width, "…"), width, bg)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// dashBlock is the in-package spelling of RenderLines.
+func (r Renderer) dashBlock(lines []string, width int, bg lipgloss.Color) string {
+	return r.RenderLines(lines, width, bg)
 }
 
 // dashPair renders a muted label column and a value.
