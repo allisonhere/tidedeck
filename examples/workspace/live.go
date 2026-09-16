@@ -122,8 +122,35 @@ func (s *liveSource) Clock(now time.Time) tideui.ClockData {
 	return tideui.ClockData{Local: now}
 }
 
-func (s *liveSource) Agenda(time.Time, int) []tideui.AgendaItem {
-	return s.snapshotCopy().Agenda
+func (s *liveSource) Agenda(now time.Time, dayOffset int) []tideui.AgendaItem {
+	items := s.snapshotCopy().Agenda
+	target := now.AddDate(0, 0, dayOffset)
+	var day []tideui.AgendaItem
+	for _, item := range items {
+		if agendaOnDay(item, target) {
+			day = append(day, item)
+		}
+	}
+	return day
+}
+
+// agendaOnDay reports whether an event occupies the given day. Timed events land
+// on the day they start; all-day and multi-day events count on every day they
+// cover.
+func agendaOnDay(item tideui.AgendaItem, day time.Time) bool {
+	start, end := item.Start, item.End
+	if end.IsZero() {
+		end = start
+		if item.AllDay {
+			end = start.AddDate(0, 0, 1)
+		}
+	}
+	if !end.After(start) {
+		return sameDay(start, day)
+	}
+	dayStart := time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, day.Location())
+	dayEnd := dayStart.AddDate(0, 0, 1)
+	return start.Before(dayEnd) && end.After(dayStart)
 }
 
 func (s *liveSource) System(time.Time) tideui.SystemMetrics {

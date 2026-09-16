@@ -32,7 +32,7 @@ go get github.com/allisonhere/tideui
 - **Visual language** — semantic workspace tokens, reusable chrome primitives (headers, footers, tabs, badges, key capsules, metrics, sparklines, list rows), `Comfortable`/`Compact`/`Dense` density modes, and a configurable focus presentation.
 - **Dashboard widgets** — weather, agenda, clock, system, GPU, network, storage, services, updates, news, tasks, notes, git activity, and markets, each driven by a plain data model and backed by a `Renderer` method, with a shared Enter-to-drill-down pattern.
 - **Real data sources** — a standard-library `provider` package: background collectors with per-source intervals and graceful degradation, plus providers for Open-Meteo weather, RSS/Atom/RDF with a curated source
-  catalogue (`provider.NewsSources()`), Linux system/GPU/network/storage, pending package updates, systemd and Docker, git activity, todo.txt, notes, iCalendar, and markets.
+  catalogue (`provider.NewsSources()`), Linux system/GPU/network/storage, pending package updates, systemd and Docker, git activity, todo.txt, notes, iCalendar (local files or remote `https`/`webcal` feeds), and markets.
 - **Per-panel themes** — any panel can take its own full theme or color overrides while density, corners, gutters, and global chrome stay workspace-wide; panel content inherits it through `PanelContext.Renderer`.
 - **Full-border pane focus** — every pane renders a 4-sided border colored by focus state, contrast-boosted to a 7:1 floor (square or round corners) so the focused pane is never hard to spot.
 - **List primitives** — single-line `Row` and multi-line `Block` with selected/muted states.
@@ -658,7 +658,7 @@ without touching a renderer.
 
 ```go
 type WeatherData struct{ /* temperature, feels-like, condition/kind, H/L, rain, wind, hourly, daily */ }
-type AgendaItem   struct{ /* title, start/end, location, category, tone */ }
+type AgendaItem   struct{ /* title, start/end, all-day, location, category, tone */ }
 type SystemMetrics struct{ /* cpu, memory, temp, load, uptime, cores */ }
 type NetworkMetrics struct{ /* down/up, unit, sparklines, LAN/WAN */ }
 type StorageMount  struct{ /* path, used %, used/total */ }
@@ -675,7 +675,7 @@ Renderers on `Renderer`:
 | Widget | Renderer | Detail renderer |
 |---|---|---|
 | Weather | `RenderWeather` | `RenderWeatherDetail` |
-| Agenda | `RenderAgenda` | `RenderAgendaDetail` |
+| Agenda | `RenderAgenda` (all-day events labelled, not `00:00`) | `RenderAgendaDetail` |
 | Clock | `RenderClock` (sun/moon glyph, day-period, world clocks) | `RenderClockDetail` (big digital time, day-progress gauge, analog face, `RenderMiniCalendar`) |
 | System | `RenderSystem` | `RenderSystemDetail` |
 | Network | `RenderNetwork` | `RenderNetworkDetail` |
@@ -761,7 +761,7 @@ snapshot := dashboard.Snapshot() // reads cache only, never blocks
 |---|---|---|
 | Weather | `provider.Weather(WeatherOptions)` | Open-Meteo (no key) |
 | Clock | `provider.Clock(location, zones...)` | local time + IANA zones |
-| Calendar | `provider.Calendar(paths...)` | local `.ics` files |
+| Calendar | `provider.Calendar(sources...)` | local `.ics` files and `https`/`webcal` iCal URLs (TZID, all-day, 90-day window) |
 | System | `provider.System()` | `/proc`, `/sys` (Linux) |
 | Network | `provider.Network(iface)` | `/proc/net/dev` (Linux) |
 | Storage | `provider.Storage()` | `/proc/mounts` + `statfs` (Linux) |
@@ -809,7 +809,8 @@ growing configuration stays readable instead of becoming one long scroll:
   location label, and turns on live data.
   The panel then shows `unsaved changes — ctrl+s to apply`.
 - **Clock** a 12/24-hour toggle and zones, **News** a tick list of curated
-  sources plus a row for any other feed URL, **Calendar** `.ics` files,
+  sources plus a row for any other feed URL, **Calendar** `.ics` paths or
+  `https`/`webcal` URLs (comma-separated),
   **Tasks** `todo.txt`, **Notes** paths, **Git** repository paths,
   **Markets** symbols, **Updates** the AUR helper to count with,
   **Services** systemd units or a Docker socket, and the

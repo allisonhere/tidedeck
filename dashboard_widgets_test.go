@@ -165,6 +165,35 @@ func TestRenderAgendaSortsAndGroups(t *testing.T) {
 	}
 }
 
+func TestRenderAgendaAllDay(t *testing.T) {
+	now := dashboardNow()
+	day := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	items := []AgendaItem{
+		{Title: "Holiday", Start: day, AllDay: true, Tone: ToneGood},
+		{Title: "Project review", Start: day.Add(15*time.Hour + 30*time.Minute), Tone: ToneAccent},
+	}
+	out := ansi.Strip(r2().RenderAgenda(items, now, 44))
+	if !strings.Contains(out, "all-day") {
+		t.Fatalf("agenda missing all-day label:\n%s", out)
+	}
+	if strings.Contains(out, "00:00") {
+		t.Fatalf("agenda rendered an all-day event as 00:00:\n%s", out)
+	}
+	holiday := strings.Index(out, "Holiday")
+	review := strings.Index(out, "Project review")
+	if holiday < 0 || review < 0 {
+		t.Fatalf("agenda missing items:\n%s", out)
+	}
+	// The timed row right-aligns to the "all-day" column, so both titles sit at
+	// the same offset within their line.
+	column := func(title int) int {
+		return title - (strings.LastIndexByte(out[:title], '\n') + 1)
+	}
+	if column(holiday) != column(review) {
+		t.Fatalf("time columns are not aligned:\n%s", out)
+	}
+}
+
 func TestRenderAgendaEmpty(t *testing.T) {
 	out := r2().RenderAgenda(nil, dashboardNow(), 30)
 	if !strings.Contains(ansi.Strip(out), "No upcoming events") {

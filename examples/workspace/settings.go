@@ -493,7 +493,7 @@ func (s *settingsForm) buildCategories() []settingsCategory {
 		}},
 		{name: "News", panelID: "news", fields: s.newsFields()},
 		{name: "Calendar", fields: []formField{
-			{label: ".ics files", kind: fieldText, text: &s.state.calendars},
+			{label: "sources (.ics or URL)", kind: fieldText, text: &s.state.calendars},
 		}},
 		{name: "Tasks", panelID: "tasks", fields: []formField{
 			{label: "todo.txt", kind: fieldText, text: &s.state.todo},

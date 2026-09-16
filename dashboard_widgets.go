@@ -238,11 +238,18 @@ func (r Renderer) renderAgenda(items []AgendaItem, now time.Time, width int, det
 	sorted := append([]AgendaItem(nil), items...)
 	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Start.Before(sorted[j].Start) })
 
+	// Widen the time column to fit "all-day" when the day has one; timed rows
+	// right-align to it so every title starts in the same place.
+	timeWidth := 0
+	for _, item := range sorted {
+		timeWidth = max(timeWidth, lipgloss.Width(agendaTime(item)))
+	}
+
 	next := ""
 	if !detail {
 		for _, item := range sorted {
-			if !item.Done && item.Start.After(now) {
-				next = item.Start.Format(time.RFC3339) + item.Title
+			if agendaUpcoming(item, now) {
+				next = agendaItemKey(item)
 				break
 			}
 		}
@@ -260,20 +267,54 @@ func (r Renderer) renderAgenda(items []AgendaItem, now time.Time, width int, det
 			if shown >= maxItems {
 				break
 			}
-			key := item.Start.Format(time.RFC3339) + item.Title
-			lines = append(lines, r.renderAgendaItem(item, key == next, detail, width, bg))
+			lines = append(lines, r.renderAgendaItem(item, agendaItemKey(item) == next, detail, timeWidth, width, bg))
 			shown++
 		}
 	}
 	return r.dashBlock(lines, width, bg)
 }
 
-func (r Renderer) renderAgendaItem(item AgendaItem, isNext, detail bool, width int, bg lipgloss.Color) string {
+// agendaTime is the leading time cell: a clock time, or "all-day" for a
+// whole-day event whose midnight start would otherwise read as 00:00.
+func agendaTime(item AgendaItem) string {
+	if item.AllDay {
+		return "all-day"
+	}
+	return dashTime(item.Start)
+}
+
+// agendaEnd is when an event stops occupying the calendar. Timed events finish
+// at End (or their start); whole-day events without an End run to next midnight.
+func agendaEnd(item AgendaItem) time.Time {
+	if !item.End.IsZero() {
+		return item.End
+	}
+	if item.AllDay {
+		return item.Start.AddDate(0, 0, 1)
+	}
+	return item.Start
+}
+
+// agendaUpcoming reports whether an event is still relevant, so an all-day or
+// in-progress event counts as the next one rather than only future starts.
+func agendaUpcoming(item AgendaItem, now time.Time) bool {
+	return !item.Done && !agendaEnd(item).Before(now)
+}
+
+func agendaItemKey(item AgendaItem) string {
+	return item.Start.Format(time.RFC3339) + item.Title
+}
+
+func (r Renderer) renderAgendaItem(item AgendaItem, isNext, detail bool, timeWidth, width int, bg lipgloss.Color) string {
 	ws := r.Styles.Workspace
-	timeText := dashTime(item.Start)
-	timeStyle := lipgloss.NewStyle().Background(bg).Foreground(ws.BodyMutedFg)
+	timeText := agendaTime(item)
+	timeStyle := lipgloss.NewStyle().Background(bg).Foreground(ws.BodyMutedFg).
+		Width(timeWidth).Align(lipgloss.Right)
 	titleStyle := lipgloss.NewStyle().Background(bg).Foreground(ws.BodyFg)
 	dot := r.RenderStatusDot(StatusDot{Tone: item.Tone}, bg)
+	if item.AllDay {
+		timeStyle = timeStyle.Foreground(ws.SubtitleFg)
+	}
 	if item.Done {
 		titleStyle = titleStyle.Foreground(ws.BodyDimmedFg)
 		timeStyle = timeStyle.Foreground(ws.HintFg)

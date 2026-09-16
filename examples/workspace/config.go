@@ -29,14 +29,17 @@ type config struct {
 	// missing entry follows the workspace SparkStyle.
 	PanelSparks map[string]string `json:"panel_sparks,omitempty"`
 	Feeds       string            `json:"feeds"`
-	Calendars   string            `json:"calendars"`
-	Todo        string            `json:"todo"`
-	Notes       string            `json:"notes"`
-	Repos       string            `json:"repos"`
-	Symbols     string            `json:"symbols"`
-	Systemd     string            `json:"systemd"`
-	Docker      string            `json:"docker"`
-	Interface   string            `json:"interface"`
+	// Calendars lists comma-separated iCalendar sources: local .ics paths or
+	// https/webcal URLs, such as a Google Calendar "secret address in iCal
+	// format".
+	Calendars string `json:"calendars"`
+	Todo      string `json:"todo"`
+	Notes     string `json:"notes"`
+	Repos     string `json:"repos"`
+	Symbols   string `json:"symbols"`
+	Systemd   string `json:"systemd"`
+	Docker    string `json:"docker"`
+	Interface string `json:"interface"`
 	// AURHelper names the AUR wrapper used to count AUR updates ("yay",
 	// "paru"). Empty falls back to yay.
 	AURHelper string `json:"aur_helper"`

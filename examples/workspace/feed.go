@@ -87,20 +87,27 @@ func (f *demoFeed) Agenda(now time.Time, dayOffset int) []tideui.AgendaItem {
 		{Title: "Project review", Start: at(0, 9, 30), End: at(0, 10, 15), Location: "Meet", Category: "Work", Tone: tideui.ToneAccent},
 		{Title: "Dentist", Start: at(0, 11, 0), Location: "Clinic", Category: "Health", Tone: tideui.ToneGood},
 		{Title: "Focus block", Start: at(0, 14, 0), End: at(0, 16, 0), Category: "Deep work", Tone: tideui.ToneAccent},
+		{Title: "Team offsite", Start: at(1, 0, 0), AllDay: true, Category: "Work", Tone: tideui.ToneAccent},
 		{Title: "Standup", Start: at(1, 8, 0), Location: "Meet", Category: "Work", Tone: tideui.ToneAccent},
 		{Title: "Gym", Start: at(1, 18, 30), Category: "Health", Tone: tideui.ToneGood},
 		{Title: "Ship TideDeck", Start: at(2, 10, 0), Category: "Work", Tone: tideui.ToneWarning},
 	}
-	if dayOffset == 0 {
-		return all
-	}
-	shifted := make([]tideui.AgendaItem, 0, len(all))
+	// Like a live calendar, the offset selects a day rather than shifting the
+	// whole schedule, so "next" always means tomorrow.
+	target := base.AddDate(0, 0, dayOffset)
+	day := make([]tideui.AgendaItem, 0, len(all))
 	for _, item := range all {
-		item.Start = item.Start.AddDate(0, 0, dayOffset)
-		item.End = item.End.AddDate(0, 0, dayOffset)
-		shifted = append(shifted, item)
+		if sameDay(item.Start, target) {
+			day = append(day, item)
+		}
 	}
-	return shifted
+	return day
+}
+
+func sameDay(a, b time.Time) bool {
+	ay, am, ad := a.Date()
+	by, bm, bd := b.Date()
+	return ay == by && am == bm && ad == bd
 }
 
 func (f *demoFeed) Clock(now time.Time) tideui.ClockData {
