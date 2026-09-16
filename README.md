@@ -734,28 +734,16 @@ consume.
 
 ### Collector
 
-A `Dashboard` holds one background `Fetcher` per source. Each fetch runs off
-the UI goroutine with its own interval and timeout, so a slow network call never
-blocks a render and a cheap local sample can refresh every second while weather
-refreshes every ten minutes. A failing source keeps its previous value and
-records an error; the rest of the dashboard keeps working.
+Each panel on the [panel registry](#panel-registry) owns its source and calls
+it on its own interval, so a slow network call never blocks a render and a cheap
+local sample can refresh every second while weather refreshes every ten minutes.
+A failing fetch keeps the panel's previous value and is recorded against it;
+the rest of the dashboard keeps working.
 
-```go
-dashboard := &provider.Dashboard{
-    System:  provider.NewFetcher(time.Second, provider.System()),
-    Network: provider.NewFetcher(time.Second, provider.Network("wlan0")),
-    Storage: provider.NewFetcher(2*time.Minute, provider.Storage()),
-    // ...
-}
-
-// on the application tick:
-dashboard.Refresh(ctx)
-snapshot := dashboard.Snapshot() // reads cache only, never blocks
-```
-
-A panel on the [panel registry](#panel-registry) fetches and holds its own data
-instead, so a `Dashboard` is only needed for sources whose panel has not moved
-across yet. New panels should be written against `dash`.
+`provider.Fetcher` is the reusable caching wrapper for a source, and
+`dash.State` is how a panel holds the result. A panel's `Refresh` runs off the
+UI goroutine under a bounded context, and a failed fetch returns without storing
+so the last good value stays on screen.
 
 ### Providers
 
