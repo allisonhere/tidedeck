@@ -179,12 +179,137 @@ func TestRemoveAndUpdate(t *testing.T) {
 	}
 }
 
-func TestUpdateRejectsALocalCopy(t *testing.T) {
+// A plugin installed from a folder re-fetches from that folder, so an edit to
+// the working copy reaches the installed panel.
+func TestUpdateRefetchesAFolderSource(t *testing.T) {
 	plugins := t.TempDir()
-	if _, err := Install(plugins, pluginDir(t)); err != nil {
+	source := pluginDir(t)
+	if _, err := Install(plugins, source); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Update(plugins, "author.thing"); err == nil {
-		t.Fatal("a local copy has no checkout to update")
+	changed := validManifest()
+	changed["version"] = "9.9.9"
+	writeManifestInto(t, source, changed)
+
+	manifest, err := Update(plugins, "author.thing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Version != "9.9.9" {
+		t.Fatalf("updated manifest = %#v", manifest)
+	}
+}
+
+// A source may name a subdirectory, so one repository can host several plugins.
+func TestInstallFromRepositorySubdirectory(t *testing.T) {
+	plugins := t.TempDir()
+	repo := gitRepoWithSubplugins(t)
+
+	manifest, err := Install(plugins, "file://"+repo+"#calculator")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.ID != "author.calculator" {
+		t.Fatalf("manifest = %#v", manifest)
+	}
+	// The installed plugin is the subdirectory, not the repository root.
+	if _, err := os.Stat(filepath.Join(plugins, "author.calculator", "run.sh")); err != nil {
+		t.Fatalf("subdirectory files were not installed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(plugins, "author.calculator", "other")); !os.IsNotExist(err) {
+		t.Fatalf("a sibling plugin leaked into the install: %v", err)
+	}
+
+	// A subdirectory plugin updates by re-fetching the repository, the same as
+	// one at the root.
+	changed := validManifest()
+	changed["id"] = "author.calculator"
+	changed["name"] = "calculator"
+	changed["version"] = "2.0.0"
+	writeManifestInto(t, filepath.Join(repo, "calculator"), changed)
+	gitTest(t, repo, "add", ".")
+	gitTest(t, repo, "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-qm", "bump")
+	updated, err := Update(plugins, "author.calculator")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Version != "2.0.0" {
+		t.Fatalf("updated manifest = %#v", updated)
+	}
+
+	// The other plugin in the same repository installs separately.
+	if _, err := Install(plugins, "file://"+repo+"#other"); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(Installed(plugins)); got != 2 {
+		t.Fatalf("installed = %d, want 2", got)
+	}
+}
+
+func TestInstallFromFolderSubdirectory(t *testing.T) {
+	plugins := t.TempDir()
+	source := t.TempDir()
+	sub := filepath.Join(source, "calculator")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeManifestInto(t, sub, validManifest())
+
+	if _, err := Install(plugins, source+"#calculator"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(plugins, "author.thing", ManifestFile)); err != nil {
+		t.Fatalf("subdirectory plugin not installed: %v", err)
+	}
+}
+
+func TestInstallRejectsATraversingSubdirectory(t *testing.T) {
+	plugins := t.TempDir()
+	if _, err := Install(plugins, "https://example.com/repo#../escape"); err == nil {
+		t.Fatal("a traversing subdirectory should be refused")
+	}
+	// A subdirectory that does not exist is refused too, and leaves nothing.
+	if _, err := Install(plugins, filepath.Join(t.TempDir(), "#missing")); err == nil {
+		t.Fatal("a missing subdirectory should not install")
+	}
+	entries, _ := os.ReadDir(plugins)
+	if len(entries) != 0 {
+		t.Fatalf("a failed install left files behind: %v", entries)
+	}
+}
+
+// gitRepoWithSubplugins builds a committed repository with two plugin
+// subdirectories, the shape a plugins monorepo has.
+func gitRepoWithSubplugins(t *testing.T) string {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	dir := t.TempDir()
+	for _, name := range []string{"calculator", "other"} {
+		sub := filepath.Join(dir, name)
+		if err := os.MkdirAll(sub, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		doc := validManifest()
+		doc["id"] = "author." + name
+		doc["name"] = name
+		writeManifestInto(t, sub, doc)
+		if err := os.WriteFile(filepath.Join(sub, "run.sh"), []byte("#!/bin/sh\necho '{}'\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gitTest(t, dir, "init", "-q")
+	gitTest(t, dir, "add", ".")
+	gitTest(t, dir, "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-qm", "init")
+	return dir
+}
+
+func gitTest(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	command := exec.Command("git", args...)
+	command.Dir = dir
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v: %s", args, err, output)
 	}
 }

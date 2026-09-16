@@ -859,7 +859,7 @@ func TestPluginInstallFieldLooksLikeAnInput(t *testing.T) {
 	openCategory(t, form, "Plugins")
 	renderer := tideui.NewRenderer(tideui.CatppuccinMocha, tideui.StyleOptions{Density: tideui.Dense})
 	rendered := ansi.Strip(strings.Join(form.renderFields(renderer, 80, 20), "\n"))
-	if !strings.Contains(rendered, "[ git URL or local path ]") {
+	if !strings.Contains(rendered, "[ git URL[#dir] or local path ]") {
 		t.Fatalf("Plugins page has no input box:\n%s", rendered)
 	}
 }

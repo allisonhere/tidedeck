@@ -2,6 +2,7 @@ package dash
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -24,18 +25,31 @@ type PluginInfo struct {
 	Problem  error
 }
 
+// installRecordFile remembers where an installed plugin came from, so Update
+// can re-fetch it. It lives inside the plugin directory, which is otherwise
+// exactly the plugin.
+const installRecordFile = ".tidedeck-install.json"
+
+// installRecord is the source an installed plugin came from.
+type installRecord struct {
+	Source string `json:"source"`
+	Subdir string `json:"subdir,omitempty"`
+}
+
 // Install puts a plugin into dir from a source and returns its manifest. A
-// source is an http(s)/git/ssh URL, or a local directory (useful while writing
-// one). The clone goes into a staging directory first and is only moved into
-// place once the manifest validates, so a bad source leaves no half-installed
-// directory behind.
+// source is an http(s)/git/ssh URL or a local directory, optionally with a
+// "#subdir" naming the directory inside it that holds the plugin - so one
+// repository can host several plugins.
 //
-// Cloning runs git, which does not execute anything the repository ships; the
-// plugin's program only runs once the panel is enabled and refreshed.
+// The fetch goes into a staging directory first and is only moved into place
+// once the manifest validates, so a bad source leaves no half-installed
+// directory behind. Cloning runs git, which does not execute anything the
+// repository ships; the plugin's program only runs once the panel is enabled
+// and refreshed.
 func Install(dir, source string) (Manifest, error) {
-	source = strings.TrimSpace(source)
-	if source == "" {
-		return Manifest{}, fmt.Errorf("no plugin source given")
+	base, subdir, err := parseSource(source)
+	if err != nil {
+		return Manifest{}, err
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return Manifest{}, err
@@ -47,22 +61,14 @@ func Install(dir, source string) (Manifest, error) {
 	// Removed unless the rename below consumes it; a no-op afterwards.
 	defer os.RemoveAll(stage)
 
-	if isRemoteSource(source) {
-		if err := gitClone(dir, source, stage); err != nil {
-			return Manifest{}, err
-		}
-	} else {
-		path := expandHome(source)
-		info, err := os.Stat(path)
-		if err != nil || !info.IsDir() {
-			return Manifest{}, fmt.Errorf("%q is not an http/git URL or a directory", source)
-		}
-		if err := copyTree(path, stage); err != nil {
-			return Manifest{}, err
-		}
+	if err := fetchSource(base, dir, stage); err != nil {
+		return Manifest{}, err
 	}
-
-	manifest, err := LoadManifest(stage)
+	pluginPath := stage
+	if subdir != "" {
+		pluginPath = filepath.Join(stage, subdir)
+	}
+	manifest, err := LoadManifest(pluginPath)
 	if err != nil {
 		return Manifest{}, err
 	}
@@ -70,7 +76,10 @@ func Install(dir, source string) (Manifest, error) {
 	if _, err := os.Stat(final); err == nil {
 		return Manifest{}, fmt.Errorf("plugin %s is already installed", manifest.ID)
 	}
-	if err := os.Rename(stage, final); err != nil {
+	if err := os.Rename(pluginPath, final); err != nil {
+		return Manifest{}, err
+	}
+	if err := writeInstallRecord(final, installRecord{Source: base, Subdir: subdir}); err != nil {
 		return Manifest{}, err
 	}
 	// Re-read from the final path: the manifest's resolved directory must be
@@ -122,21 +131,110 @@ func Remove(dir, id string) error {
 	return os.RemoveAll(filepath.Join(dir, id))
 }
 
-// Update pulls an installed plugin's checkout and returns its (possibly
-// changed) manifest. A plugin installed from a local directory is not a git
-// checkout, so it cannot be updated this way.
+// Update re-fetches an installed plugin from the source it came from and
+// returns its (possibly changed) manifest. It re-clones or re-copies rather than
+// pulling a checkout, so a plugin installed from a local directory - or from a
+// subdirectory of a repository - updates the same way as one from a repo root.
 func Update(dir, id string) (Manifest, error) {
 	if !validPluginID(id) {
 		return Manifest{}, fmt.Errorf("invalid plugin id %q", id)
 	}
-	path := filepath.Join(dir, id)
-	if _, err := os.Stat(filepath.Join(path, ".git")); err != nil {
-		return Manifest{}, fmt.Errorf("plugin %s is not a git checkout", id)
-	}
-	if err := runGit(dir, "-C", path, "pull", "--ff-only"); err != nil {
+	final := filepath.Join(dir, id)
+	record, err := readInstallRecord(final)
+	if err != nil {
 		return Manifest{}, err
 	}
-	return LoadManifest(path)
+	stage, err := os.MkdirTemp(dir, ".staging-")
+	if err != nil {
+		return Manifest{}, err
+	}
+	defer os.RemoveAll(stage)
+
+	if err := fetchSource(record.Source, dir, stage); err != nil {
+		return Manifest{}, err
+	}
+	pluginPath := stage
+	if record.Subdir != "" {
+		pluginPath = filepath.Join(stage, record.Subdir)
+	}
+	manifest, err := LoadManifest(pluginPath)
+	if err != nil {
+		return Manifest{}, err
+	}
+	if manifest.ID != id {
+		return Manifest{}, fmt.Errorf("plugin id changed from %s to %s; remove and reinstall it", id, manifest.ID)
+	}
+	if err := os.RemoveAll(final); err != nil {
+		return Manifest{}, err
+	}
+	if err := os.Rename(pluginPath, final); err != nil {
+		return Manifest{}, err
+	}
+	if err := writeInstallRecord(final, record); err != nil {
+		return Manifest{}, err
+	}
+	return LoadManifest(final)
+}
+
+// parseSource splits "source#subdir" into the fetch source and the directory
+// inside it that holds the plugin. A subdir may have several segments
+// ("contrib/calculator") but may not escape the fetched source.
+func parseSource(source string) (base, subdir string, err error) {
+	base, fragment, hasFragment := strings.Cut(source, "#")
+	base = strings.TrimSpace(base)
+	if base == "" {
+		return "", "", fmt.Errorf("no plugin source given")
+	}
+	if !hasFragment {
+		return base, "", nil
+	}
+	subdir = strings.Trim(strings.TrimSpace(fragment), "/")
+	if subdir == "" {
+		return base, "", nil
+	}
+	for _, part := range strings.Split(subdir, "/") {
+		if part == ".." || part == "." {
+			return "", "", fmt.Errorf("invalid plugin subdirectory %q", fragment)
+		}
+	}
+	return base, subdir, nil
+}
+
+// fetchSource puts a source's contents into dest: a git clone for a URL, a copy
+// for a local directory.
+func fetchSource(source, workdir, dest string) error {
+	if isRemoteSource(source) {
+		return gitClone(workdir, source, dest)
+	}
+	path := expandHome(source)
+	info, err := os.Stat(path)
+	if err != nil || !info.IsDir() {
+		return fmt.Errorf("%q is not an http/git URL or a directory", source)
+	}
+	return copyTree(path, dest)
+}
+
+func writeInstallRecord(pluginDir string, record installRecord) error {
+	data, err := json.MarshalIndent(record, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(pluginDir, installRecordFile), append(data, '\n'), 0o644)
+}
+
+func readInstallRecord(pluginDir string) (installRecord, error) {
+	data, err := os.ReadFile(filepath.Join(pluginDir, installRecordFile))
+	if err != nil {
+		return installRecord{}, fmt.Errorf("no install record for %s; reinstall it", filepath.Base(pluginDir))
+	}
+	var record installRecord
+	if err := json.Unmarshal(data, &record); err != nil {
+		return installRecord{}, err
+	}
+	if strings.TrimSpace(record.Source) == "" {
+		return installRecord{}, fmt.Errorf("no install record for %s; reinstall it", filepath.Base(pluginDir))
+	}
+	return record, nil
 }
 
 // isRemoteSource reports whether a source is something git clones rather than a

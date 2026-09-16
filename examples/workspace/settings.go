@@ -710,7 +710,7 @@ func (s formState) applyPanelFields(document dash.Values, deck *dash.Deck) (dash
 func (s *settingsForm) pluginFields() []formField {
 	fields := []formField{
 		{label: "plugin source", kind: fieldText, text: &s.state.pluginSource,
-			input: true, placeholder: "git URL or local path"},
+			input: true, placeholder: "git URL[#dir] or local path"},
 		{label: "Install", kind: fieldAction, action: s.installPlugin},
 	}
 	for _, info := range dash.Installed(pluginsDir()) {

@@ -1075,11 +1075,13 @@ reason rather than stopping the others from loading, and a missing plugin
 directory is the normal case, not an error. `dash.Exec(manifest)` builds a
 single one.
 
-To install one at runtime, `dash.Install(dir, source)` clones (or copies) a
-source into staging, validates it, and moves it into `dir`; `dash.Installed(dir)`
-lists what is there, and `dash.Remove`/`dash.Update` delete or `git pull` one.
-A panel added while the app is running is attached with `deck.AttachPanel(ws,
-panel)` and removed with `deck.Unregister(id)` plus `ws.RemovePanel(id)`.
+To install one at runtime, `dash.Install(dir, source)` fetches a source into
+staging, validates it, and moves it into `dir`; a `source#subdir` names the
+directory inside the source that holds the plugin, so one repository can host
+several. `dash.Installed(dir)` lists what is there, and `dash.Remove`/`dash.Update`
+delete or re-fetch one. A panel added while the app is running is attached with
+`deck.AttachPanel(ws, panel)` and removed with `deck.Unregister(id)` plus
+`ws.RemovePanel(id)`.
 
 Failure of any kind — a non-zero exit, unparseable output, a timeout, more than
 1 MB printed, or a `schemaVersion` this build does not know — keeps the last
@@ -1094,8 +1096,13 @@ Open settings (`s`) → **Plugins**. Paste a plugin's repository URL — or a lo
 directory, useful while writing one — and press **Install**. The app clones
 into `~/.config/tidedeck/plugins/` off the UI thread, validates the manifest,
 and registers the panel. Each installed plugin is listed with an **update**
-(`git pull`) and a **remove** row. The same can be done by hand: drop a
-directory into `~/.config/tidedeck/plugins/` and restart.
+(re-fetches from its source) and a **remove** row. The same can be done by
+hand: drop a directory into `~/.config/tidedeck/plugins/` and restart.
+
+A source may name a **subdirectory** so one repository can host several
+plugins: `https://github.com/you/tidedeck-plugins#calculator` installs the
+plugin whose manifest lives in `calculator/`. A local path takes the same form
+(`~/Projects/tidedeck-plugins#calculator`).
 
 A manifest that does not validate is skipped and its reason is shown in the
 status strip (or on its row in the Plugins page); the others still load.
