@@ -30,9 +30,7 @@ type liveSource struct {
 // Sources with no configuration are simply left unset and their panels stay
 // empty.
 func newLiveSource(cfg config) *liveSource {
-	dashboard := &provider.Dashboard{
-		Storage: provider.NewFetcher(2*time.Minute, provider.Storage()),
-	}
+	dashboard := &provider.Dashboard{}
 	if todo := expandPath(strings.TrimSpace(cfg.Todo)); todo != "" {
 		dashboard.Tasks = provider.NewFetcher(30*time.Second, provider.TodoTxt(todo))
 	}

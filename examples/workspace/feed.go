@@ -68,14 +68,6 @@ func (f *demoFeed) Markets(now time.Time) []tideui.MarketQuote {
 // Static collections live in the demo state so actions can mutate them while
 // still originating from the same deterministic feed.
 
-func (f *demoFeed) Storage() []tideui.StorageMount {
-	return []tideui.StorageMount{
-		{Path: "/", UsedPercent: 72, Used: "460 GB", Total: "640 GB"},
-		{Path: "/home", UsedPercent: 48, Used: "384 GB", Total: "800 GB"},
-		{Path: "/media", UsedPercent: 81, Used: "5.8 TB", Total: "7.2 TB"},
-	}
-}
-
 func (f *demoFeed) Services() []tideui.ServiceStatus {
 	return []tideui.ServiceStatus{
 		{Name: "jellyfin", Status: tideui.StatusHealthy, Age: "3d", Detail: "HTTP 200", Uptime: "3d 14h"},

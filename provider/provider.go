@@ -121,7 +121,6 @@ func (d *Dashboard) Refresh(ctx context.Context) {
 	if d == nil {
 		return
 	}
-	d.Storage.Refresh(ctx)
 	d.Services.Refresh(ctx)
 	d.Tasks.Refresh(ctx)
 	d.Notes.Refresh(ctx)
@@ -133,9 +132,6 @@ func (d *Dashboard) Snapshot() Snapshot {
 	snap := Snapshot{Updated: time.Now(), Errors: map[string]error{}}
 	if d == nil {
 		return snap
-	}
-	if value, ok := read(d.Storage, snap.Errors, "storage"); ok {
-		snap.Storage = value
 	}
 	if value, ok := read(d.Services, snap.Errors, "services"); ok {
 		snap.Services = value

@@ -79,7 +79,6 @@ type demoState struct {
 	tasks    []tideui.Task
 	services []tideui.ServiceStatus
 	notes    []tideui.Note
-	mounts   []tideui.StorageMount
 }
 
 type model struct {
@@ -124,7 +123,6 @@ func newModel() model {
 		tasks:     feed.Tasks(),
 		services:  feed.Services(),
 		notes:     feed.Notes(),
-		mounts:    feed.Storage(),
 	}
 	store := fileStore{path: filepath.Join(userConfigDir(), "tidedeck", "layout.json")}
 	ws := tideui.NewWorkspace(
@@ -150,7 +148,7 @@ func newModel() model {
 	// Panels are registered in the order the hand-written registrations used to
 	// sit, so the deck attaches them — and the settings list orders them — the
 	// way the dashboard always did.
-	deck.Register(panels.Agenda(), panels.System(), panels.Weather(), panels.GPU(), panels.Updates(), panels.Clock(), panels.Git(), panels.News(), panels.Network())
+	deck.Register(panels.Agenda(), panels.System(), panels.Weather(), panels.GPU(), panels.Updates(), panels.Clock(), panels.Git(), panels.News(), panels.Network(), panels.Storage())
 	deck.OnStatus(func(message string) { state.status = message })
 	registerPanels(ws, state, deck)
 	registerPresets(ws)
@@ -216,14 +214,13 @@ func (m *model) applyConfig() {
 		m.state.live = newLiveSource(m.cfg)
 		m.state.source = m.state.live
 		m.state.tasks, m.state.services = nil, nil
-		m.state.notes, m.state.mounts = nil, nil
+		m.state.notes = nil
 	} else {
 		m.state.live = nil
 		m.state.source = m.feed
 		m.state.tasks = m.feed.Tasks()
 		m.state.services = m.feed.Services()
 		m.state.notes = m.feed.Notes()
-		m.state.mounts = m.feed.Storage()
 	}
 	// Give the deck's panels their first data now rather than on the tick a
 	// second from now: a panel that holds its own data renders empty until
@@ -289,10 +286,6 @@ func registerPanels(ws *tideui.Workspace, state *demoState, deck *dash.Deck) {
 	// rather than before or after the block, leaving the picker and settings
 	// lists unchanged.
 	deck.Attach(ws)
-
-	ws.Panel("storage", storagePanel(state)).
-		Title("Storage").Role(tideui.RoleSecondary).Priority(55).MinWidth(18).MinHeight(6).HideBelow(120).
-		Actions(tideui.Action("refresh", "r", func(*tideui.Workspace) { state.status = "storage sampled" }).Labeled("refresh"))
 
 	ws.Panel("services", servicesPanel(state)).
 		Title("Services").Role(tideui.RoleSecondary).Priority(65).MinWidth(20).MinHeight(6).HideBelow(92).
@@ -415,9 +408,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if snapshot.Notes != nil {
 				m.state.notes = snapshot.Notes
-			}
-			if snapshot.Storage != nil {
-				m.state.mounts = snapshot.Storage
 			}
 		}
 		// Auto-clear transient status feedback a few seconds after it stops

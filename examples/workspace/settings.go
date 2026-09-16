@@ -403,7 +403,6 @@ func (s *settingsForm) buildCategories() []settingsCategory {
 			{label: "Look up coordinates", kind: fieldAction, action: s.lookupCoordinates},
 		}},
 		{name: "GPU", panelID: "gpu", fields: nil},
-		{name: "Storage", panelID: "storage", fields: nil},
 		{name: "Services", panelID: "services", fields: []formField{
 			{label: "systemd units", kind: fieldText, text: &s.state.systemd},
 			{label: "docker socket", kind: fieldText, text: &s.state.docker},
