@@ -119,7 +119,6 @@ func newModel() model {
 		spark:     tideui.SparklineStyle(sparkOrDefault(cfg.SparkStyle)),
 		clockFont: tideui.ClockFont(clockFontOrDefault(cfg.ClockFont)),
 		icons:     tideui.IconStyle(iconStyleOrDefault(cfg.Icons)),
-		tasks:     feed.Tasks(),
 		notes:     feed.Notes(),
 	}
 	store := fileStore{path: filepath.Join(userConfigDir(), "tidedeck", "layout.json")}
@@ -146,7 +145,7 @@ func newModel() model {
 	// Panels are registered in the order the hand-written registrations used to
 	// sit, so the deck attaches them — and the settings list orders them — the
 	// way the dashboard always did.
-	deck.Register(panels.Agenda(), panels.System(), panels.Weather(), panels.GPU(), panels.Updates(), panels.Clock(), panels.Git(), panels.News(), panels.Network(), panels.Storage(), panels.Services())
+	deck.Register(panels.Agenda(), panels.System(), panels.Weather(), panels.GPU(), panels.Updates(), panels.Clock(), panels.Git(), panels.News(), panels.Network(), panels.Storage(), panels.Services(), panels.Tasks())
 	deck.OnStatus(func(message string) { state.status = message })
 	registerPanels(ws, state, deck)
 	registerPresets(ws)
@@ -211,12 +210,10 @@ func (m *model) applyConfig() {
 	if m.cfg.Live {
 		m.state.live = newLiveSource(m.cfg)
 		m.state.source = m.state.live
-		m.state.tasks = nil
 		m.state.notes = nil
 	} else {
 		m.state.live = nil
 		m.state.source = m.feed
-		m.state.tasks = m.feed.Tasks()
 		m.state.notes = m.feed.Notes()
 	}
 	// Give the deck's panels their first data now rather than on the tick a
@@ -283,26 +280,6 @@ func registerPanels(ws *tideui.Workspace, state *demoState, deck *dash.Deck) {
 	// rather than before or after the block, leaving the picker and settings
 	// lists unchanged.
 	deck.Attach(ws)
-
-	ws.Panel("tasks", tasksPanel(state)).
-		Title("Tasks").Role(tideui.RoleSecondary).Priority(72).MinWidth(20).MinHeight(6).HideBelow(88).
-		Actions(
-			tideui.Action("toggle", "space", func(*tideui.Workspace) {
-				for i := range state.tasks {
-					if !state.tasks[i].Done {
-						state.tasks[i].Done = true
-						state.status = "completed: " + state.tasks[i].Title
-						return
-					}
-				}
-				state.status = "no open tasks"
-			}).Labeled("toggle"),
-			tideui.Action("add", "a", func(*tideui.Workspace) {
-				state.tasks = append(state.tasks, tideui.Task{Title: "New task", Due: "today", Tone: tideui.ToneAccent})
-				state.status = "task added"
-			}).Labeled("add"),
-			tideui.Action("edit", "e", func(*tideui.Workspace) { state.status = "editing task" }).Labeled("edit"),
-		)
 
 	ws.Panel("notes", notesPanel(state)).
 		Title("Notes").Role(tideui.RoleOptional).Priority(45).MinWidth(18).MinHeight(5).HideBelow(130).
@@ -380,9 +357,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.state.live != nil {
 			m.state.live.refresh(context.Background())
 			snapshot := m.state.live.snapshotCopy()
-			if snapshot.Tasks != nil {
-				m.state.tasks = snapshot.Tasks
-			}
 			if snapshot.Notes != nil {
 				m.state.notes = snapshot.Notes
 			}
@@ -439,19 +413,6 @@ func (m model) refreshBadges() {
 	for id, badge := range m.deck.Badges() {
 		if panel, ok := m.ws.Lookup(id); ok {
 			panel.Badge(badge.Text).BadgeTone(badge.Tone)
-		}
-	}
-	open := 0
-	for _, t := range m.state.tasks {
-		if !t.Done {
-			open++
-		}
-	}
-	if panel, ok := m.ws.Lookup("tasks"); ok {
-		if open > 0 {
-			panel.Badge(fmt.Sprintf("%d", open)).BadgeTone(tideui.ToneMuted)
-		} else {
-			panel.Badge("")
 		}
 	}
 }

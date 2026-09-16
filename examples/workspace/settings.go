@@ -101,7 +101,6 @@ type formState struct {
 	panelSparks map[string]string
 	feeds       string // custom URLs only; catalogue URLs live in feedPresets
 	feedPresets []bool // one per provider.NewsSources(), same order
-	todo        string
 	notes       string
 	symbols     string
 }
@@ -120,7 +119,6 @@ func formFromConfig(cfg config) formState {
 		panelSparks: copyStringMap(cfg.PanelSparks),
 		feeds:       customFeeds,
 		feedPresets: feedPresets,
-		todo:        cfg.Todo,
 		notes:       cfg.Notes,
 		symbols:     cfg.Symbols,
 	}
@@ -136,7 +134,6 @@ func (s formState) toConfig(deck *dash.Deck) (config, error) {
 		PanelGauges: panelOverrides(s.panelGauges),
 		PanelSparks: panelOverrides(s.panelSparks),
 		Feeds:       joinFeeds(s.feedPresets, s.feeds),
-		Todo:        s.todo,
 		Notes:       s.notes,
 		Symbols:     s.symbols,
 	}
@@ -398,9 +395,6 @@ func (s *settingsForm) buildCategories() []settingsCategory {
 		}},
 		{name: "GPU", panelID: "gpu", fields: nil},
 		{name: "News", panelID: "news", fields: s.newsFields()},
-		{name: "Tasks", panelID: "tasks", fields: []formField{
-			{label: "todo.txt", kind: fieldText, text: &s.state.todo},
-		}},
 		{name: "Notes", panelID: "notes", fields: []formField{
 			{label: "paths", kind: fieldText, text: &s.state.notes},
 		}},

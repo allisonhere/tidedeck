@@ -74,20 +74,13 @@ func TestDashboardSnapshotCollects(t *testing.T) {
 		Notes: NewFetcher(0, func(context.Context) ([]tideui.Note, error) {
 			return []tideui.Note{{Title: "ideas"}}, nil
 		}),
-		Tasks: NewFetcher(0, func(context.Context) ([]tideui.Task, error) {
-			return []tideui.Task{{Title: "ship"}}, nil
-		}),
 	}
 	dashboard.Refresh(context.Background())
 	waitFor(t, func() bool { _, _, ok := dashboard.Notes.Value(); return ok })
-	waitFor(t, func() bool { _, _, ok := dashboard.Tasks.Value(); return ok })
 
 	snapshot := dashboard.Snapshot()
 	if len(snapshot.Notes) != 1 || snapshot.Notes[0].Title != "ideas" {
 		t.Fatalf("notes missing: %+v", snapshot.Notes)
-	}
-	if len(snapshot.Tasks) != 1 {
-		t.Fatalf("tasks = %d, want 1", len(snapshot.Tasks))
 	}
 	if snapshot.Updated.IsZero() {
 		t.Fatal("snapshot has no timestamp")

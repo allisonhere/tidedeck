@@ -26,13 +26,6 @@ func panelRenderer(state *demoState, ctx tideui.PanelContext) tideui.Renderer {
 	return viewRenderer(state)
 }
 
-func tasksPanel(state *demoState) tideui.PanelView {
-	return func(ctx tideui.PanelContext) string {
-		r := panelRenderer(state, ctx)
-		return r.RenderTasks(state.tasks, ctx.Width)
-	}
-}
-
 func notesPanel(state *demoState) tideui.PanelView {
 	return func(ctx tideui.PanelContext) string {
 		r := panelRenderer(state, ctx)

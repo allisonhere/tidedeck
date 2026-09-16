@@ -68,15 +68,6 @@ func (f *demoFeed) Markets(now time.Time) []tideui.MarketQuote {
 // Static collections live in the demo state so actions can mutate them while
 // still originating from the same deterministic feed.
 
-func (f *demoFeed) Tasks() []tideui.Task {
-	return []tideui.Task{
-		{Title: "Finish TideDeck", Due: "today", Tone: tideui.ToneWarning, Tags: []string{"#tide"}},
-		{Title: "Update docs", Due: "tomorrow", Tone: tideui.ToneAccent, Tags: []string{"#docs"}},
-		{Title: "Fix panel spacing", Done: true},
-		{Title: "Record demo GIF", Due: "Thu", Tone: tideui.ToneAccent},
-	}
-}
-
 func (f *demoFeed) Notes() []tideui.Note {
 	return []tideui.Note{
 		{Title: "Remember", Pinned: true, Body: "- test narrow layouts\n- record demo GIF\n- add real data providers"},

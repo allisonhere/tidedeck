@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"strings"
 	"sync"
 	"time"
 
@@ -31,9 +30,6 @@ type liveSource struct {
 // empty.
 func newLiveSource(cfg config) *liveSource {
 	dashboard := &provider.Dashboard{}
-	if todo := expandPath(strings.TrimSpace(cfg.Todo)); todo != "" {
-		dashboard.Tasks = provider.NewFetcher(30*time.Second, provider.TodoTxt(todo))
-	}
 	if notes := list(cfg.Notes); len(notes) > 0 {
 		dashboard.Notes = provider.NewFetcher(30*time.Second, provider.Notes(notes...))
 	}
