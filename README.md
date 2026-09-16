@@ -1061,7 +1061,10 @@ plugin cannot overflow its pane whatever it prints.
 `contrib/ai-usage/` is a working example: a `jq` projection of
 `ai-usagebar usage --json`, which is a projection rather than a translation
 because the two formats already agree on `type`/`label`/`value`/`percent`/
-`severity`.
+`severity`. `contrib/calculator/` is a smaller one, and is also published at
+[`allisonhere/tidedeck-plugins`](https://github.com/allisonhere/tidedeck-plugins)
+so you can install it from a live URL with
+`https://github.com/allisonhere/tidedeck-plugins#calculator`.
 
 #### Running them
 
