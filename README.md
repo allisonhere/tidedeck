@@ -725,6 +725,12 @@ zoom, so the saved layout is never altered.
 The feed is a pure function of seed and time, so the demo is live but
 reproducible and testable, and no network is involved.
 
+The five presets are also **saveable layout slots**. `alt+1`–`alt+5` loads a
+slot; a slot holds its preset until `S` opens the save chooser and overwrites
+one with the current layout. A saved slot is a full layout — panels, weights
+and what is hidden — stored under its own key, so it survives a restart and
+overwriting one leaves the others alone.
+
 ## Real data sources
 
 `github.com/allisonhere/tideui/provider` contains the live data sources for the
@@ -1055,8 +1061,11 @@ A plugin's settings are edited in the settings screen and reach the program as
 environment variables on the next run. A plugin can also **take typing**:
 declaring `panel.input` names a setting that receives keystrokes while the panel
 is focused, and `panel.inputChars` lists the runes it accepts, so anything else
-(and the workspace's own keys, like `alt+1`–`alt+5` for presets) still reaches
-the application. What was typed is passed to the program as that setting's
+still reaches the application. The single-key commands are reserved: `m`, `w`,
+`q`, `t`, `s`, `c`, `d`, `S`, `T` still run while the panel is merely focused.
+Typing an accepted rune — or `/` when the first letter would be reserved —
+starts an edit session in which the panel takes the reserved runes too, and
+`Esc` ends it. What was typed is passed to the program as that setting's
 environment variable, and the program is re-run on each keystroke:
 
 ```json

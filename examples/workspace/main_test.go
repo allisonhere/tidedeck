@@ -490,6 +490,94 @@ func TestSlashTypesAReservedFirstLetter(t *testing.T) {
 	}
 }
 
+// A slot saves the current layout and alt+N loads it back, so the presets
+// double as five saveable layouts.
+func TestSaveLayoutSlotAndLoad(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := newModel()
+	m.width, m.height = 140, 44
+
+	m.ws.ApplyPreset("Minimal")
+	if !m.ws.Hidden("network") {
+		t.Fatal("Minimal should hide network")
+	}
+	m.saveSlot(0)
+	if !m.slotSaved[0] {
+		t.Fatal("slot 1 should be marked saved")
+	}
+
+	m.ws.ApplyPreset("System")
+	if m.ws.Hidden("network") {
+		t.Fatal("System should show network")
+	}
+
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1"), Alt: true})
+	if !m.ws.Hidden("network") {
+		t.Fatal("alt+1 did not restore the saved slot")
+	}
+	if m.activeSlot != 1 {
+		t.Fatalf("activeSlot = %d, want 1", m.activeSlot)
+	}
+}
+
+// A slot with nothing saved falls back to the built-in preset at its index.
+func TestAltSlotFallsBackToPreset(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := newModel()
+	m.width, m.height = 140, 44
+
+	m.ws.ApplyPreset("Minimal")
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2"), Alt: true})
+	if got := m.ws.ActivePreset(); got != "System" {
+		t.Fatalf("alt+2 = %q, want the System preset", got)
+	}
+	if m.activeSlot != 0 {
+		t.Fatalf("activeSlot = %d, want 0 for a preset", m.activeSlot)
+	}
+}
+
+// A saved slot is written to the store, so a fresh model loads it.
+func TestSavedSlotSurvivesRestart(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := newModel()
+	m.width, m.height = 140, 44
+	m.ws.ApplyPreset("Minimal")
+	m.saveSlot(0)
+
+	m2 := newModel()
+	if !m2.slotSaved[0] {
+		t.Fatal("the saved slot was not reloaded from the store")
+	}
+	m2 = update(t, m2, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1"), Alt: true})
+	if !m2.ws.Hidden("network") {
+		t.Fatal("alt+1 on a fresh model did not load the saved slot")
+	}
+}
+
+// S opens the save chooser, the cursor picks a slot, and Enter overwrites it.
+func TestSaveLayoutChooserOverwritesTheChosenSlot(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := newModel()
+	m.width, m.height = 140, 44
+	m.ws.ApplyPreset("Minimal")
+
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("S")})
+	if !m.slotOpen {
+		t.Fatal("S did not open the save chooser")
+	}
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")}) // second slot
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.slotOpen {
+		t.Fatal("enter did not close the chooser")
+	}
+	if !m.slotSaved[1] {
+		t.Fatal("slot 2 was not saved")
+	}
+	if m.slotSaved[0] {
+		t.Fatal("slot 1 should still be empty")
+	}
+}
+
 // Escape ends the session, so the shortcuts work again.
 func TestEscapeEndsEditSession(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())

@@ -106,7 +106,22 @@ type model struct {
 	// would swallow the single-key shortcuts the moment it is focused.
 	editing    bool
 	editTarget string
+
+	// The five layout slots. Each starts as the built-in preset at the same
+	// index and alt+1..5 loads the slot, saved or not. Saving overwrites a
+	// slot with the current layout; saved slots live under their own store key
+	// so they survive a restart. activeSlot is the slot last loaded (0 when a
+	// named preset is active) and drives the status strip.
+	store      tideui.LayoutStore
+	slots      [slotCount][]byte
+	slotSaved  [slotCount]bool
+	slotOpen   bool
+	slotCursor int
+	activeSlot int
 }
+
+// slotCount is how many saveable layout slots the alt+1..5 keys address.
+const slotCount = 5
 
 type tickMsg time.Time
 
@@ -182,7 +197,9 @@ func newModel() model {
 		picker:   tideui.NewThemePicker(tideui.ThemePickerOptions{InitialTheme: state.theme.Name}),
 		cfg:      cfg,
 		settings: settings,
+		store:    store,
 	}
+	m.loadSlots()
 	// Apply the saved configuration the same way a save does. Doing it here
 	// rather than repeating a shorter version of it is what makes a
 	// configured panel actually configured on the first frame: until this
@@ -328,6 +345,138 @@ func registerPresets(ws *tideui.Workspace) {
 	ws.AddPreset("Minimal", tideui.HStack(
 		tideui.Leaf("clock"), tideui.Weighted(tideui.Leaf("agenda"), 2), tideui.Leaf("weather"),
 	), "system", "gpu", "network", "storage", "services", "news", "tasks", "notes", "git", "markets", "updates")
+}
+
+// --- Layout slots ---------------------------------------------------------
+//
+// The five presets double as saveable slots: alt+1..5 loads a slot, which
+// holds its built-in preset until the user overwrites it. A saved slot is a
+// full layout (panels, weights and what is hidden) stored under its own key,
+// so overwriting one never disturbs the others or the last-used layout.
+
+// slotKey is the store key a slot saves under.
+func slotKey(index int) string { return fmt.Sprintf("tidedeck-demo.slot%d", index+1) }
+
+// slotLabel names a slot: the built-in preset it holds until overwritten.
+func (m model) slotLabel(index int) string {
+	if names := m.ws.PresetNames(); index >= 0 && index < len(names) {
+		return names[index]
+	}
+	return fmt.Sprintf("slot %d", index+1)
+}
+
+// loadSlots reads saved slots so alt+1..5 works on the first frame.
+func (m *model) loadSlots() {
+	if m.store == nil {
+		return
+	}
+	for i := 0; i < slotCount; i++ {
+		data, err := m.store.Load(slotKey(i))
+		if err != nil || len(data) == 0 {
+			continue
+		}
+		m.slots[i] = data
+		m.slotSaved[i] = true
+	}
+}
+
+// applySlot loads a slot's layout, falling back to the built-in preset when
+// the slot has never been saved.
+func (m *model) applySlot(index int) {
+	if index < 0 || index >= slotCount {
+		return
+	}
+	if data := m.slots[index]; len(data) > 0 {
+		if err := m.ws.RestoreJSON(data); err != nil {
+			m.state.status = fmt.Sprintf("slot %d failed: %v", index+1, err)
+			return
+		}
+		m.activeSlot = index + 1
+		m.state.status = fmt.Sprintf("slot %d: %s", index+1, m.slotLabel(index))
+		return
+	}
+	names := m.ws.PresetNames()
+	if index < len(names) {
+		m.ws.ApplyPreset(names[index])
+		m.activeSlot = 0
+		m.state.status = "preset: " + names[index]
+	}
+}
+
+// saveSlot overwrites a slot with the current layout and writes it to the
+// store so it survives a restart.
+func (m *model) saveSlot(index int) {
+	if index < 0 || index >= slotCount || m.store == nil {
+		return
+	}
+	data, err := m.ws.PersistedJSON()
+	if err != nil {
+		m.state.status = "save failed: " + err.Error()
+		return
+	}
+	if err := m.store.Save(slotKey(index), data); err != nil {
+		m.state.status = "save failed: " + err.Error()
+		return
+	}
+	m.slots[index] = data
+	m.slotSaved[index] = true
+	m.activeSlot = index + 1
+	m.slotOpen = false
+	m.state.status = fmt.Sprintf("saved layout to slot %d: %s", index+1, m.slotLabel(index))
+}
+
+// handleSlotChooser drives the save-layout modal.
+func (m *model) handleSlotChooser(msg tea.KeyMsg) {
+	switch msg.String() {
+	case "esc", "q", "ctrl+c":
+		m.slotOpen = false
+	case "j", "down":
+		m.slotCursor = min(m.slotCursor+1, slotCount-1)
+	case "k", "up":
+		m.slotCursor = max(m.slotCursor-1, 0)
+	case "1", "2", "3", "4", "5":
+		m.slotCursor = int(msg.String()[0] - '1')
+	case "enter":
+		m.saveSlot(m.slotCursor)
+	}
+}
+
+// activeLayoutLabel is the layout name in the status strip: the loaded slot
+// while one is active, otherwise the named preset.
+func (m model) activeLayoutLabel() string {
+	if m.activeSlot > 0 {
+		return fmt.Sprintf("slot %d: %s", m.activeSlot, m.slotLabel(m.activeSlot-1))
+	}
+	return m.ws.ActivePreset()
+}
+
+// renderSlotChooser draws the save-layout modal.
+func (m model) renderSlotChooser(r tideui.Renderer, width int) tideui.Overlay {
+	panelWidth := min(48, max(30, width-8))
+	innerWidth := max(1, panelWidth-4)
+	rows := []string{r.Styles.OverlayHint.Width(innerWidth).Render("save the current layout to…")}
+	for i := 0; i < slotCount; i++ {
+		suffix := "preset"
+		if m.slotSaved[i] {
+			suffix = "saved"
+		}
+		rows = append(rows, r.RenderSoftRow(tideui.SoftRow{
+			Prefix:   fmt.Sprintf("%d ", i+1),
+			Text:     m.slotLabel(i),
+			Suffix:   suffix,
+			Selected: i == m.slotCursor,
+		}, innerWidth))
+	}
+	rows = append(rows, "", r.RenderSoftHints(innerWidth,
+		tideui.SoftHint{Key: "enter", Label: "save"},
+		tideui.SoftHint{Key: "esc", Label: "cancel"},
+	))
+	return r.SoftPanelOverlay(tideui.SoftPanel{
+		Prefix:  "tide",
+		Title:   "save layout",
+		Content: r.RenderSoftBody(panelWidth, strings.Join(rows, "\n")),
+		Width:   panelWidth,
+	})
 }
 
 func (m model) Init() tea.Cmd { return tickCmd(time.Second) }
@@ -524,7 +673,7 @@ func (m model) focusedInput() (dash.Input, bool) {
 // workspace bind. A focused input panel must not shadow them: if it did, a
 // text filter would eat "m arrange" and "s settings", and once it matched
 // nothing the panel would just look empty.
-const reservedShortcuts = "mwqtscdT"
+const reservedShortcuts = "mwqtscdTS"
 
 // handlePanelInput routes a key to a focused panel that accepts typing. While
 // the panel is only focused it does not get the reserved shortcuts, so "m
@@ -608,6 +757,10 @@ func (m model) refreshBadges() {
 }
 
 func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.slotOpen {
+		m.handleSlotChooser(msg)
+		return m, nil
+	}
 	if m.settings.Opened() {
 		action := m.settings.Update(msg)
 		// Preview the chosen gauge styles live, so every style is visible as it
@@ -679,6 +832,14 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "T":
 			m.openPanelThemePicker()
 			return m, nil
+		case "S":
+			m.slotOpen = true
+			m.slotCursor = 0
+			if m.activeSlot > 0 {
+				m.slotCursor = m.activeSlot - 1
+			}
+			m.state.status = "save layout"
+			return m, nil
 		case "ctrl+t":
 			if panel, ok := m.ws.Lookup(m.ws.Focused()); ok {
 				panel.ClearTheme()
@@ -707,13 +868,9 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "alt+1", "alt+2", "alt+3", "alt+4", "alt+5":
 			// A modifier keeps the digit keys free: a bare number used to
 			// switch preset and reset the layout, which is easy to hit by
-			// accident.
-			names := m.ws.PresetNames()
+			// accident. Each digit loads a layout slot (overwrite it with S).
 			index := int(msg.String()[len(msg.String())-1] - '1')
-			if index >= 0 && index < len(names) {
-				m.ws.ApplyPreset(names[index])
-				m.state.status = "preset: " + names[index]
-			}
+			m.applySlot(index)
 			return m, nil
 		}
 	}
@@ -810,8 +967,8 @@ func (m model) View() string {
 	wr := tideui.NewWorkspaceRenderer(renderer)
 
 	primary := "tideDeck  ·  " + m.state.theme.Name + "  ·  " + string(m.state.density)
-	if preset := m.ws.ActivePreset(); preset != "" {
-		primary += "  ·  " + preset
+	if label := m.activeLayoutLabel(); label != "" {
+		primary += "  ·  " + label
 	}
 	dataLabel := "demo data"
 	if m.deck.Mode() == dash.ModeLive {
@@ -841,6 +998,11 @@ func (m model) View() string {
 			out = renderer.OverlayModal(base, overlay.Content, m.width, m.height)
 		}
 	}
+	if out == "" && m.slotOpen {
+		if overlay := m.renderSlotChooser(renderer, m.width); overlay.Visible {
+			out = renderer.OverlayModal(base, overlay.Content, m.width, m.height)
+		}
+	}
 	if out == "" && m.picker.Opened() {
 		overlay := m.picker.SoftModal(renderer, min(48, m.width-4), m.height, "tidedeck")
 		out = renderer.OverlayModal(base, overlay.Content, m.width, m.height)
@@ -862,13 +1024,16 @@ func (m model) View() string {
 // statusHints advertises the input affordance while a panel that accepts
 // typing is focused, so "/" is discoverable rather than folklore.
 func (m model) statusHints() []tideui.KeyHint {
+	if m.slotOpen {
+		return []tideui.KeyHint{tideui.Hint("enter", "save"), tideui.Hint("esc", "cancel")}
+	}
 	if m.editing {
 		return []tideui.KeyHint{tideui.Hint("esc", "stop typing")}
 	}
 	if _, ok := m.focusedInput(); ok {
 		return []tideui.KeyHint{tideui.Hint("/", "type"), tideui.Hint("s", "settings")}
 	}
-	return []tideui.KeyHint{tideui.Hint("s", "settings")}
+	return []tideui.KeyHint{tideui.Hint("s", "settings"), tideui.Hint("S", "save layout")}
 }
 
 func main() {
