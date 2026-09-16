@@ -124,33 +124,27 @@ func (s *liveSource) Clock(now time.Time) tideui.ClockData {
 
 func (s *liveSource) Agenda(now time.Time, dayOffset int) []tideui.AgendaItem {
 	items := s.snapshotCopy().Agenda
-	target := now.AddDate(0, 0, dayOffset)
-	var day []tideui.AgendaItem
+	from := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, dayOffset)
+	var upcoming []tideui.AgendaItem
 	for _, item := range items {
-		if agendaOnDay(item, target) {
-			day = append(day, item)
+		if agendaEndTime(item).After(from) {
+			upcoming = append(upcoming, item)
 		}
 	}
-	return day
+	return upcoming
 }
 
-// agendaOnDay reports whether an event occupies the given day. Timed events land
-// on the day they start; all-day and multi-day events count on every day they
-// cover.
-func agendaOnDay(item tideui.AgendaItem, day time.Time) bool {
-	start, end := item.Start, item.End
-	if end.IsZero() {
-		end = start
-		if item.AllDay {
-			end = start.AddDate(0, 0, 1)
-		}
+// agendaEndTime is when an event stops occupying the calendar: its End, its
+// start for a timed event without one, or the next midnight for an all-day
+// event, whose exclusive End may be absent.
+func agendaEndTime(item tideui.AgendaItem) time.Time {
+	if !item.End.IsZero() {
+		return item.End
 	}
-	if !end.After(start) {
-		return sameDay(start, day)
+	if item.AllDay {
+		return item.Start.AddDate(0, 0, 1)
 	}
-	dayStart := time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, day.Location())
-	dayEnd := dayStart.AddDate(0, 0, 1)
-	return start.Before(dayEnd) && end.After(dayStart)
+	return item.Start
 }
 
 func (s *liveSource) System(time.Time) tideui.SystemMetrics {

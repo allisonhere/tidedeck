@@ -201,7 +201,7 @@ func TestRenderCalendarMonthAndAgenda(t *testing.T) {
 		{Title: "Team offsite", Start: day, AllDay: true},
 		{Title: "Standup", Start: day.Add(8 * time.Hour)},
 	}
-	wide := ansi.Strip(r2().RenderCalendar(day, items, now, 64))
+	wide := ansi.Strip(r2().RenderCalendar(day, map[int]bool{16: true}, items, now, 64))
 	if !strings.Contains(wide, "September 2026") {
 		t.Fatalf("calendar missing the month grid:\n%s", wide)
 	}
@@ -212,7 +212,7 @@ func TestRenderCalendarMonthAndAgenda(t *testing.T) {
 		t.Fatalf("month is not laid out before the agenda:\n%s", wide)
 	}
 	// Too narrow for two columns, the grid gives way to the agenda alone.
-	narrow := ansi.Strip(r2().RenderCalendar(day, items, now, 30))
+	narrow := ansi.Strip(r2().RenderCalendar(day, nil, items, now, 30))
 	if strings.Contains(narrow, "September") {
 		t.Fatalf("narrow calendar should drop the grid:\n%s", narrow)
 	}

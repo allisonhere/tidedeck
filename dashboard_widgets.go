@@ -241,14 +241,14 @@ func (r Renderer) RenderNotice(text string, width int) string {
 // RenderCalendar lays a month grid beside the day's agenda, highlighting the
 // selected day. The grid covers the day's own month, so stepping the day across
 // a month boundary turns the calendar page.
-func (r Renderer) RenderCalendar(day time.Time, items []AgendaItem, now time.Time, width int) string {
-	return r.renderCalendar(day, items, now, width, false)
+func (r Renderer) RenderCalendar(day time.Time, marked map[int]bool, items []AgendaItem, now time.Time, width int) string {
+	return r.renderCalendar(day, marked, items, now, width, false)
 }
 
 // RenderCalendarDetail is RenderCalendar with the agenda's locations and
 // categories shown.
-func (r Renderer) RenderCalendarDetail(day time.Time, items []AgendaItem, now time.Time, width int) string {
-	return r.renderCalendar(day, items, now, width, true)
+func (r Renderer) RenderCalendarDetail(day time.Time, marked map[int]bool, items []AgendaItem, now time.Time, width int) string {
+	return r.renderCalendar(day, marked, items, now, width, true)
 }
 
 const (
@@ -256,7 +256,7 @@ const (
 	calendarGap       = 2
 )
 
-func (r Renderer) renderCalendar(day time.Time, items []AgendaItem, now time.Time, width int, detail bool) string {
+func (r Renderer) renderCalendar(day time.Time, marked map[int]bool, items []AgendaItem, now time.Time, width int, detail bool) string {
 	// The grid needs its full width, and the agenda needs enough room to be
 	// worth showing; below that the calendar collapses to the agenda alone.
 	agendaWidth := width - calendarGridWidth - calendarGap
@@ -265,7 +265,7 @@ func (r Renderer) renderCalendar(day time.Time, items []AgendaItem, now time.Tim
 	}
 	bg := r.Styles.Workspace.Bg
 	grid := strings.Split(r.RenderMiniCalendar(MiniCalendar{
-		Year: day.Year(), Month: day.Month(), Highlight: day.Day(), Width: calendarGridWidth,
+		Year: day.Year(), Month: day.Month(), Highlight: day.Day(), Width: calendarGridWidth, Marked: marked,
 	}, bg), "\n")
 	agenda := strings.Split(r.renderAgenda(items, now, agendaWidth, detail), "\n")
 	height := max(len(grid), len(agenda))

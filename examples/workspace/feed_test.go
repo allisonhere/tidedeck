@@ -37,28 +37,17 @@ func TestFeedIsDeterministic(t *testing.T) {
 	}
 }
 
-func TestAgendaOnDay(t *testing.T) {
+func TestAgendaEndTime(t *testing.T) {
 	day := time.Date(2026, 9, 14, 0, 0, 0, 0, time.UTC)
-	timed := tideui.AgendaItem{Title: "standup", Start: day.Add(8 * time.Hour)}
-	if !agendaOnDay(timed, day) {
-		t.Fatal("timed event not on its own day")
+	if got := agendaEndTime(tideui.AgendaItem{Start: day.Add(8 * time.Hour)}); !got.Equal(day.Add(8 * time.Hour)) {
+		t.Fatalf("timed end = %v, want its start", got)
 	}
-	if agendaOnDay(timed, day.AddDate(0, 0, 1)) {
-		t.Fatal("timed event on the following day")
+	if got := agendaEndTime(tideui.AgendaItem{Start: day, End: day.Add(2 * time.Hour)}); !got.Equal(day.Add(2 * time.Hour)) {
+		t.Fatalf("end = %v, want the event end", got)
 	}
-	allDay := tideui.AgendaItem{Title: "holiday", Start: day, End: day.AddDate(0, 0, 1), AllDay: true}
-	if !agendaOnDay(allDay, day) {
-		t.Fatal("all-day event not on its own day")
-	}
-	if agendaOnDay(allDay, day.AddDate(0, 0, 1)) {
-		t.Fatal("all-day event leaked onto the next day")
-	}
-	if open := (tideui.AgendaItem{Title: "offsite", Start: day, AllDay: true}); !agendaOnDay(open, day) {
-		t.Fatal("all-day event without an end not on its day")
-	}
-	multi := tideui.AgendaItem{Title: "conference", Start: day.Add(10 * time.Hour), End: day.AddDate(0, 0, 2).Add(10 * time.Hour)}
-	if !agendaOnDay(multi, day.AddDate(0, 0, 1)) {
-		t.Fatal("multi-day event not on its middle day")
+	// An all-day event without an end runs to the next midnight.
+	if got := agendaEndTime(tideui.AgendaItem{Start: day, AllDay: true}); !got.Equal(day.AddDate(0, 0, 1)) {
+		t.Fatalf("all-day end = %v, want next midnight", got)
 	}
 }
 
@@ -79,32 +68,28 @@ func TestFeedUpdatesOverTime(t *testing.T) {
 	}
 }
 
-func TestAgendaOffsetSelectsDay(t *testing.T) {
+func TestAgendaOffsetStartsAtDay(t *testing.T) {
 	started := time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)
 	f := newDemoFeed(1, started)
-	today := f.Agenda(started, 0)
-	tomorrow := f.Agenda(started, 1)
-	if len(today) == 0 || len(tomorrow) == 0 {
-		t.Fatalf("empty day: today=%d tomorrow=%d", len(today), len(tomorrow))
+	all := f.Agenda(started, 0)
+	if len(all) == 0 {
+		t.Fatal("no events from today")
 	}
-	for _, item := range today {
-		if !sameDay(item.Start, started) {
-			t.Fatalf("today event on the wrong day: %+v", item)
-		}
+	target := time.Date(2026, 9, 15, 0, 0, 0, 0, time.UTC)
+	fromTomorrow := f.Agenda(started, 1)
+	if len(fromTomorrow) == 0 || len(fromTomorrow) >= len(all) {
+		t.Fatalf("tomorrow = %d events, all = %d", len(fromTomorrow), len(all))
 	}
-	for _, item := range tomorrow {
-		if item.AllDay && item.Start.Hour() != 0 {
-			t.Fatalf("all-day event not at midnight: %+v", item)
-		}
-		if !sameDay(item.Start, started.AddDate(0, 0, 1)) {
-			t.Fatalf("tomorrow event on the wrong day: %+v", item)
+	for _, item := range fromTomorrow {
+		if item.Start.Before(target) {
+			t.Fatalf("event before the start day: %+v", item)
 		}
 	}
 	if got := f.Agenda(started, 9); len(got) != 0 {
 		t.Fatalf("far day = %d events, want 0", len(got))
 	}
-	// Selecting a day must not mutate the underlying schedule.
-	if !sameDay(f.Agenda(started, 0)[0].Start, started) {
+	// Moving the start day must not mutate the underlying schedule.
+	if !f.Agenda(started, 0)[0].Start.Equal(all[0].Start) {
 		t.Fatal("agenda offset mutated the base data")
 	}
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"math"
 	"strings"
+	"time"
 
 	"github.com/allisonhere/tideui"
 )
@@ -101,11 +102,24 @@ func agendaPanel(state *demoState) tideui.PanelView {
 			}
 		}
 		day := state.now.AddDate(0, 0, state.agendaOffset)
+		marked := markedDays(state.source.Agenda(state.now, 0), day)
 		if ctx.Zoomed {
-			return r.RenderCalendarDetail(day, items, state.now, ctx.Width)
+			return r.RenderCalendarDetail(day, marked, items, state.now, ctx.Width)
 		}
-		return r.RenderCalendar(day, items, state.now, ctx.Width)
+		return r.RenderCalendar(day, marked, items, state.now, ctx.Width)
 	}
+}
+
+// markedDays collects the days of the displayed month that have an event, so
+// the month grid shows where the quiet days aren't.
+func markedDays(items []tideui.AgendaItem, day time.Time) map[int]bool {
+	marked := map[int]bool{}
+	for _, item := range items {
+		if item.Start.Year() == day.Year() && item.Start.Month() == day.Month() {
+			marked[item.Start.Day()] = true
+		}
+	}
+	return marked
 }
 
 func clockPanel(state *demoState) tideui.PanelView {

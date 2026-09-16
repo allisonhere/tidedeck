@@ -92,22 +92,16 @@ func (f *demoFeed) Agenda(now time.Time, dayOffset int) []tideui.AgendaItem {
 		{Title: "Gym", Start: at(1, 18, 30), Category: "Health", Tone: tideui.ToneGood},
 		{Title: "Ship TideDeck", Start: at(2, 10, 0), Category: "Work", Tone: tideui.ToneWarning},
 	}
-	// Like a live calendar, the offset selects a day rather than shifting the
-	// whole schedule, so "next" always means tomorrow.
+	// Like a live calendar, the offset moves the starting day rather than
+	// shifting the schedule, so "next" drops a day off the front.
 	target := base.AddDate(0, 0, dayOffset)
-	day := make([]tideui.AgendaItem, 0, len(all))
+	upcoming := make([]tideui.AgendaItem, 0, len(all))
 	for _, item := range all {
-		if sameDay(item.Start, target) {
-			day = append(day, item)
+		if !item.Start.Before(target) {
+			upcoming = append(upcoming, item)
 		}
 	}
-	return day
-}
-
-func sameDay(a, b time.Time) bool {
-	ay, am, ad := a.Date()
-	by, bm, bd := b.Date()
-	return ay == by && am == bm && ad == bd
+	return upcoming
 }
 
 func (f *demoFeed) Clock(now time.Time) tideui.ClockData {

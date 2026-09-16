@@ -228,6 +228,9 @@ type MiniCalendar struct {
 	Month     time.Month
 	Highlight int
 	Width     int
+	// Marked highlights days that have events, so a sparse calendar still
+	// shows where to look.
+	Marked map[int]bool
 }
 
 // RenderMiniCalendar renders a Monday-first month grid, highlighting a day.
@@ -261,10 +264,14 @@ func (r Renderer) RenderMiniCalendar(c MiniCalendar, bg lipgloss.Color) string {
 			}
 			empty = false
 			text := fmt.Sprintf("%2d", day)
-			if day == c.Highlight {
+			switch {
+			case day == c.Highlight:
 				cells[slot] = lipgloss.NewStyle().Background(ws.SelectionBg).
 					Foreground(ws.SelectionFg).Bold(true).Render(text)
-			} else {
+			case c.Marked[day]:
+				cells[slot] = lipgloss.NewStyle().Background(bg).
+					Foreground(ws.FrameActive).Bold(true).Render(text)
+			default:
 				cells[slot] = lipgloss.NewStyle().Background(bg).Foreground(ws.BodyMutedFg).Render(text)
 			}
 		}
