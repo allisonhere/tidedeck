@@ -546,7 +546,9 @@ contrasting theme.
 | `tab` / `shift+tab` | focus next / previous panel |
 | `m` | toggle arrange mode (`h/j/k/l` move the focused panel live, `t` stack, `esc` done) |
 | `shift+arrows` | resize the focused pane (grows toward a neighbour, shrinks at an edge; `ctrl+arrows` alias) |
-| `shift+space` | zoom / restore the focused panel |
+| `space` | enter the focused pane: its own keys work (a list's cursor, a form's fields) |
+| `enter` | zoom / restore the focused panel; inside an entered pane, that pane's primary action (open the picked message, copy the selected story) |
+| `shift+space` | zoom / restore the focused panel — the same thing, and the shortcut it always was |
 | `w` | panel picker |
 | `s` | settings panel (edit all provider config) |
 | `ctrl+p` | command palette |
@@ -717,10 +719,15 @@ ASCII fallback), a semantic tone, and a word.
 
 Every panel supports the same interaction: `Enter` zooms the focused panel and
 the widget switches to its detail rendering; `Esc` returns. Detail is a plain
-zoom, so the saved layout is never altered. A panel with a primary action takes
-`Enter` instead: the news list keeps a cursor (`↑`/`↓` or `j`/`k`), and `Enter`
-— or a click on a story — copies its link and marks it read. `Shift+Space`
-still zooms it.
+zoom, so the saved layout is never altered. `Shift+Space` is the same gesture and
+still the shortcut it always was.
+
+Panels with something to walk take `Space` first: it gives the focused pane the
+keyboard, so a list's cursor moves with `↑`/`↓` (or `j`/`k`) while the rest of the
+dashboard stays on screen. Inside that pane `Enter` is the pane's own primary
+action — the news list copies the selected story and marks it read, the mail panel
+opens the picked message in TideMail — and `Esc` hands the keys back. So `Enter`
+means zoom at pane level and "act on this" inside a pane, and never both at once.
 
 ### Presets and the demo
 
@@ -1209,6 +1216,22 @@ code of its own:
 "panel": { "copy": "Balance" }
 ```
 
+A plugin can also **open** what the reader picked. Attach an `id` to a row and
+declare the command that opens it, with `{id}` where that row's id belongs:
+
+```json
+"panel": { "open": ["tidemail", "--open", "{id}"] }
+```
+
+`Space` enters the panel, the arrows (or `j`/`k`) move a cursor over the rows that
+carry an id, and `Enter` inside the panel hands the terminal to that command — the
+dashboard suspends itself, so the tool is the one thing on screen, and re-runs the
+panel when it exits. Rows without an id are not destinations, so a setup hint is
+never landed on, and a manifest whose open command names no `{id}` is refused
+rather than run against the wrong row. The id is the plugin's own opaque value:
+nothing in the dashboard parses it, so a plugin may name a message, a container or
+a file with it.
+
 `detail` is what a zoomed panel shows; absent means reuse `rows`. Colour comes
 from `tone` (`good`, `warning`, `danger`, `muted`, `accent`) or from `severity`
 (`low`, `mid`, `high`), which is accepted because other tools in this space
@@ -1238,7 +1261,9 @@ message renders as a `block`: the sender and age on one line, the subject
 indented beneath, so a long subject wraps into the panel instead of being cut
 at a label column. Unread mail carries the panel and read mail is muted;
 starred wins over unread, because saving something says more than not having
-opened it.
+opened it. Every message row also carries the message's own row in the cache, so
+`Space` then `Enter` opens the message the cursor is on in TideMail - the example
+of a plugin that opens what it previews.
 
 It is also the example of a plugin that sets itself up. Every setting has a
 working default, so one account with one inbox needs no configuration at all:

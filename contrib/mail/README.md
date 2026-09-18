@@ -67,6 +67,26 @@ offering every folder of every account at once is what made it a haystack.
 If the panel has never run, those rows are text boxes for a moment and become
 lists as soon as it has. That is the only time you should see a box there.
 
+## Opening a message
+
+`Space` gives the panel the keyboard, `↑`/`↓` (or `j`/`k`) walk the messages, and
+`Enter` opens the one under the cursor in TideMail. (The first `Enter` on a panel
+zooms it, the way `Enter` behaves everywhere in the dashboard; `Space` is what
+puts the cursor in the list. `Esc` hands the keys back.)
+
+What gets handed over is the message's row in TideMail's own cache — the same
+`messages.id` this plugin reads to draw the row. It is the one identifier both
+sides already know, so nothing has to be asked of a program that is not running.
+
+TideMail needs `--open <id>` for that. A version without it ignores the argument
+and starts normally, so the panel is useful either way and simply starts landing
+on the message once TideMail learns the flag.
+
+If TideMail is already running, this launches a second one: there is no
+hand-off between instances. And the id is only meaningful against the database
+this panel is reading, so a `mail.db path` pointing somewhere else names a
+different message.
+
 ## Installing
 
 ```bash
