@@ -181,6 +181,40 @@ func TestBasemapDrawsNothingWhereTheImageryIsEmpty(t *testing.T) {
 	}
 }
 
+// A dark tile is imagery, not an absence: the night-lights layer is full of tiles that
+// are one flat black value over countryside, and calling those empty leaves half a map
+// transparent. This is the regression test for exactly that.
+func TestBasemapDrawsADarkTileRatherThanCallingItEmpty(t *testing.T) {
+	dark := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		img := image.NewRGBA(image.Rect(0, 0, basemapTilePixels, basemapTilePixels))
+		for y := 0; y < basemapTilePixels; y++ {
+			for x := 0; x < basemapTilePixels; x++ {
+				img.Set(x, y, color.RGBA{A: 255}) // one flat black value
+			}
+		}
+		png.Encode(w, img) //nolint:errcheck
+	}))
+	t.Cleanup(dark.Close)
+	restore := basemapHost
+	basemapHost = dark.URL
+	t.Cleanup(func() { basemapHost = restore })
+
+	frame, err := Basemap(BasemapOptions{
+		Latitude: 36.66, Longitude: -84.4, Zoom: 7, Width: 256, Height: 128,
+		Layer: "night lights",
+	})(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for y := 0; y < frame.Image.Bounds().Dy(); y++ {
+		for x := 0; x < frame.Image.Bounds().Dx(); x++ {
+			if _, _, _, alpha := frame.Image.At(x, y).RGBA(); alpha == 0 {
+				t.Fatalf("a dark tile was treated as empty at %d,%d", x, y)
+			}
+		}
+	}
+}
+
 // A layer name the provider does not know is an error, not a silent fallback: a typo in
 // a setting should be visible.
 func TestBasemapRefusesALayerItDoesNotKnow(t *testing.T) {

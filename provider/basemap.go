@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"image"
+	"image/color"
 	"image/draw"
 	"math"
 	"strings"
@@ -157,20 +158,36 @@ func basemapTileURL(layer string, x, y int) string {
 		basemapHost, layer, basemapZoom, basemapZoom, y, x)
 }
 
-// tileHasNothingInIt reports a tile of a single flat colour, which is how the
-// service answers for ground it has no imagery for - verified by asking for a tile
-// outside the data and getting a 200 with one value. Sampled rather than
+// basemapNoData is the flat colour the service answers for ground it has no imagery
+// for: 42 in every channel, verified by asking for a tile outside the data and getting
+// a 200 with that one value.
+var basemapNoData = color.RGBA{R: 42, G: 42, B: 42, A: 255}
+
+// tileHasNothingInIt reports a tile the service answered with its no-data colour, or
+// with nothing at all.
+//
+// It is deliberately not "a tile of one flat colour": the night-lights layer is a
+// photograph of the dark half of the planet, and a tile of a rural county is *exactly*
+// one flat black value. Treating flat as nothing threw away most of a map of Kentucky
+// and left the half of the pane that is countryside transparent. Sampled rather than
 // exhaustive: a tile is 65k pixels and this only decides whether to draw it.
 func tileHasNothingInIt(img image.Image) bool {
 	bounds := img.Bounds()
 	if bounds.Empty() {
 		return true
 	}
-	firstRed, firstGreen, firstBlue, _ := img.At(bounds.Min.X, bounds.Min.Y).RGBA()
+	const tolerance = 2
 	for y := bounds.Min.Y; y < bounds.Max.Y; y += 8 {
 		for x := bounds.Min.X; x < bounds.Max.X; x += 8 {
-			red, green, blue, _ := img.At(x, y).RGBA()
-			if red != firstRed || green != firstGreen || blue != firstBlue {
+			red, green, blue, alpha := img.At(x, y).RGBA()
+			if alpha == 0 {
+				continue
+			}
+			near := func(channel uint32, want uint8) bool {
+				value := int(channel >> 8)
+				return value >= int(want)-tolerance && value <= int(want)+tolerance
+			}
+			if !near(red, basemapNoData.R) || !near(green, basemapNoData.G) || !near(blue, basemapNoData.B) {
 				return false
 			}
 		}
