@@ -27,6 +27,18 @@ func trueColor(t *testing.T) {
 	t.Cleanup(func() { lipgloss.SetColorProfile(previous) })
 }
 
+// noPlaceholderCellsForTests points the image transport at a terminal without the
+// protocol, so an assertion about what the panel draws does not depend on the
+// terminal the suite happens to run in: TERM_PROGRAM is set by the developer's own
+// and would otherwise switch the panel to placeholder cells.
+func noPlaceholderCellsForTests(t *testing.T) {
+	t.Helper()
+	t.Setenv("TERM", "xterm-256color")
+	t.Setenv("TERM_PROGRAM", "")
+	t.Setenv("KITTY_WINDOW_ID", "")
+	t.Setenv("TMUX", "")
+}
+
 // radarValues builds the settings a radar panel reads: its own two, plus the
 // coordinates and place name the weather panel owns. The values API is
 // dash.NewValues() plus Set (see dash/values.go:22 and :210), and the keys are
@@ -58,12 +70,7 @@ func TestRadarSaysWhereToSetALocation(t *testing.T) {
 // With coordinates it draws the frame it fetched, and says when that frame was -
 // a radar picture with no time on it is a picture of a rumour.
 func TestRadarDrawsTheFrameAndItsTime(t *testing.T) {
-	// Half-block cells, not placeholder cells: TERM_PROGRAM is set by whatever
-	// terminal the suite is run in, and this asserts what the panel draws.
-	t.Setenv("TERM", "xterm-256color")
-	t.Setenv("TERM_PROGRAM", "")
-	t.Setenv("KITTY_WINDOW_ID", "")
-	t.Setenv("TMUX", "")
+	noPlaceholderCellsForTests(t)
 	trueColor(t)
 	when := time.Date(2026, 9, 18, 18, 5, 0, 0, time.Local)
 	panel := &radar{newFetcher: func(provider.RadarOptions) func(context.Context) (tideui.RadarFrame, error) {
@@ -104,5 +111,81 @@ func TestRadarIsLiveEvenInDemoMode(t *testing.T) {
 	}
 	if !live.AlwaysLive() {
 		t.Fatal("the radar panel would go blank in demo mode")
+	}
+}
+
+// frameFetcher stands in for the provider: a fetch that returns one frame, so a
+// test can say exactly what the panel has to draw.
+func frameFetcher(frame tideui.RadarFrame) func(provider.RadarOptions) func(context.Context) (tideui.RadarFrame, error) {
+	return func(provider.RadarOptions) func(context.Context) (tideui.RadarFrame, error) {
+		return func(context.Context) (tideui.RadarFrame, error) { return frame, nil }
+	}
+}
+
+// An empty sky and a broken panel draw the same rectangle, so a frame with
+// nothing in it says so rather than leaving the reader to guess. This is what the
+// panel looked like over Austin: the caption, and then nothing.
+func TestRadarSaysWhenTheSkyIsEmpty(t *testing.T) {
+	noPlaceholderCellsForTests(t)
+	trueColor(t)
+	panel := &radar{newFetcher: frameFetcher(tideui.RadarFrame{
+		Time:  time.Date(2026, 9, 18, 18, 5, 0, 0, time.Local),
+		Image: image.NewRGBA(image.Rect(0, 0, 8, 8)),
+	})}
+	if err := panel.Configure(radarValues(t, 30.2672, -97.7431)); err != nil {
+		t.Fatal(err)
+	}
+	if err := panel.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	view := ansi.Strip(panel.View(tideui.PanelContext{Width: 40, Height: 12,
+		Renderer: tideui.NewRenderer(tideui.CatppuccinMocha, tideui.StyleOptions{})}))
+	if !strings.Contains(view, "no precipitation in range") {
+		t.Fatalf("an empty frame did not say so:\n%q", view)
+	}
+}
+
+// And the sentence is not noise when there is weather: a frame with anything in
+// it is left to speak for itself.
+func TestRadarDoesNotSayEmptyWhenThereIsWeather(t *testing.T) {
+	noPlaceholderCellsForTests(t)
+	trueColor(t)
+	img := image.NewRGBA(image.Rect(0, 0, 8, 8))
+	for y := 0; y < 8; y++ {
+		img.Set(4, y, color.RGBA{G: 255, A: 255})
+	}
+	panel := &radar{newFetcher: frameFetcher(tideui.RadarFrame{
+		Time: time.Date(2026, 9, 18, 18, 5, 0, 0, time.Local), Image: img,
+	})}
+	if err := panel.Configure(radarValues(t, 30.2672, -97.7431)); err != nil {
+		t.Fatal(err)
+	}
+	if err := panel.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	view := ansi.Strip(panel.View(tideui.PanelContext{Width: 40, Height: 12,
+		Renderer: tideui.NewRenderer(tideui.CatppuccinMocha, tideui.StyleOptions{})}))
+	if strings.Contains(view, "no precipitation") {
+		t.Fatalf("a frame with weather claimed to be empty:\n%q", view)
+	}
+}
+
+// The measurement behind that sentence, on a frame whose transparent and opaque
+// pixels are known.
+func TestRadarEchoIsTheFractionOfTheFrameWithWeather(t *testing.T) {
+	half := image.NewRGBA(image.Rect(0, 0, 8, 8))
+	for y := 0; y < 8; y++ {
+		for x := 0; x < 4; x++ {
+			half.Set(x, y, color.RGBA{R: 255, A: 255})
+		}
+	}
+	if got := radarEcho(half); got != 0.5 {
+		t.Fatalf("radarEcho = %v, want 0.5", got)
+	}
+	if got := radarEcho(image.NewRGBA(image.Rect(0, 0, 8, 8))); got != 0 {
+		t.Fatalf("radarEcho of an empty frame = %v, want 0", got)
+	}
+	if got := radarEcho(nil); got != 0 {
+		t.Fatalf("radarEcho(nil) = %v, want 0", got)
 	}
 }

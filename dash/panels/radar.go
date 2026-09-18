@@ -3,6 +3,7 @@ package panels
 import (
 	"context"
 	"fmt"
+	"image"
 	"strconv"
 	"strings"
 	"sync"
@@ -28,6 +29,10 @@ type radar struct {
 	newFetcher func(provider.RadarOptions) func(context.Context) (tideui.RadarFrame, error)
 	location   string
 	zoom       int
+	// quiet is true when the newest frame has nothing in it. An empty sky and a
+	// broken panel look identical, so the panel is the only thing that can tell
+	// the reader which one this is.
+	quiet bool
 }
 
 const (
@@ -95,8 +100,45 @@ func (r *radar) Refresh(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	r.mu.Lock()
+	r.quiet = radarEcho(frame.Image) < radarQuietEcho
+	r.mu.Unlock()
 	r.Store(frame)
 	return nil
+}
+
+// radarQuietEcho is the echo below which the panel says the sky is empty. It is
+// deliberately low - a thin squall line is a few pixels of a 512 px frame and is
+// exactly what the panel is for - and the picture is drawn either way, so a frame
+// under the bar is never hidden, only explained.
+const radarQuietEcho = 0.002
+
+// radarEcho is the fraction of a frame with anything in it. Sampled rather than
+// exhaustive: a 512x512 frame is 262k pixels, and this only decides whether the
+// panel adds a sentence.
+func radarEcho(img image.Image) float64 {
+	if img == nil {
+		return 0
+	}
+	bounds := img.Bounds()
+	if bounds.Dx() <= 0 || bounds.Dy() <= 0 {
+		return 0
+	}
+	const step = 4
+	lit, total := 0, 0
+	for y := bounds.Min.Y; y < bounds.Max.Y; y += step {
+		for x := bounds.Min.X; x < bounds.Max.X; x += step {
+			_, _, _, alpha := img.At(x, y).RGBA()
+			total++
+			if alpha > 0 {
+				lit++
+			}
+		}
+	}
+	if total == 0 {
+		return 0
+	}
+	return float64(lit) / float64(total)
 }
 
 func (r *radar) View(ctx tideui.PanelContext) string {
@@ -105,7 +147,7 @@ func (r *radar) View(ctx tideui.PanelContext) string {
 		return r.emptyView(ctx)
 	}
 	r.mu.Lock()
-	location, zoom := r.location, r.zoom
+	location, zoom, quiet := r.location, r.zoom, r.quiet
 	r.mu.Unlock()
 	if location == "" {
 		location = "local"
@@ -114,14 +156,22 @@ func (r *radar) View(ctx tideui.PanelContext) string {
 	bg := ctx.Renderer.Styles.Workspace.Bg
 	height := max(1, ctx.Height-2)
 	picture := ctx.Renderer.RenderImage(frame.Image, ctx.Width, height)
-	if strings.TrimSpace(picture) == "" {
-		return r.emptyView(ctx)
-	}
 	// A picture of the weather with no time on it is a picture of a rumour, and
 	// the service is credited because it asks to be.
 	caption := fmt.Sprintf("%s · %s · zoom %d · RainViewer",
 		frame.Time.Local().Format("15:04"), location, zoom)
-	lines := append([]string{caption}, strings.Split(picture, "\n")...)
+	lines := []string{caption}
+	if quiet {
+		// Nothing in the frame, and the panel says which kind of nothing: an
+		// empty sky and a failed fetch draw the same rectangle otherwise.
+		lines = append(lines, "no precipitation in range")
+	}
+	// A frame that draws nothing is still a frame: the caption goes up either way,
+	// because "nothing is falling" and "nothing has loaded" are different things
+	// and only the caption and the sentence above tell them apart.
+	if strings.TrimSpace(picture) != "" {
+		lines = append(lines, strings.Split(picture, "\n")...)
+	}
 	return ctx.Renderer.RenderLines(lines, ctx.Width, bg)
 }
 

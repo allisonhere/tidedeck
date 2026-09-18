@@ -2052,6 +2052,18 @@ here so nobody re-introduces them:
   `{"weather": {"latitude": 30.26}}` works. Worth knowing before hand-testing:
   a flat key looks exactly like a working config and produces "No location set".
 
+- **The gate named kitty and the user runs Ghostty.** Ghostty implements the same
+  placeholder feature (its `graphics_unicode.zig` has the placeholder codepoint, the
+  row/column diacritics and the id-in-the-colour trick), but it identifies itself as
+  `TERM_PROGRAM=ghostty` / `TERM=xterm-ghostty` / no `KITTY_WINDOW_ID` - so the panel
+  fell to the 40×40 half-block path in the terminal the user actually runs. That is
+  what "we need higher rez" meant. `placeholderCells` now accepts both families, and
+  every test that asserts the half-block path clears the terminal variables first,
+  because otherwise the suite's result depends on the terminal that ran it (`b4127e0`).
+- **Ask for the biggest tile the service serves.** Size 256 and 512 are both offered;
+  a placeholder-capable terminal draws the tile at the panel's own pixel size, so 512
+  is four times the pixels for about a kilobyte more per frame (`e5b4205`).
+
 ### End-to-end check that was actually run
 
 Real binary, real RainViewer, real terminal, driven through a pty (`w` picker,
