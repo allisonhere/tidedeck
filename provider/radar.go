@@ -21,6 +21,12 @@ var radarIndexURL = "https://api.rainviewer.com/public/weather-maps.json"
 // radarFallbackHost is used when an index does not name one.
 const radarFallbackHost = "https://tilecache.rainviewer.com"
 
+// radarTileSize is the tile to ask for, in pixels. The service offers 256 and
+// 512, and a placeholder-capable terminal draws the tile at the panel's own pixel
+// size - so 512 is four times the pixels for roughly a kilobyte more per frame,
+// while 256 would be stretched across a wide pane.
+const radarTileSize = 512
+
 // radarUserAgent names this dashboard. A free public service deserves to know who
 // is calling it, and a user agent is the only courtesy it gets.
 const radarUserAgent = "tideui-radar/1 (+https://github.com/allisonhere/tideui)"
@@ -67,11 +73,11 @@ func Radar(opts RadarOptions) func(context.Context) (tideui.RadarFrame, error) {
 		}
 		zoom := clampZoom(opts.Zoom)
 		x, y := radarTileFor(opts.Latitude, opts.Longitude, zoom)
-		// 256 px tiles, colormap 4 (the familiar green-to-red radar), smooth 1,
-		// snow 1. The shape is the service's own and is exact:
+		// Colormap 4 (the familiar green-to-red radar), smooth 1, snow 1. The
+		// shape is the service's own and is exact:
 		// {path}/{size}/{z}/{x}/{y}/{color}/{smooth}_{snow}.png - an extra
 		// segment is not rejected, it silently shifts what the numbers mean.
-		url := fmt.Sprintf("%s%s/256/%d/%d/%d/4/1_1.png", host, newest.Path, zoom, x, y)
+		url := fmt.Sprintf("%s%s/%d/%d/%d/%d/4/1_1.png", host, newest.Path, radarTileSize, zoom, x, y)
 		img, err := fetchRadarTile(ctx, url)
 		if err != nil {
 			return tideui.RadarFrame{}, err

@@ -32,7 +32,7 @@ func radarServer(t *testing.T) *httptest.Server {
 			}},
 		})
 	})
-	mux.HandleFunc("/v2/radar/newest/256/7/29/52/4/1_1.png", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/v2/radar/newest/512/7/29/52/4/1_1.png", func(w http.ResponseWriter, r *http.Request) {
 		img := image.NewRGBA(image.Rect(0, 0, 8, 8))
 		for y := 0; y < 8; y++ {
 			for x := 0; x < 8; x++ {
