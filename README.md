@@ -1160,6 +1160,7 @@ key or with another plugin's.
 | `block` | a label plus indented `body` lines; the body is drawn in the panel's normal text colour, or the colour `bodyTone` names |
 | `divider` | a section divider |
 | `spacer` | a blank line |
+| `image` | a picture from `src` (an absolute path), drawn in cells; `alt` replaces it when it cannot be read, `rows` caps the height |
 
 A plugin's settings are edited in the settings screen and reach the program as
 environment variables on the next run. A plugin can also **answer back about its own settings**. `options` maps a
@@ -1240,6 +1241,24 @@ skipped rather than failing the document, so a plugin written against a later
 schema loses a line instead of disappearing. Every row is drawn with the same
 primitives the built-in panels use and bounded by `Renderer.RenderLines`, so a
 plugin cannot overflow its pane whatever it prints.
+
+A row can also **point at a picture**. `src` is an absolute path — a document
+carries a reference, never pixels, because a document is capped at 1 MB and the
+reference is what the plugin that produced the file already has:
+
+    { "type": "image", "src": "/run/user/1000/radar.png", "rows": 20, "alt": "radar unavailable" }
+
+It is drawn as coloured half-blocks: one sample across and two down per cell, so
+it works over ssh and inside tmux with no graphics protocol at all, and degrades
+through the colour profile — a 256-colour terminal gets a quantised picture and a
+colourless one gets a brightness ramp. On a terminal that speaks kitty's graphics
+protocol the picture is transmitted and drawn by the terminal itself, at the
+terminal's own pixel resolution, inside the same cells. `alt` is what is drawn
+when the file cannot be read, because a row is a promise that something appears;
+`rows` caps the height (default 24). The picture keeps its aspect and is centred
+rather than stretched, and transparent samples show the panel background through
+them — which is what makes a radar tile, transparent where it is not raining,
+work.
 
 `contrib/ai-usage/` is a working example: a `jq` projection of
 `ai-usagebar usage --json`, which is a projection rather than a translation
