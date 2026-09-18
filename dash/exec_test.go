@@ -474,6 +474,7 @@ func TestExecPanelOptionalGlyph(t *testing.T) {
 // draws it. The path travels as a declared setting, the way every other value a
 // plugin needs does - see TestExecPanelPassesDeclaredSettings for the shape.
 func TestExecPanelDrawsAnImageRowFromAPlugin(t *testing.T) {
+	noPlaceholdersForTests(t)
 	previous := lipgloss.ColorProfile()
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	t.Cleanup(func() { lipgloss.SetColorProfile(previous) })

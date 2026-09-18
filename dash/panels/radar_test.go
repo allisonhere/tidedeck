@@ -58,6 +58,12 @@ func TestRadarSaysWhereToSetALocation(t *testing.T) {
 // With coordinates it draws the frame it fetched, and says when that frame was -
 // a radar picture with no time on it is a picture of a rumour.
 func TestRadarDrawsTheFrameAndItsTime(t *testing.T) {
+	// Half-block cells, not placeholder cells: TERM_PROGRAM is set by whatever
+	// terminal the suite is run in, and this asserts what the panel draws.
+	t.Setenv("TERM", "xterm-256color")
+	t.Setenv("TERM_PROGRAM", "")
+	t.Setenv("KITTY_WINDOW_ID", "")
+	t.Setenv("TMUX", "")
 	trueColor(t)
 	when := time.Date(2026, 9, 18, 18, 5, 0, 0, time.Local)
 	panel := &radar{newFetcher: func(provider.RadarOptions) func(context.Context) (tideui.RadarFrame, error) {

@@ -255,6 +255,7 @@ func TestBlockBodyIsContentUnlessItAsksForATone(t *testing.T) {
 // that cannot be read draws its alt text rather than a hole - the same promise
 // every other row keeps. Imports for this test: path/filepath.
 func TestRenderDocDrawsAnImageRow(t *testing.T) {
+	noPlaceholdersForTests(t)
 	previous := lipgloss.ColorProfile()
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	t.Cleanup(func() { lipgloss.SetColorProfile(previous) })

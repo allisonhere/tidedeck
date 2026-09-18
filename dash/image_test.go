@@ -10,6 +10,18 @@ import (
 	"time"
 )
 
+// noPlaceholdersForTests points the image transport at a terminal without the
+// protocol, so an assertion about half-block cells holds wherever the suite runs:
+// TERM_PROGRAM is set by the developer's own terminal and would otherwise decide
+// what the document renders.
+func noPlaceholdersForTests(t *testing.T) {
+	t.Helper()
+	t.Setenv("TERM", "xterm-256color")
+	t.Setenv("TERM_PROGRAM", "")
+	t.Setenv("KITTY_WINDOW_ID", "")
+	t.Setenv("TMUX", "")
+}
+
 // writePNG writes a small solid PNG into a fresh directory and returns its path.
 func writePNG(t *testing.T, w, h int, c color.RGBA) string {
 	t.Helper()

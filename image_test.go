@@ -16,6 +16,18 @@ import (
 	"github.com/muesli/termenv"
 )
 
+// noPlaceholders points the image transport at a terminal without the protocol, so
+// an assertion about half-blocks holds wherever the suite runs. Without this the
+// developer's own terminal decides what the test sees: TERM_PROGRAM=ghostty is set
+// by Ghostty itself, and the picture then arrives as placeholder cells.
+func noPlaceholders(t *testing.T) {
+	t.Helper()
+	t.Setenv("TERM", "xterm-256color")
+	t.Setenv("TERM_PROGRAM", "")
+	t.Setenv("KITTY_WINDOW_ID", "")
+	t.Setenv("TMUX", "")
+}
+
 // The colour profile is a package-level global in lipgloss and every test in this
 // package renders through it, so a test that changes it puts the old one back.
 func withProfile(t *testing.T, profile termenv.Profile) {
@@ -40,6 +52,7 @@ func solid(w, h int, c color.RGBA) *image.RGBA {
 // A cell carries two samples: the top half is the glyph's foreground, the bottom
 // its background. One column, one row, red over blue.
 func TestRenderImagePutsTheTopSampleInTheForeground(t *testing.T) {
+	noPlaceholders(t)
 	withProfile(t, termenv.TrueColor)
 	r := NewRenderer(CatppuccinMocha, StyleOptions{})
 	img := image.NewRGBA(image.Rect(0, 0, 1, 2))
@@ -57,6 +70,7 @@ func TestRenderImagePutsTheTopSampleInTheForeground(t *testing.T) {
 // wide, so a square source at 40 cells is 20 rows, and a tall one is narrower
 // than the box rather than stretched into it.
 func TestRenderImageFitsInsideTheBoxAndCentres(t *testing.T) {
+	noPlaceholders(t)
 	withProfile(t, termenv.TrueColor)
 	r := NewRenderer(CatppuccinMocha, StyleOptions{})
 
@@ -93,6 +107,7 @@ func TestRenderImageFitsInsideTheBoxAndCentres(t *testing.T) {
 // A transparent sample shows the panel through it: a radar tile is transparent
 // where it does not rain, and black there would be a lie about the weather.
 func TestRenderImageCompositesTransparencyOntoTheBackground(t *testing.T) {
+	noPlaceholders(t)
 	withProfile(t, termenv.TrueColor)
 	r := NewRenderer(CatppuccinMocha, StyleOptions{})
 	bg := r.Styles.Workspace.Bg
@@ -111,6 +126,7 @@ func TestRenderImageFallsBackToARampWithoutColour(t *testing.T) {
 	// Ascii is what a test binary actually detects, but say so out loud rather
 	// than depending on it - and put back whatever the other tests were using,
 	// because the profile is one global for the whole package.
+	noPlaceholders(t)
 	withProfile(t, termenv.Ascii)
 	r := NewRenderer(CatppuccinMocha, StyleOptions{})
 
@@ -242,11 +258,8 @@ func TestKittyTransmitsAPictureOnceAndPlacesItWithCells(t *testing.T) {
 // The fallback is the one everybody else runs, so it gets its own test: no
 // graphics sequence at all, and half-blocks instead.
 func TestRenderImageStaysOnHalfBlocksWithoutKitty(t *testing.T) {
+	noPlaceholders(t)
 	withProfile(t, termenv.TrueColor)
-	t.Setenv("TERM", "xterm-256color")
-	// Clear the kitty marker too: tests are run from inside kitty often enough
-	// that inheriting it would make this pass or fail for the wrong reason.
-	t.Setenv("KITTY_WINDOW_ID", "")
 
 	r := NewRenderer(CatppuccinMocha, StyleOptions{})
 	got := r.RenderImage(solid(2, 2, color.RGBA{R: 255, A: 255}), 1, 1)
