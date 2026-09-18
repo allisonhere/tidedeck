@@ -88,3 +88,15 @@ func TestRadarDrawsTheFrameAndItsTime(t *testing.T) {
 		t.Fatalf("the panel does not credit its source:\n%q", ansi.Strip(view))
 	}
 }
+
+// A radar frame cannot be faked: the deck refreshes this panel in its demo mode
+// too, because a sample storm would be a fabrication rather than a stand-in.
+func TestRadarIsLiveEvenInDemoMode(t *testing.T) {
+	live, ok := Radar().(dash.AlwaysLive)
+	if !ok {
+		t.Fatal("the radar panel does not declare whether it is always live")
+	}
+	if !live.AlwaysLive() {
+		t.Fatal("the radar panel would go blank in demo mode")
+	}
+}

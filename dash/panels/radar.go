@@ -44,6 +44,12 @@ func (r *radar) Meta() dash.Meta {
 	}
 }
 
+// AlwaysLive keeps the panel fetching in the deck's demo mode too. A radar frame
+// is a photograph of the sky at a moment: there is no honest sample of one, and a
+// demo would be a fabricated storm. It is the same argument the plugin panels
+// make - a real source, whatever mode the dashboard is in.
+func (r *radar) AlwaysLive() bool { return true }
+
 // Schema declares only what is the radar's own. The coordinates are the weather
 // panel's: one location, not two copies that drift apart.
 func (r *radar) Schema() []dash.Field {
