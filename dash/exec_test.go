@@ -192,6 +192,78 @@ func TestExecPanelWithoutOpenableRowsIsNotACursor(t *testing.T) {
 	}
 }
 
+// Launch is the selected row's primary action: the argv the manifest declared,
+// with the picked row's id in place of the placeholder. The panel does not run
+// it - it has no idea whether there is a terminal to hand over.
+func TestExecPanelLaunchesTheSelectedRow(t *testing.T) {
+	panel := openableFixture(t)
+	view(panel, false)
+
+	launcher, ok := panel.(Launcher)
+	if !ok {
+		t.Fatal("a plugin with an open command is not a launcher")
+	}
+	argv, status, declared := launcher.Launch()
+	if !declared {
+		t.Fatal("the panel declared no open action")
+	}
+	if len(argv) != 3 || argv[0] != "tidemail" || argv[1] != "--open" || argv[2] != "7" {
+		t.Fatalf("argv = %v, want tidemail --open 7", argv)
+	}
+	// The status names the row, so the strip says what happened rather than only
+	// that something did.
+	if !strings.Contains(status, "ana@example.com") {
+		t.Errorf("status = %q, want it to name the row", status)
+	}
+
+	// And the id follows the cursor: the second row's id is what comes out.
+	panel.(Cursor).Move(1)
+	argv, _, _ = launcher.Launch()
+	if len(argv) != 3 || argv[2] != "9" {
+		t.Fatalf("argv = %v, want the second row's id", argv)
+	}
+}
+
+// A panel that declares no open command is not a primary action at all, so the
+// key it would have used stays the workspace's.
+func TestExecPanelWithoutAnOpenCommandDeclaresNoAction(t *testing.T) {
+	manifest := plugin(t, `printf '{"rows":[{"type":"block","id":"7","label":"x","body":["y"]}]}\n'`, nil)
+	panel := Exec(manifest)
+	if err := panel.(Fetcher).Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	view(panel, false)
+	launcher, ok := panel.(Launcher)
+	if !ok {
+		t.Fatal("a panel is not a launcher, not even to decline")
+	}
+	if argv, _, declared := launcher.Launch(); declared || len(argv) != 0 {
+		t.Fatalf("Launch = %v/%v, want no action declared", argv, declared)
+	}
+}
+
+// A panel that declares an open command and has nothing openable says so rather
+// than running the command with no id in it.
+func TestExecPanelWithNothingSelectedSaysSo(t *testing.T) {
+	manifest := plugin(t, `printf '{"rows":[{"type":"text","label":"mail","value":"empty"}]}\n'`,
+		map[string]any{"panel": map[string]any{"open": []string{"tidemail", "--open", OpenIDPlaceholder}}})
+	panel := Exec(manifest)
+	if err := panel.(Fetcher).Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	view(panel, false)
+	argv, status, declared := panel.(Launcher).Launch()
+	if !declared {
+		t.Fatal("the panel declared no action despite an open command")
+	}
+	if len(argv) != 0 {
+		t.Fatalf("argv = %v, want nothing to run", argv)
+	}
+	if !strings.Contains(status, "select") {
+		t.Errorf("status = %q, want it to say what to do instead", status)
+	}
+}
+
 // Everything that can go wrong with someone else's program must leave the
 // last good content on screen and report why, never blank the panel.
 func TestExecPanelKeepsLastGoodDocument(t *testing.T) {

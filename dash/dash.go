@@ -114,6 +114,19 @@ type Activator interface {
 	Activate() (copy, status string)
 }
 
+// Launcher is implemented by a panel whose current selection opens a program -
+// the mail preview opening the message in TideMail. Launch returns the argv to
+// run, the line for the status strip, and whether the panel has such an action
+// at all: a panel that declares no open command returns ok false, so the key it
+// would have used stays the workspace's; one with nothing selected returns a nil
+// argv and a status saying what to do instead.
+//
+// The caller runs the command, the way it puts a Copier's text on the clipboard,
+// so a panel never owns the terminal.
+type Launcher interface {
+	Launch() (argv []string, status string, ok bool)
+}
+
 // Clicker is implemented by a panel that maps a click inside its content area
 // to an item, with x and y relative to the body. It returns the text to copy
 // and a status message, and whether the click hit an item.

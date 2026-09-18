@@ -349,6 +349,49 @@ func clampCursor(cursor, count int) int {
 	}
 }
 
+// Launch is the selected row's primary action: the command the manifest declared
+// under "open", which is the program that owns what the panel is previewing. The
+// caller runs it - the panel has no idea whether there is a terminal to hand
+// over - and gets back the line to show in the status strip.
+func (e *execPanel) Launch() ([]string, string, bool) {
+	template, declared := e.manifest.OpenArgv()
+	if !declared {
+		return nil, "", false
+	}
+	e.mu.Lock()
+	row, ok := openableAt(e.shown, e.cursor)
+	e.mu.Unlock()
+	if !ok {
+		return nil, "select a message first", true
+	}
+	return substituteOpenID(template, row.ID), "opening " + rowTitle(row), true
+}
+
+// substituteOpenID puts the picked row's id where the manifest's placeholder is.
+// Every occurrence is replaced: an argument that names the id twice is a plugin's
+// business, not ours.
+func substituteOpenID(argv []string, id string) []string {
+	out := make([]string, len(argv))
+	for i, arg := range argv {
+		out[i] = strings.ReplaceAll(arg, OpenIDPlaceholder, id)
+	}
+	return out
+}
+
+// rowTitle names a row in a status line: the label it was given, else the first
+// line of its body (a mail row's subject), else its id.
+func rowTitle(row Row) string {
+	if label := strings.TrimSpace(row.Label); label != "" {
+		return label
+	}
+	for _, line := range row.Body {
+		if line = strings.TrimSpace(line); line != "" {
+			return line
+		}
+	}
+	return row.ID
+}
+
 // Badge reports whatever badge the document carried.
 func (e *execPanel) Badge() (string, tideui.Tone) {
 	badge := e.Load().Badge
