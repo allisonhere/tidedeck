@@ -39,8 +39,13 @@ type radar struct {
 	basemapFor string
 	basemap    image.Image
 	basemapOf  basemapRequest
-	location   string
-	zoom       int
+	// paper is true when the map in hand is dark ink on light paper: a panel drawing that
+	// on dark glass re-inks it, so the paper becomes the background and the ink becomes a
+	// quiet line colour, and the map ends up in the theme's own colours rather than as a
+	// lit sheet in the pane.
+	basemapPaper bool
+	location     string
+	zoom         int
 	// drawn is the frame with the reader's place and the distance ring composed
 	// into it, kept between draws: see drawnFrame.
 	drawn      image.Image
@@ -122,9 +127,10 @@ func (r *radar) Schema() []dash.Field {
 		{Key: radarEnabledKey, Label: "live radar", Kind: dash.FieldBool, Default: "true",
 			Description: "Uses the Weather panel's location."},
 		{Key: radarBasemapKey, Label: "map under it", Kind: dash.FieldChoice,
-			Options:     []string{radarBasemapOff, "night lights", "relief"},
+			Options: []string{radarBasemapOff, provider.BasemapAutoLayer,
+				"topographic", "night lights", "relief"},
 			Default:     provider.BasemapDefaultLayer,
-			Description: "A still satellite map of the same ground, drawn under the radar. Fetched once per location, not once a frame."},
+			Description: "A still map of the same ground, drawn under the radar and fetched once per location, not once a frame. Auto picks a real map where one covers the place, and nothing where none does."},
 		{Key: radarZoomKey, Label: "detail", Kind: dash.FieldFloat, Default: strconv.Itoa(provider.RadarDefaultZoom),
 			Description: "Zoom 4 is a state, 7 is a metro area and its surroundings. 7 is as deep as the service's data goes.",
 			Min:         3, Max: float64(provider.RadarMaxZoom), Step: 1},
@@ -147,7 +153,7 @@ func (r *radar) Configure(values dash.Values) error {
 	}
 	r.latitude, r.longitude = latitude, longitude
 	r.enabled = boolOr(values, radarEnabledKey, true) && (latitude != 0 || longitude != 0)
-	r.basemapFor = basemapLayerFor(values)
+	r.basemapFor = basemapLayerFor(values, latitude, longitude)
 	if r.basemapFor == "" {
 		// Turned off, and nothing kept: the picture and the place it was of go
 		// together, and a stale one showing the wrong ground later would be worse
@@ -173,24 +179,24 @@ func panePixels(renderer tideui.Renderer, width, height int) (int, int) {
 		max(1, int(math.Round(float64(height)*cellWidth*cellAspect)))
 }
 
-// basemapLayerFor is the map layer a setting asked for, or nothing when it asked
-// for none. An unknown name is the default rather than nothing: the settings screen
-// only offers real layers, so an unknown one is a hand-edited file, and a file that
-// asks for a map should get one.
-func basemapLayerFor(values dash.Values) string {
+// basemapLayerFor is the map layer a setting asked for, or nothing when it asked for
+// none. "auto" - and an absent key, which is the same thing - is resolved for the place:
+// a real map where one covers it, and nothing where none does, because imagery is not a
+// map and a map of the wrong place is worse than none.
+func basemapLayerFor(values dash.Values, latitude, longitude float64) string {
 	switch name := strings.ToLower(strings.TrimSpace(values.String(radarBasemapKey))); name {
 	case radarBasemapOff:
 		return ""
-	case "", "night lights", "relief":
-		// An absent key is the setting's own default, which is a map: the schema
-		// offers it as the default, and a fresh install that disagreed with the
-		// settings screen would be a bug nobody could see.
-		if name == "" {
-			return provider.BasemapDefaultLayer
+	case "", provider.BasemapAutoLayer:
+		return provider.BasemapLayerFor(latitude, longitude)
+	default:
+		if _, known := provider.BasemapLayers[name]; !known {
+			// A hand-edited file asking for a layer that does not exist gets the map for
+			// the place rather than nothing: the settings screen only offers real names,
+			// so this is a typo, and a typo should not cost the reader their map.
+			return provider.BasemapLayerFor(latitude, longitude)
 		}
 		return name
-	default:
-		return provider.BasemapDefaultLayer
 	}
 }
 
@@ -347,6 +353,7 @@ func (r *radar) ensureBasemap(ctx context.Context) {
 	}
 	r.mu.Lock()
 	r.basemap, r.basemapOf = ground.Image, wanted
+	r.basemapPaper = provider.BasemapLayers[layer].Paper
 	r.mu.Unlock()
 }
 
@@ -444,8 +451,10 @@ type radarDrawing struct {
 	kmPerPixel float64
 	mark, ring color.RGBA
 	// The map under it, by identity: the panel keeps one picture per place, so the
-	// same pointer means the same ground and the composed frame can be reused.
+	// same pointer means the same ground and the composed frame can be reused. paper
+	// says whether that map has to be re-inked for a dark pane.
 	basemap image.Image
+	paper   bool
 }
 
 // drawnFrame is the frame with the reader's own position and the distance ring on
@@ -465,6 +474,7 @@ func (r *radar) drawnFrame(frame tideui.RadarFrame, ctx tideui.PanelContext) ima
 		mark:       tideui.RGBAOf(ctx.Renderer.Styles.Workspace.BodyFg),
 		ring:       tideui.RGBAOf(ctx.Renderer.Styles.Workspace.BodyMutedFg),
 		basemap:    r.basemap,
+		paper:      r.basemapPaper,
 	}
 	if r.drawn != nil && r.drawnKey == key {
 		return r.drawn
@@ -483,6 +493,14 @@ func (r *radar) drawnFrame(frame tideui.RadarFrame, ctx tideui.PanelContext) ima
 	if backdrop != nil && backdrop.Bounds() != frame.Image.Bounds() {
 		backdrop = nil
 	}
+	if backdrop != nil && key.paper {
+		// Ink on paper, on dark glass: the paper becomes the panel's own background and
+		// the ink becomes a quiet line colour, so the map belongs to the theme rather than
+		// sitting in the pane as a lit sheet.
+		backdrop = tideui.Duotone(backdrop,
+			tideui.RGBAOf(ctx.Renderer.Styles.Workspace.Bg),
+			tideui.RGBAOf(ctx.Renderer.Styles.Workspace.BodyMutedFg))
+	}
 	r.drawn, r.drawnKey = tideui.Composite(backdrop, marked), key
 	return r.drawn
 }
@@ -496,7 +514,9 @@ func (r *radar) credits() string {
 	defer r.mu.Unlock()
 	credit := provider.RadarSourceFor(r.latitude, r.longitude).Credit()
 	if r.basemap != nil {
-		credit += " · NASA GIBS"
+		if layer, known := provider.BasemapLayers[r.basemapOf.layer]; known {
+			credit += " · " + layer.Credit
+		}
 	}
 	return credit
 }

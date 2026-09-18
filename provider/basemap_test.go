@@ -12,15 +12,21 @@ import (
 	"testing"
 )
 
-// The URL is the service's own shape: the level set carries the zoom, and the numbers
-// are row then column - the latitude-ish number first, the opposite order to the
-// radar's tiles. Getting that the wrong way round does not fail: it fetches a valid
-// tile of somewhere else, which is why it is asserted here.
-func TestBasemapTileURLIsRowThenColumn(t *testing.T) {
-	got := basemapTileURL("VIIRS_CityLights_2012", 58, 105)
-	want := "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_CityLights_2012/default/GoogleMapsCompatible_Level8/8/105/58.jpg"
-	if got != want {
-		t.Fatalf("basemap tile url =\n  %s\nwant\n  %s", got, want)
+// The URL is each service's own shape, and both put the row before the column - the
+// latitude-ish number first, the opposite order to the radar's tiles. Getting that the
+// wrong way round does not fail: it fetches a valid tile of somewhere else, which is why
+// it is asserted here.
+func TestBasemapTileURLsAreRowThenColumn(t *testing.T) {
+	imagery := BasemapLayers["night lights"].tileURL(8, 58, 105)
+	wantImagery := "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_CityLights_2012/default/GoogleMapsCompatible_Level8/8/105/58.jpg"
+	if imagery != wantImagery {
+		t.Fatalf("imagery tile url =\n  %s\nwant\n  %s", imagery, wantImagery)
+	}
+	// A map service carries the zoom in the path, not in a level set.
+	topographic := BasemapLayers["topographic"].tileURL(9, 135, 199)
+	wantTopographic := "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/9/199/135"
+	if topographic != wantTopographic {
+		t.Fatalf("map tile url =\n  %s\nwant\n  %s", topographic, wantTopographic)
 	}
 }
 
@@ -111,9 +117,9 @@ func TestBasemapCoversTheViewAtThePanesOwnSize(t *testing.T) {
 	}
 }
 
-// A view of a continent is not a view a fixed-resolution map can cover: the panel draws
-// the radar alone, which is honest, rather than fetching hundreds of tiles.
-func TestBasemapRefusesAViewTooWideToMap(t *testing.T) {
+// A view of a continent is not a view an imagery layer with one fixed zoom can cover:
+// the panel draws the radar alone, which is honest, rather than fetching hundreds of tiles.
+func TestBasemapRefusesAViewTooWideForAFixedZoom(t *testing.T) {
 	basemapServer(t, "/nothing-matches-this.jpg")
 	fetch := Basemap(BasemapOptions{
 		Latitude: 30.2672, Longitude: -97.7431, Zoom: 1, Width: 1024, Height: 1024,
@@ -121,6 +127,63 @@ func TestBasemapRefusesAViewTooWideToMap(t *testing.T) {
 	})
 	if _, err := fetch(context.Background()); err == nil {
 		t.Fatal("a continent-wide view was fetched rather than refused")
+	}
+}
+
+// A map service serves a pyramid, so the zoom is chosen for the pane and the block stays
+// inside the budget whatever the pane is looking at.
+func TestBasemapPyramidZoomFitsTheBudget(t *testing.T) {
+	cases := []struct {
+		name        string
+		zoom, width int
+		height      int
+	}{
+		{"a pane over a metro area", 7, 826, 68},
+		{"the same pane, twice as wide", 7, 1980, 85},
+		{"a whole state", 5, 826, 68},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			view := radarView{latitude: 36.66, longitude: -84.4, zoom: tc.zoom, width: tc.width, height: tc.height}
+			zoom := basemapPyramidZoom(view)
+			if zoom < 0 || zoom > 16 {
+				t.Fatalf("chose zoom %d, which no service serves", zoom)
+			}
+			west, south, east, north := view.bounds()
+			if tiles := basemapGridFor(west, south, east, north, zoom).tiles(); tiles > basemapMaxTiles {
+				t.Fatalf("chose zoom %d, which is %d tiles for this view", zoom, tiles)
+			}
+		})
+	}
+}
+
+// The automatic choice is a map where one covers the place, and nothing where none does.
+func TestBasemapAutoChoosesAMapForThePlace(t *testing.T) {
+	for _, place := range []struct {
+		name     string
+		lat, lon float64
+		want     string
+	}{
+		{"Kentucky", 36.66, -84.4, "topographic"},
+		{"Austin", 30.2672, -97.7431, "topographic"},
+		{"London", 51.5072, -0.1276, ""},
+		{"Sydney", -33.8688, 151.2093, ""},
+	} {
+		if got := BasemapLayerFor(place.lat, place.lon); got != place.want {
+			t.Fatalf("%s: the map for the place = %q, want %q", place.name, got, place.want)
+		}
+	}
+	// The default setting is the automatic one, and the automatic one resolves for the
+	// place - so the panel's default is never an unknown name.
+	if BasemapDefaultLayer != BasemapAutoLayer {
+		t.Fatalf("the default layer = %q, want the automatic choice", BasemapDefaultLayer)
+	}
+	topographic, known := BasemapLayers["topographic"]
+	if !known {
+		t.Fatal("there is no topographic map to choose")
+	}
+	if !topographic.Paper || !topographic.USOnly || topographic.Credit == "" {
+		t.Fatalf("the topographic layer is not described as a paper map of the United States: %+v", topographic)
 	}
 }
 
@@ -224,21 +287,21 @@ func TestBasemapRefusesALayerItDoesNotKnow(t *testing.T) {
 	}
 }
 
-// Every layer offered is a name a setting can use and a layer the service serves, and
-// the default is one of them.
+// Every layer offered is a name a setting can use, a layer its service serves, and a
+// credit naming it.
 func TestBasemapLayersAreNamedForPeople(t *testing.T) {
 	if len(BasemapLayers) == 0 {
 		t.Fatal("no basemap layers are offered")
 	}
 	for name, layer := range BasemapLayers {
-		if strings.TrimSpace(name) == "" || strings.TrimSpace(layer) == "" {
-			t.Fatalf("layer %q -> %q is not usable", name, layer)
+		if strings.TrimSpace(name) == "" || strings.TrimSpace(layer.Layer) == "" || strings.TrimSpace(layer.Credit) == "" {
+			t.Fatalf("layer %q -> %+v is not usable", name, layer)
 		}
 		if name != strings.ToLower(name) {
 			t.Fatalf("layer name %q is not lowercase, which the lookup would miss", name)
 		}
-	}
-	if _, known := BasemapLayers[BasemapDefaultLayer]; !known {
-		t.Fatalf("the default layer %q is not one of the layers offered", BasemapDefaultLayer)
+		if (layer.Service == "") == (layer.Zoom == 0) {
+			t.Fatalf("layer %q is neither a pyramid nor a fixed-zoom layer: %+v", name, layer)
+		}
 	}
 }

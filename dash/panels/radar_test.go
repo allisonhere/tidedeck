@@ -485,7 +485,11 @@ func TestRadarDrawsTheMapUnderTheFrame(t *testing.T) {
 	trueColor(t)
 	calls := 0
 	panel := &radar{newFetcher: frameFetcher(linedFrame()), newBasemap: basemapFetcher(&calls)}
-	if err := panel.Configure(radarValues(t, 30.2672, -97.7431)); err != nil {
+	// Imagery, not a paper map: a photograph of the ground is drawn in its own colours,
+	// where a topographic sheet is re-inked for a dark pane (below).
+	values := radarValues(t, 30.2672, -97.7431)
+	values.Set(radarBasemapKey, "night lights")
+	if err := panel.Configure(values); err != nil {
 		t.Fatal(err)
 	}
 	if err := panel.Refresh(context.Background()); err != nil {
@@ -563,6 +567,41 @@ func TestRadarWithNoMapDrawsOnlyTheFrame(t *testing.T) {
 		Renderer: tideui.NewRenderer(tideui.CatppuccinMocha, tideui.StyleOptions{})})
 	if _, _, _, alpha := picture.At(0, 0).RGBA(); alpha != 0 {
 		t.Fatal("a map was drawn with the setting off")
+	}
+}
+
+// A topographic sheet is dark ink on light paper, and a dashboard is dark glass: the
+// map is re-inked in the theme's own colours rather than shown as a lit sheet, which is
+// what makes it belong to the pane instead of glowing in it.
+func TestRadarReInksAPaperMapForADarkPane(t *testing.T) {
+	noPlaceholderCellsForTests(t)
+	trueColor(t)
+	calls := 0
+	panel := &radar{newFetcher: frameFetcher(linedFrame()), newBasemap: basemapFetcher(&calls)}
+	values := radarValues(t, 30.2672, -97.7431)
+	values.Set(radarBasemapKey, "topographic")
+	if err := panel.Configure(values); err != nil {
+		t.Fatal(err)
+	}
+	if err := panel.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	picture := panel.drawnFrame(linedFrame(), tideui.PanelContext{Width: 40, Height: 12,
+		Renderer: tideui.NewRenderer(tideui.CatppuccinMocha, tideui.StyleOptions{})})
+	red, green, blue, alpha := picture.At(0, 0).RGBA()
+	if alpha == 0 {
+		t.Fatal("the paper map was not drawn at all")
+	}
+	if red>>8 == 255 && green>>8 == 0 && blue>>8 == 255 {
+		t.Fatal("a paper map was drawn in its own colours on a dark pane")
+	}
+	// And it is the theme's colours: the same map under another theme comes out
+	// differently, which is the whole reason for re-inking it rather than dimming it.
+	other := panel.drawnFrame(linedFrame(), tideui.PanelContext{Width: 40, Height: 12,
+		Renderer: tideui.NewRenderer(tideui.CatppuccinLatte, tideui.StyleOptions{})})
+	otherRed, _, _, _ := other.At(0, 0).RGBA()
+	if otherRed == red {
+		t.Fatal("the re-inked map did not change with the theme")
 	}
 }
 

@@ -12,60 +12,109 @@ import (
 	"github.com/allisonhere/tideui"
 )
 
-// BasemapLayers are the NASA GIBS layers this provider can draw, keyed by the name
-// a setting uses. Both are static composites in the public domain, served without a
-// key and without an account: the same imagery comes back every time, which is what
-// makes keeping them in memory honest rather than merely convenient.
-var BasemapLayers = map[string]string{
-	"night lights": "VIIRS_CityLights_2012",
-	"relief":       "BlueMarble_ShadedRelief_Bathymetry",
+// BasemapLayer is one source of ground to draw under a radar pane.
+type BasemapLayer struct {
+	// Service is a tile service in the form {service}/{z}/{y}/{x}, serving a pyramid at
+	// any zoom. An empty Service means NASA GIBS, whose layers carry one fixed zoom in
+	// the path instead.
+	Service string
+	// Layer is the service's own layer name.
+	Layer string
+	// Credit is what a panel names when it draws this layer.
+	Credit string
+	// Paper is true when the map is dark ink on light paper, so a panel drawing it on
+	// dark glass re-inks it instead of showing a lit sheet.
+	Paper bool
+	// Zoom is the zoom a GIBS layer is served at, which that service fixes. Zero for a
+	// service with a pyramid, which is asked for the zoom the pane is worth.
+	Zoom int
+	// USOnly marks a layer whose coverage is the United States.
+	USOnly bool
 }
 
-// BasemapDefaultLayer is what a panel draws when nobody has said otherwise: a dark
-// map, because the dashboard is dark and a bright backdrop fights the radar.
-const BasemapDefaultLayer = "night lights"
+// BasemapLayers are the maps this provider can draw, keyed by the name a setting uses.
+// Every one is served without a key and without an account, and every one is a still
+// picture of the ground: the same tiles come back every time, which is what makes keeping
+// them in memory honest rather than merely convenient.
+var BasemapLayers = map[string]BasemapLayer{
+	// A map: roads, rivers, contours and place names, in the public domain, over the
+	// United States, at any zoom. The only one of these that is a map rather than a
+	// photograph of the ground.
+	"topographic": {Service: usgsTopoService, Layer: "USGSTopo", Credit: "USGS", Paper: true, USOnly: true},
+	// Imagery: a photograph of the ground at night, with no names and no lines on it.
+	"night lights": {Layer: "VIIRS_CityLights_2012", Credit: "NASA GIBS", Zoom: 8},
+	"relief":       {Layer: "BlueMarble_ShadedRelief_Bathymetry", Credit: "NASA GIBS", Zoom: 8},
+}
 
-// basemapHost is the WMTS endpoint - a variable so a test can point it at a server
+// BasemapAutoLayer is the setting's "choose for me": the best map that covers where the
+// pane is looking.
+const BasemapAutoLayer = "auto"
+
+// BasemapDefaultLayer is that choice written out, for a settings screen that has to show
+// something.
+const BasemapDefaultLayer = BasemapAutoLayer
+
+// usgsTopoService is the National Map's topographic tile service: public domain, no key,
+// a pyramid at every zoom.
+const usgsTopoService = "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile"
+
+// usCoverage is where the United States' own maps reach, as rough boxes: the lower
+// forty-eight, Alaska and Hawaii.
+var usCoverage = [][4]float64{
+	{-125.0, 24.0, -66.5, 49.5},
+	{-170.0, 51.0, -129.0, 71.5},
+	{-161.0, 18.5, -154.5, 22.5},
+}
+
+// BasemapLayerFor is the best map for a place, or nothing when none covers it. A pane
+// with no map draws its radar alone: imagery is not a map, and a map of the wrong place
+// is worse than none.
+func BasemapLayerFor(lat, lon float64) string {
+	for _, box := range usCoverage {
+		if lat >= box[1] && lat <= box[3] && lon >= box[0] && lon <= box[2] {
+			return "topographic"
+		}
+	}
+	return ""
+}
+
+// basemapHost is the GIBS WMTS endpoint - a variable so a test can point it at a server
 // of its own.
 var basemapHost = "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best"
 
-// basemapZoom is the only zoom the imagery is served at. GIBS declares a tile matrix
-// set per zoom and these layers carry one each (Level8 is zoom eight and nothing
-// else: z7 and z9 answer 400), so this is not a preference - it is the ground
-// resolution of the imagery. A view at any zoom is cut out of these tiles and
-// resampled to the pane.
-const basemapZoom = 8
+// basemapTilePixels is a tile's width, for every service here: it is the Web Mercator
+// convention and all of them keep to it.
+const basemapTilePixels = 256
 
-// basemapTilePixels is GIBS's tile size, half the radar's.
-const basemapTilePixels = radarTileSize / 2
-
-// basemapMaxTiles is how many tiles one view may cost. The imagery is fixed at one
-// zoom, so a view of a continent would want hundreds of them: past this the panel
-// draws the radar alone, which is honest - a map helps when a pane is looking at a
-// region, and a view this wide is not one.
+// basemapMaxTiles is how many tiles one view may cost. A pyramid source is asked for the
+// zoom that keeps it inside this; a source with one fixed zoom has no such choice, so a
+// view too wide for it is refused rather than fetched in pieces.
 const basemapMaxTiles = 16
 
-// BasemapOptions is where and how big the basemap should be. It mirrors
-// RadarOptions deliberately: the two pictures are drawn over one another, so a panel
-// hands them the same numbers.
+// BasemapOptions is where and how big the basemap should be. It mirrors RadarOptions
+// deliberately: the two pictures are drawn over one another, so a panel hands them the
+// same numbers.
 type BasemapOptions struct {
 	Latitude, Longitude float64
 	Zoom                int
 	// Width and Height are the pixels the caller will draw: the picture comes back
-	// exactly that size, which is what lets it line up with the radar at any zoom
-	// rather than only when the two tile grids happen to agree.
+	// exactly that size, which is what lets it line up with the radar at any zoom.
 	Width, Height int
-	// Layer is a name from BasemapLayers. An unknown one is an error rather than a
-	// silent fallback, because a wrong layer name is a typo, not a preference.
+	// Layer is a name from BasemapLayers, or BasemapAutoLayer to be chosen for the place.
+	// An unknown name is an error rather than a silent fallback: a wrong layer name is a
+	// typo, not a preference.
 	Layer string
 }
 
-// Basemap fetches the ground a radar panel is looking at, for drawing under it: a
-// picture of a place at the size the pane asked for, with the reader's own position
-// and the ground scale on it - the same model the radar returns, so a panel can
-// compose the two without caring which came from where.
+// Basemap fetches the ground a radar panel is looking at, for drawing under it: a picture
+// of a place at the size the pane asked for - the same model the radar returns, so a panel
+// can compose the two without caring which came from where.
 func Basemap(opts BasemapOptions) func(context.Context) (tideui.MapFrame, error) {
-	layer, known := BasemapLayers[strings.ToLower(strings.TrimSpace(opts.Layer))]
+	name := strings.ToLower(strings.TrimSpace(opts.Layer))
+	if name == BasemapAutoLayer || name == "" {
+		name = BasemapLayerFor(opts.Latitude, opts.Longitude)
+	}
+	layer, known := BasemapLayers[name]
 	if !known {
 		return func(context.Context) (tideui.MapFrame, error) {
 			return tideui.MapFrame{}, fmt.Errorf("basemap: no layer called %q", opts.Layer)
@@ -79,7 +128,11 @@ func Basemap(opts BasemapOptions) func(context.Context) (tideui.MapFrame, error)
 			Width: opts.Width, Height: opts.Height,
 		})
 		west, south, east, north := view.bounds()
-		grid := basemapGridFor(west, south, east, north)
+		zoom := layer.Zoom
+		if layer.Service != "" {
+			zoom = basemapPyramidZoom(view)
+		}
+		grid := basemapGridFor(west, south, east, north, zoom)
 		if grid.tiles() > basemapMaxTiles {
 			return tideui.MapFrame{}, fmt.Errorf(
 				"basemap: %d tiles for a view this wide, more than the %d it will fetch",
@@ -88,12 +141,12 @@ func Basemap(opts BasemapOptions) func(context.Context) (tideui.MapFrame, error)
 		canvas := image.NewRGBA(image.Rect(0, 0, grid.cols*basemapTilePixels, grid.rows*basemapTilePixels))
 		for row := 0; row < grid.rows; row++ {
 			for col := 0; col < grid.cols; col++ {
-				tile, err := fetchTile(ctx, basemapTileURL(layer, grid.x+col, grid.y+row))
+				tile, err := fetchTile(ctx, layer.tileURL(zoom, grid.x+col, grid.y+row))
 				if err != nil {
 					return tideui.MapFrame{}, err
 				}
 				if tileHasNothingInIt(tile) {
-					// Ground the service has no imagery for comes back as one flat
+					// Ground the service has no picture for comes back as one flat
 					// colour. Left out, the panel's own background shows through, which
 					// is honest; drawn, it is a grey slab where a map should be.
 					continue
@@ -104,30 +157,62 @@ func Basemap(opts BasemapOptions) func(context.Context) (tideui.MapFrame, error)
 				), tile, tile.Bounds().Min, draw.Src)
 			}
 		}
-		picture := tideui.ResampleInto(canvas, grid.crop(west, south, east, north), view.width, view.height)
+		picture := tideui.ResampleInto(canvas, grid.crop(west, south, east, north, zoom), view.width, view.height)
 		return tideui.MapFrame{
 			Image:  picture,
 			Centre: image.Pt(view.width/2, view.height/2),
 			// The view's zoom, because that is the ground the pane asked to see: the
-			// imagery's own zoom is about how fine the map is, not how much is shown.
+			// map's own zoom is about how finely it is drawn.
 			KilometresPerPixel: kilometresPerPixel(opts.Latitude, view.zoom),
 		}, nil
 	}
 }
 
-// basemapGrid is the block of imagery tiles that covers a view.
+// tileURL is a tile of this layer, in whichever shape its service uses. Both put the row
+// before the column, which is the opposite of the way the radar's tiles read: an order
+// mix-up fetches a valid tile of somewhere else rather than failing.
+func (l BasemapLayer) tileURL(zoom, x, y int) string {
+	if l.Service != "" {
+		return fmt.Sprintf("%s/%d/%d/%d", l.Service, zoom, y, x)
+	}
+	return fmt.Sprintf("%s/%s/default/GoogleMapsCompatible_Level%d/%d/%d/%d.jpg",
+		basemapHost, l.Layer, zoom, zoom, y, x)
+}
+
+// basemapPyramidZoom is the zoom of a pyramid that suits a view: about one tile per 256
+// pixels of the pane, so the map is as fine as the pane can show and no finer, stepped
+// down until the block fits the tile budget. A pyramid is the one kind of source that can
+// be asked for a sensible amount of work this way.
+func basemapPyramidZoom(view radarView) int {
+	kilometresPerPixel := kilometresPerPixel(view.latitude, view.zoom)
+	if kilometresPerPixel <= 0 {
+		return 0
+	}
+	// The zoom where one tile covers what 256 pixels of the pane cover.
+	const earthCircumference = 40075.0
+	tilesAcross := earthCircumference * math.Cos(view.latitude*math.Pi/180) /
+		(kilometresPerPixel * basemapTilePixels)
+	zoom := int(math.Round(math.Log2(math.Max(tilesAcross, 1))))
+	zoom = min(max(zoom, 0), 16)
+	west, south, east, north := view.bounds()
+	for zoom > 0 && basemapGridFor(west, south, east, north, zoom).tiles() > basemapMaxTiles {
+		zoom--
+	}
+	return zoom
+}
+
+// basemapGrid is the block of tiles that covers a view at a zoom.
 type basemapGrid struct {
 	x, y, cols, rows int
 }
 
 func (g basemapGrid) tiles() int { return g.cols * g.rows }
 
-// basemapGridFor is the imagery tiles covering a geographic box, at the imagery's own
-// zoom whatever zoom the view is at.
-func basemapGridFor(west, south, east, north float64) basemapGrid {
-	left, top := tilePosition(north, west, basemapZoom)
-	right, bottom := tilePosition(south, east, basemapZoom)
-	limit := 1 << basemapZoom
+// basemapGridFor is the tiles covering a geographic box at a given zoom.
+func basemapGridFor(west, south, east, north float64, zoom int) basemapGrid {
+	left, top := tilePosition(north, west, zoom)
+	right, bottom := tilePosition(south, east, zoom)
+	limit := 1 << zoom
 	x := clampTile(int(math.Floor(left)), limit)
 	y := clampTile(int(math.Floor(top)), limit)
 	lastX := clampTile(int(math.Floor(right)), limit)
@@ -135,11 +220,11 @@ func basemapGridFor(west, south, east, north float64) basemapGrid {
 	return basemapGrid{x: x, y: y, cols: lastX - x + 1, rows: lastY - y + 1}
 }
 
-// crop is where the box a panel asked for sits inside the block of tiles: the tiles
-// cover more ground than the view, and the view is the part that is wanted.
-func (g basemapGrid) crop(west, south, east, north float64) image.Rectangle {
-	left, top := tilePosition(north, west, basemapZoom)
-	right, bottom := tilePosition(south, east, basemapZoom)
+// crop is where the box a panel asked for sits inside the block of tiles: the tiles cover
+// more ground than the view, and the view is the part that is wanted.
+func (g basemapGrid) crop(west, south, east, north float64, zoom int) image.Rectangle {
+	left, top := tilePosition(north, west, zoom)
+	right, bottom := tilePosition(south, east, zoom)
 	canvas := image.Rect(0, 0, g.cols*basemapTilePixels, g.rows*basemapTilePixels)
 	pixel := func(tileX, tileY float64) (int, int) {
 		return int(math.Round((tileX - float64(g.x)) * basemapTilePixels)),
@@ -150,27 +235,19 @@ func (g basemapGrid) crop(west, south, east, north float64) image.Rectangle {
 	return image.Rect(minX, minY, maxX, maxY).Intersect(canvas)
 }
 
-// basemapTileURL is the service's own shape, and the numbers are row then column -
-// latitude-ish first, the opposite order to the radar's tiles. A wrong order is not
-// rejected; it fetches a valid tile of somewhere else, so it is worth being exact.
-func basemapTileURL(layer string, x, y int) string {
-	return fmt.Sprintf("%s/%s/default/GoogleMapsCompatible_Level%d/%d/%d/%d.jpg",
-		basemapHost, layer, basemapZoom, basemapZoom, y, x)
-}
-
-// basemapNoData is the flat colour the service answers for ground it has no imagery
-// for: 42 in every channel, verified by asking for a tile outside the data and getting
-// a 200 with that one value.
+// basemapNoData is the flat colour GIBS answers for ground it has no imagery for: 42 in
+// every channel, verified by asking for a tile outside the data and getting a 200 with
+// that one value.
 var basemapNoData = color.RGBA{R: 42, G: 42, B: 42, A: 255}
 
-// tileHasNothingInIt reports a tile the service answered with its no-data colour, or
-// with nothing at all.
+// tileHasNothingInIt reports a tile the service answered with nothing: a fully
+// transparent picture, or GIBS's own no-data colour.
 //
 // It is deliberately not "a tile of one flat colour": the night-lights layer is a
-// photograph of the dark half of the planet, and a tile of a rural county is *exactly*
-// one flat black value. Treating flat as nothing threw away most of a map of Kentucky
-// and left the half of the pane that is countryside transparent. Sampled rather than
-// exhaustive: a tile is 65k pixels and this only decides whether to draw it.
+// photograph of the dark half of the planet, and a tile of a rural county is *exactly* one
+// flat black value. Treating flat as nothing threw away most of a map of Kentucky and left
+// the half of the pane that is countryside transparent. Sampled rather than exhaustive: a
+// tile is 65k pixels and this only decides whether to draw it.
 func tileHasNothingInIt(img image.Image) bool {
 	bounds := img.Bounds()
 	if bounds.Empty() {
