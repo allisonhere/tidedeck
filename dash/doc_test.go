@@ -1,6 +1,7 @@
 package dash
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -144,6 +145,28 @@ func TestRenderDocMetricDerivesItsValue(t *testing.T) {
 		if got := ansi.StringWidth(ansi.Strip(out)); got != 20 {
 			t.Fatalf("percent %v produced a %d-cell line", percent, got)
 		}
+	}
+}
+
+// A row may carry an id, which is what makes it openable: it is an opaque value
+// the plugin chose - a mail plugin puts the message's row id here - and the
+// panel hands it back to the command the manifest declares.
+func TestRowCarriesAnID(t *testing.T) {
+	var doc Doc
+	if err := json.Unmarshal([]byte(`{"rows":[
+		{"type":"block","id":"41","label":"ana@example.com","body":["standup notes"]},
+		{"type":"spacer"}]}`), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Rows) != 2 {
+		t.Fatalf("rows = %d, want 2", len(doc.Rows))
+	}
+	if doc.Rows[0].ID != "41" {
+		t.Errorf("id = %q, want %q", doc.Rows[0].ID, "41")
+	}
+	// A row without an id is text, not a destination.
+	if doc.Rows[1].ID != "" {
+		t.Errorf("a spacer has id %q", doc.Rows[1].ID)
 	}
 }
 

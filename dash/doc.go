@@ -80,6 +80,12 @@ type Row struct {
 	// the body is what the row has to say. A body that is only detail under its
 	// label asks for a tone.
 	BodyTone string `json:"bodyTone"`
+
+	// ID makes a row openable. It is an opaque identifier the plugin chose -
+	// the mail plugin puts the message's row id here - and the panel hands it
+	// back to the command the manifest declares under "open". A row without one
+	// is text: the cursor skips it, so a setup hint is not a destination.
+	ID string `json:"id"`
 }
 
 // rowTone resolves a row's colour, preferring the explicit tone.
