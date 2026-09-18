@@ -5,6 +5,7 @@ import (
 	"image/color"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -116,5 +117,18 @@ func TestRenderImageFallsBackToARampWithoutColour(t *testing.T) {
 	}
 	if got := r.RenderImage(solid(2, 2, color.RGBA{A: 255}), 0, 4); got != "" {
 		t.Fatalf("a zero-width box drew %q", got)
+	}
+}
+
+// A frame is a picture and the time it is about, which is all a radar panel
+// needs to draw, and all a provider has to return.
+func TestRadarFrameCarriesItsTime(t *testing.T) {
+	when := time.Date(2026, 9, 18, 18, 5, 0, 0, time.Local)
+	frame := RadarFrame{Time: when, Image: solid(2, 2, color.RGBA{A: 255})}
+	if !frame.Time.Equal(when) {
+		t.Fatalf("frame time = %v, want %v", frame.Time, when)
+	}
+	if frame.Image == nil {
+		t.Fatal("frame has no image")
 	}
 }

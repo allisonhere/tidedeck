@@ -5,10 +5,20 @@ import (
 	"image/color"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/lipgloss"
 )
+
+// RadarFrame is one radar frame: the picture and the moment it describes. It
+// lives here rather than in provider because it is a rendering model, the same
+// way WeatherData does, and because a panel needs it to draw without knowing
+// where it came from.
+type RadarFrame struct {
+	Time  time.Time
+	Image image.Image
+}
 
 // imageRamp is what a terminal with no colour gets: brightness, coarse enough to
 // read a shape in, because a panel that draws nothing at all looks broken.
