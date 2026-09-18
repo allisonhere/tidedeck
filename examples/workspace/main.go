@@ -1280,15 +1280,20 @@ func (m model) View() string {
 	// Presets can also be selected by the workspace command palette. Reconcile
 	// its new theme scope before rendering the next frame.
 	m.syncLayoutTheme()
-	renderer := tideui.NewRenderer(m.state.theme, tideui.StyleOptions{
+	// The terminal reports its window in pixels alongside its size in cells, so
+	// one measurement gives both the shape of a cell (which sizes a picture) and
+	// its width (which says whether a pane is bigger than the picture's source).
+	cellWidth, cellHeight := tideui.CellSizeOf(os.Stdout)
+	options := tideui.StyleOptions{
 		Density: m.state.density, PaneCorners: tideui.RoundCorners,
 		Gauge: m.state.gauge, Sparkline: m.state.spark, ClockFont: m.state.clockFont,
-		IconStyle: m.state.icons,
-		// Pictures are sized in cells, so the renderer needs the shape of a cell:
-		// the terminal reports its window in pixels, and this is the ratio.
-		CellAspect:  tideui.CellAspectOf(os.Stdout),
-		ModalShadow: true,
-	})
+		IconStyle: m.state.icons, ModalShadow: true,
+	}
+	if cellWidth > 0 && cellHeight > 0 {
+		options.CellWidth = cellWidth
+		options.CellAspect = cellHeight / cellWidth
+	}
+	renderer := tideui.NewRenderer(m.state.theme, options)
 	if m.settings.Opened() {
 		return m.settings.RenderWorkspace(renderer, m.width, m.height)
 	}

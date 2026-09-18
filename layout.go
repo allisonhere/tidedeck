@@ -80,6 +80,9 @@ type Renderer struct {
 	// something a terminal could plausibly have (see StyleOptions.CellAspect).
 	// Only image sizing reads it.
 	CellAspect float64
+	// CellWidth is one cell's width in pixels, already checked (see
+	// StyleOptions.CellWidth). Only things that reason in pixels read it.
+	CellWidth float64
 }
 
 // NewRenderer creates a renderer for a theme and style options.
@@ -87,7 +90,23 @@ func NewRenderer(theme Theme, options StyleOptions) Renderer {
 	return Renderer{
 		Styles:     BuildStyles(theme, options),
 		CellAspect: normalisedCellAspect(options.CellAspect),
+		CellWidth:  normalisedCellWidth(options.CellWidth),
 	}
+}
+
+// defaultCellWidth is what a pane is measured with when nobody measured the
+// terminal: about the width of a monospace cell at a sane font size.
+const defaultCellWidth = 8.0
+
+// normalisedCellWidth keeps a measurement a terminal could plausibly have - one
+// pixel per cell to forty - and treats anything else as no measurement at all: a
+// pane sized from a broken ioctl would otherwise ask for a mosaic it does not
+// need, which costs somebody else's bandwidth.
+func normalisedCellWidth(width float64) float64 {
+	if width < 1 || width > 40 {
+		return defaultCellWidth
+	}
+	return width
 }
 
 // defaultCellAspect is what a picture is sized by when nobody measured the
