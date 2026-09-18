@@ -1,0 +1,184 @@
+package tideui
+
+import (
+	"image"
+	"image/color"
+	"math"
+	"strings"
+
+	"github.com/charmbracelet/colorprofile"
+	"github.com/charmbracelet/lipgloss"
+)
+
+// imageRamp is what a terminal with no colour gets: brightness, coarse enough to
+// read a shape in, because a panel that draws nothing at all looks broken.
+const imageRamp = " .:-=+*#%@"
+
+// RenderImage draws an image inside a box of cells, as coloured half-blocks:
+// each cell is "▀" with the top sample as its foreground and the bottom as its
+// background, which is one sample across and two down per cell - everything a
+// terminal has without a graphics protocol, and enough for a radar blob, a heat
+// map or a chart.
+//
+// The picture keeps its aspect and is centred in width, because a cell is roughly
+// twice as tall as it is wide and a stretched picture lies. Samples that are
+// transparent show the panel background through them, and a terminal with no
+// colour gets the brightness ramp instead of the picture.
+func (r Renderer) RenderImage(img image.Image, width, maxHeight int) string {
+	if img == nil || width <= 0 || maxHeight <= 0 {
+		return ""
+	}
+	source := img.Bounds()
+	cells, rows := fitCells(source, width, maxHeight)
+	if cells <= 0 || rows <= 0 {
+		return ""
+	}
+	bg := r.Styles.Workspace.Bg
+	if activeColorProfile() == colorprofile.ASCII {
+		return r.renderImageRamp(img, source, cells, rows, width, bg)
+	}
+
+	bgColour := rgbaOf(bg)
+	left := (width - cells) / 2
+	pad := lipgloss.NewStyle().Background(bg).Render(strings.Repeat(" ", max(0, left)))
+	lines := make([]string, 0, rows)
+	for cy := 0; cy < rows; cy++ {
+		var line strings.Builder
+		line.WriteString(pad)
+		for cx := 0; cx < cells; cx++ {
+			top := sampleRegion(img, halfCell(source, cells, rows, cx, cy, 0), bgColour)
+			bottom := sampleRegion(img, halfCell(source, cells, rows, cx, cy, 1), bgColour)
+			line.WriteString(lipgloss.NewStyle().
+				Foreground(lipgloss.Color(hexColour(top))).
+				Background(lipgloss.Color(hexColour(bottom))).
+				Render("▀"))
+		}
+		lines = append(lines, line.String())
+	}
+	return r.RenderLines(lines, width, bg)
+}
+
+// fitCells is the size in cells an image takes inside a box: as large as fits
+// while keeping its aspect. A cell holds one sample across and two down, so an
+// image of aspect sw:sh needs width*sh/(2*sw) rows at that width.
+func fitCells(source image.Rectangle, width, maxHeight int) (int, int) {
+	sw, sh := source.Dx(), source.Dy()
+	if sw <= 0 || sh <= 0 || width <= 0 || maxHeight <= 0 {
+		return 0, 0
+	}
+	cells, rows := width, (width*sh+2*sw-1)/(2*sw) // ceil: no half row is dropped
+	if rows > maxHeight {
+		rows = maxHeight
+		cells = (2 * rows * sw) / sh // floor: what that height allows
+	}
+	if cells > width {
+		cells = width
+	}
+	return max(1, cells), max(1, rows)
+}
+
+// halfCell is the source rectangle one half of a cell covers: the top half of
+// cell (cx, cy) when half is 0, the bottom half when it is 1. It is clamped to
+// the source, so a box larger than the picture repeats edge samples instead of
+// reading outside.
+func halfCell(source image.Rectangle, cells, rows, cx, cy, half int) image.Rectangle {
+	sw, sh := source.Dx(), source.Dy()
+	x0 := source.Min.X + cx*sw/cells
+	x1 := source.Min.X + (cx+1)*sw/cells
+	y0 := source.Min.Y + (cy*2+half)*sh/(rows*2)
+	y1 := source.Min.Y + (cy*2+half+1)*sh/(rows*2)
+	clamp := func(v, low, high int) int { return min(max(v, low), high) }
+	return image.Rect(
+		clamp(x0, source.Min.X, source.Max.X),
+		clamp(y0, source.Min.Y, source.Max.Y),
+		clamp(max(x1, x0+1), source.Min.X, source.Max.X),
+		clamp(max(y1, y0+1), source.Min.Y, source.Max.Y),
+	)
+}
+
+// sampleRegion is the average colour of the source region one half-cell covers,
+// composited onto bg. RGBA() is premultiplied, so the colour is the sum divided
+// by the alpha it was multiplied by - averaging the premultiplied values would
+// darken every partly transparent pixel, which is what a radar tile is made of.
+func sampleRegion(img image.Image, region image.Rectangle, bg color.RGBA) color.RGBA {
+	var sumR, sumG, sumB, sumA float64
+	count := 0
+	for y := region.Min.Y; y < region.Max.Y; y++ {
+		for x := region.Min.X; x < region.Max.X; x++ {
+			cr, cg, cb, ca := img.At(x, y).RGBA()
+			sumR += float64(cr) / 65535
+			sumG += float64(cg) / 65535
+			sumB += float64(cb) / 65535
+			sumA += float64(ca) / 65535
+			count++
+		}
+	}
+	if count == 0 {
+		return bg
+	}
+	n := float64(count)
+	alpha := sumA / n
+	var red, green, blue float64
+	if sumA > 0 {
+		red, green, blue = sumR/sumA, sumG/sumA, sumB/sumA
+	}
+	mix := func(front, back float64) uint8 {
+		return uint8(255 * clamp01(front*alpha+back*(1-alpha)))
+	}
+	return color.RGBA{
+		R: mix(red, float64(bg.R)/255),
+		G: mix(green, float64(bg.G)/255),
+		B: mix(blue, float64(bg.B)/255),
+		A: 255,
+	}
+}
+
+// renderImageRamp draws the same cells with no colour at all, which is the one
+// case lipgloss cannot downgrade for us.
+func (r Renderer) renderImageRamp(img image.Image, source image.Rectangle, cells, rows, width int, bg lipgloss.Color) string {
+	style := lipgloss.NewStyle().Background(bg).Foreground(r.Styles.Workspace.BodyFg)
+	left := (width - cells) / 2
+	lines := make([]string, 0, rows)
+	for cy := 0; cy < rows; cy++ {
+		var line strings.Builder
+		line.WriteString(strings.Repeat(" ", max(0, left)))
+		for cx := 0; cx < cells; cx++ {
+			top := sampleRegion(img, halfCell(source, cells, rows, cx, cy, 0), color.RGBA{A: 255})
+			bottom := sampleRegion(img, halfCell(source, cells, rows, cx, cy, 1), color.RGBA{A: 255})
+			luma := (0.2126*float64(top.R) + 0.7152*float64(top.G) + 0.0722*float64(top.B) +
+				0.2126*float64(bottom.R) + 0.7152*float64(bottom.G) + 0.0722*float64(bottom.B)) / 2
+			// luma is 0..255, and the ramp is shortest at the dark end, so the
+			// index is scaled - clamped, because a 255 lands one past the end.
+			glyph := imageRamp[min(len(imageRamp)-1, int(luma)*len(imageRamp)/256)]
+			line.WriteString(style.Render(string(glyph)))
+		}
+		lines = append(lines, line.String())
+	}
+	return r.RenderLines(lines, width, bg)
+}
+
+// hexColour is a lipgloss colour for a sampled pixel.
+func hexColour(c color.RGBA) string {
+	const digits = "0123456789abcdef"
+	return string([]byte{
+		'#', digits[c.R>>4], digits[c.R&0xF],
+		digits[c.G>>4], digits[c.G&0xF],
+		digits[c.B>>4], digits[c.B&0xF],
+	})
+}
+
+// rgbaOf reads a theme colour back as RGBA, so a panel background can be
+// composited onto. hexToRGB is the helper the contrast code already uses
+// (color.go:45) and it returns 0..1 channels, or ok false for a named colour.
+func rgbaOf(c lipgloss.Color) color.RGBA {
+	red, green, blue, ok := hexToRGB(c)
+	if !ok {
+		return color.RGBA{A: 255}
+	}
+	return color.RGBA{
+		R: uint8(math.Round(clamp01(red) * 255)),
+		G: uint8(math.Round(clamp01(green) * 255)),
+		B: uint8(math.Round(clamp01(blue) * 255)),
+		A: 255,
+	}
+}
