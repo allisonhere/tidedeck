@@ -87,6 +87,17 @@ type Row struct {
 	// back to the command the manifest declares under "open". A row without one
 	// is text: the cursor skips it, so a setup hint is not a destination.
 	ID string `json:"id"`
+
+	// Src is an absolute path to a picture this row draws. A document carries a
+	// reference, never pixels: a document is capped at 1 MB, and a reference is
+	// what a plugin that produced the file already has.
+	Src string `json:"src"`
+	// Rows caps how many cells tall an image row may be drawn (default 24). A
+	// document does not know how tall its pane is, so a picture bounds itself.
+	Rows int `json:"rows"`
+	// Alt is drawn when the picture cannot be read. A row is a promise that
+	// something appears, and "something went wrong" is something.
+	Alt string `json:"alt"`
 }
 
 // rowTone resolves a row's colour, preferring the explicit tone.
@@ -207,6 +218,9 @@ func renderRow(renderer tideui.Renderer, row Row, width, labelWidth int, bg lipg
 	case "text":
 		return []string{docPair(renderer, row.Label, row.Value, labelWidth, row.rowTone(), bg)}
 
+	case "image":
+		return renderImageRow(renderer, row, width)
+
 	case "block":
 		lines := make([]string, 0, len(row.Body)+1)
 		if row.Label != "" {
@@ -223,6 +237,33 @@ func renderRow(renderer tideui.Renderer, row Row, width, labelWidth int, bg lipg
 		// should lose a line, not the whole panel.
 		return nil
 	}
+}
+
+// renderImageRow draws the picture a row points at, or its alt text. Sized from
+// the source's aspect unless the row caps it, because only the row knows roughly
+// how much room it is worth.
+func renderImageRow(renderer tideui.Renderer, row Row, width int) []string {
+	alt := strings.TrimSpace(row.Alt)
+	if alt == "" {
+		alt = "image unavailable"
+	}
+	unavailable := func() []string {
+		return []string{docPair(renderer, row.Label, alt, docLabelWidth([]Row{row}, width),
+			tideui.ToneWarning, renderer.Styles.Workspace.Bg)}
+	}
+	maxRows := row.Rows
+	if maxRows <= 0 {
+		maxRows = 24
+	}
+	img, err := loadImage(strings.TrimSpace(row.Src))
+	if err != nil {
+		return unavailable()
+	}
+	drawn := renderer.RenderImage(img, width, maxRows)
+	if strings.TrimSpace(drawn) == "" {
+		return unavailable()
+	}
+	return strings.Split(drawn, "\n")
 }
 
 // renderRowSelected draws a row the reader is on as one selection block: every
