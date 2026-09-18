@@ -38,7 +38,7 @@ func radarValues(t *testing.T, lat, lon float64) dash.Values {
 	values.Set(weatherLongitudeKey, lon)
 	values.Set(weatherLocationKey, "Austin")
 	values.Set(radarEnabledKey, true)
-	values.Set(radarZoomKey, float64(8))
+	values.Set(radarZoomKey, float64(provider.RadarDefaultZoom))
 	return values
 }
 

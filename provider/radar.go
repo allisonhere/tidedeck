@@ -29,8 +29,11 @@ const radarUserAgent = "tideui-radar/1 (+https://github.com/allisonhere/tideui)"
 type RadarOptions struct {
 	Latitude  float64
 	Longitude float64
-	// Zoom is the slippy-map zoom: 8 covers roughly 150 km, and each step up
-	// halves that. RainViewer serves 0-10 at 256 px.
+	// Zoom is the slippy-map zoom. The service documents 7 as its deepest, and
+	// asks for more serves a canned tile rather than an error: verified by
+	// fetching eight and ten, which return byte-identical files for different
+	// coordinates. So the clamp is not politeness, it is the difference between
+	// a picture of the weather and a picture of nothing.
 	Zoom int
 }
 
@@ -65,8 +68,10 @@ func Radar(opts RadarOptions) func(context.Context) (tideui.RadarFrame, error) {
 		zoom := clampZoom(opts.Zoom)
 		x, y := radarTileFor(opts.Latitude, opts.Longitude, zoom)
 		// 256 px tiles, colormap 4 (the familiar green-to-red radar), smooth 1,
-		// snow 1: the arguments in the path are the service's own.
-		url := fmt.Sprintf("%s%s/256/%d/%d/%d/256/4/1_1.png", host, newest.Path, zoom, x, y)
+		// snow 1. The shape is the service's own and is exact:
+		// {path}/{size}/{z}/{x}/{y}/{color}/{smooth}_{snow}.png - an extra
+		// segment is not rejected, it silently shifts what the numbers mean.
+		url := fmt.Sprintf("%s%s/256/%d/%d/%d/4/1_1.png", host, newest.Path, zoom, x, y)
 		img, err := fetchRadarTile(ctx, url)
 		if err != nil {
 			return tideui.RadarFrame{}, err
@@ -134,5 +139,14 @@ func radarTileFor(lat, lon float64, zoom int) (int, int) {
 // ask for a tile that cannot exist.
 func clampTile(v, n int) int { return min(max(v, 0), n-1) }
 
-// clampZoom keeps a zoom inside what the service serves.
-func clampZoom(zoom int) int { return min(max(zoom, 0), 10) }
+// RadarMaxZoom is the deepest zoom the service serves real radar for. Asking for
+// more returns a canned tile rather than an error, which is a lie in the shape of
+// a picture, so nothing here may ask for more.
+const RadarMaxZoom = 7
+
+// RadarDefaultZoom is where a panel should start: a metro area and its
+// surroundings, which is the scale "will it rain here" is asked at.
+const RadarDefaultZoom = RadarMaxZoom
+
+// clampZoom keeps a zoom inside what the service actually serves.
+func clampZoom(zoom int) int { return min(max(zoom, 0), RadarMaxZoom) }

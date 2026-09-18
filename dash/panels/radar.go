@@ -3,6 +3,7 @@ package panels
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -49,8 +50,9 @@ func (r *radar) Schema() []dash.Field {
 	return []dash.Field{
 		{Key: radarEnabledKey, Label: "live radar", Kind: dash.FieldBool, Default: "true",
 			Description: "Uses the Weather panel's location."},
-		{Key: radarZoomKey, Label: "detail", Kind: dash.FieldFloat, Default: "8",
-			Description: "Zoom 5 is a region, 10 is a few blocks.", Min: 5, Max: 10, Step: 1},
+		{Key: radarZoomKey, Label: "detail", Kind: dash.FieldFloat, Default: strconv.Itoa(provider.RadarDefaultZoom),
+			Description: "Zoom 4 is a state, 7 is a metro area and its surroundings. 7 is as deep as the service's data goes.",
+			Min:         3, Max: float64(provider.RadarMaxZoom), Step: 1},
 	}
 }
 
@@ -66,7 +68,7 @@ func (r *radar) Configure(values dash.Values) error {
 	r.location = location
 	r.zoom = int(values.Float(radarZoomKey))
 	if r.zoom == 0 {
-		r.zoom = 8
+		r.zoom = provider.RadarDefaultZoom
 	}
 	if !boolOr(values, radarEnabledKey, true) || (latitude == 0 && longitude == 0) {
 		r.fetch = nil
