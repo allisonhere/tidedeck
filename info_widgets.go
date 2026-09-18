@@ -27,7 +27,7 @@ func (r Renderer) RenderStatusDot(d StatusDot, bg lipgloss.Color) string {
 	if r.Styles.PlainUI {
 		glyph = "o"
 	}
-	dot := lipgloss.NewStyle().Background(bg).Foreground(r.toneColor(d.Tone)).Render(glyph)
+	dot := lipgloss.NewStyle().Background(bg).Foreground(r.ToneColor(d.Tone)).Render(glyph)
 	if d.Label == "" {
 		return dot
 	}
@@ -139,7 +139,7 @@ func (s StatusKind) Glyph(plain bool) string {
 
 // RenderStatus renders a status marker with an optional word.
 func (r Renderer) RenderStatus(kind StatusKind, label string, bg lipgloss.Color) string {
-	glyph := lipgloss.NewStyle().Background(bg).Foreground(r.toneColor(kind.Tone())).
+	glyph := lipgloss.NewStyle().Background(bg).Foreground(r.ToneColor(kind.Tone())).
 		Render(kind.Glyph(r.Styles.PlainUI))
 	if label == "" {
 		return glyph
@@ -169,7 +169,7 @@ type StatValue struct {
 // RenderStatValue renders a headline figure over bg.
 func (r Renderer) RenderStatValue(s StatValue, bg lipgloss.Color) string {
 	ws := r.Styles.Workspace
-	value := lipgloss.NewStyle().Background(bg).Foreground(r.toneColor(s.Tone)).Bold(true).
+	value := lipgloss.NewStyle().Background(bg).Foreground(r.ToneColor(s.Tone)).Bold(true).
 		Render(s.Value + s.Unit)
 	if s.Trend != 0 {
 		value += lipgloss.NewStyle().Background(bg).Render(" ") + r.RenderTrend(s.Trend, "%", bg)
@@ -201,7 +201,7 @@ func (r Renderer) RenderTrend(change float64, unit string, bg lipgloss.Color) st
 		}
 	}
 	text := fmt.Sprintf("%s%.1f%s", arrow, math.Abs(change), unit)
-	return lipgloss.NewStyle().Background(bg).Foreground(r.toneColor(tone)).Render(text)
+	return lipgloss.NewStyle().Background(bg).Foreground(r.ToneColor(tone)).Render(text)
 }
 
 // BarGauge is a labelled progress bar.

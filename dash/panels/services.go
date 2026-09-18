@@ -38,8 +38,12 @@ func (s *services) Meta() dash.Meta {
 
 func (s *services) Schema() []dash.Field {
 	return []dash.Field{
-		{Key: systemdKey, Label: "systemd units", Kind: dash.FieldText},
-		{Key: dockerKey, Label: "docker socket", Kind: dash.FieldText},
+		{Key: systemdKey, Label: "systemd units", Kind: dash.FieldText,
+			Description: "Comma-separated unit names. Units take precedence over Docker.",
+			Placeholder: "none"},
+		{Key: dockerKey, Label: "docker socket", Kind: dash.FieldText,
+			Description: "Path to the socket, or 1 for the default one. Used only when no units are set.",
+			Placeholder: "none"},
 	}
 }
 

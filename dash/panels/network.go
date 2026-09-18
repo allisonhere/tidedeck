@@ -51,6 +51,8 @@ func (n *network) Meta() dash.Meta {
 func (n *network) Schema() []dash.Field {
 	return []dash.Field{{
 		Key: interfaceKey, Label: "interface", Kind: dash.FieldText,
+		Description: "Name of the interface to watch, such as wlan0. Blank picks the busiest one.",
+		Placeholder: "busiest",
 	}}
 }
 

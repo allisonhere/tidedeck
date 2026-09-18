@@ -220,7 +220,7 @@ func (p CommandPalette) Render(r Renderer, width, height int) Overlay {
 	}
 	panelWidth := min(72, max(30, width-8))
 	rowsAvailable := max(1, height-6)
-	first, last := visibleRange(len(p.filtered), p.cursor, rowsAvailable)
+	first, last := VisibleRange(len(p.filtered), p.cursor, rowsAvailable)
 	innerWidth := max(1, panelWidth-4)
 	rows := []string{r.Styles.OverlayHint.Width(innerWidth).Render("> " + p.query)}
 	if len(p.filtered) == 0 {
@@ -323,7 +323,7 @@ func (p PanelPicker) Render(r Renderer, width, height int) Overlay {
 	}
 	panelWidth := min(64, max(30, width-8))
 	rowsAvailable := max(1, height-6)
-	first, last := visibleRange(len(p.order), p.cursor, rowsAvailable)
+	first, last := VisibleRange(len(p.order), p.cursor, rowsAvailable)
 	innerWidth := max(1, panelWidth-4)
 	var rows []string
 	for index := first; index < last; index++ {

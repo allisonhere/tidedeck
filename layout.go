@@ -246,11 +246,31 @@ func (r Renderer) renderTabbed(panes [3]Pane, width, height int) string {
 			break
 		}
 	}
-	tabWidth := width / 3
-	tab0 := r.renderHeader(panes[0], tabWidth)
-	tab1 := r.renderHeader(panes[1], tabWidth)
-	tab2 := r.renderHeader(panes[2], max(1, width-2*tabWidth))
-	tabBar := lipgloss.JoinHorizontal(lipgloss.Top, tab0, tab1, tab2)
+	// Only panes that exist get a tab. Drawing all three unconditionally gave
+	// a layout with two panes a third, empty tab - a header for a pane that
+	// was never filled in.
+	present := 0
+	for _, pane := range panes {
+		if pane.Title != "" || pane.Content != "" {
+			present++
+		}
+	}
+	if present == 0 {
+		present = 1
+	}
+	tabWidth := width / present
+	headers := make([]string, 0, present)
+	for i, pane := range panes {
+		if i >= present {
+			break
+		}
+		if i == present-1 {
+			headers = append(headers, r.renderHeader(pane, max(1, width-tabWidth*(present-1))))
+			continue
+		}
+		headers = append(headers, r.renderHeader(pane, tabWidth))
+	}
+	tabBar := lipgloss.JoinHorizontal(lipgloss.Top, headers...)
 
 	contentHeight := max(0, height-1)
 	if contentHeight == 0 {

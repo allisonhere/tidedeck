@@ -877,7 +877,7 @@ func (r Renderer) renderUpdates(u UpdateStatus, width int, detail bool) string {
 			tone = ToneAccent
 		}
 		lines = append(lines, r.dashPair("Omarchy", "", 7, bg)+
-			lipgloss.NewStyle().Background(bg).Foreground(r.toneColor(tone)).Render(value))
+			lipgloss.NewStyle().Background(bg).Foreground(r.ToneColor(tone)).Render(value))
 	}
 
 	pending := u.Pending()
@@ -1049,11 +1049,11 @@ func (r Renderer) renderServices(items []ServiceStatus, width int, detail bool) 
 	var lines []string
 	for _, item := range items {
 		kind, label, tone := item.resolved()
-		dot := lipgloss.NewStyle().Background(bg).Foreground(r.toneColor(tone)).
+		dot := lipgloss.NewStyle().Background(bg).Foreground(r.ToneColor(tone)).
 			Render(kind.Glyph(plain))
 		name := lipgloss.NewStyle().Background(bg).Foreground(ws.BodyFg).
 			Render(padRight(ansi.Truncate(item.Name, nameWidth, "…"), nameWidth))
-		state := lipgloss.NewStyle().Background(bg).Foreground(r.toneColor(tone)).
+		state := lipgloss.NewStyle().Background(bg).Foreground(r.ToneColor(tone)).
 			Render(padRight(ansi.Truncate(label, stateWidth, "…"), stateWidth))
 		age := ""
 		if !compact {
@@ -1287,7 +1287,7 @@ func (r Renderer) RenderTasks(tasks []Task, width int) string {
 				box = "[ ]"
 			}
 		}
-		boxStyle := lipgloss.NewStyle().Background(bg).Foreground(r.toneColor(tone))
+		boxStyle := lipgloss.NewStyle().Background(bg).Foreground(r.ToneColor(tone))
 		titleStyle := lipgloss.NewStyle().Background(bg).Foreground(ws.BodyFg)
 		if task.Done {
 			titleStyle = titleStyle.Foreground(ws.BodyDimmedFg)
@@ -1300,7 +1300,7 @@ func (r Renderer) RenderTasks(tasks []Task, width int) string {
 		if task.Due != "" {
 			dueStyle := lipgloss.NewStyle().Background(bg).Foreground(ws.BodyMutedFg)
 			if !task.Done && strings.EqualFold(task.Due, "today") {
-				dueStyle = dueStyle.Foreground(r.toneColor(ToneWarning))
+				dueStyle = dueStyle.Foreground(r.ToneColor(ToneWarning))
 			}
 			right = dueStyle.Render(task.Due)
 		}
@@ -1364,7 +1364,7 @@ func (r Renderer) renderRepoActivity(items []RepoActivity, width int, detail boo
 		if tone == ToneNeutral {
 			tone = ToneAccent
 		}
-		left := lipgloss.NewStyle().Background(bg).Foreground(r.toneColor(tone)).Bold(true).
+		left := lipgloss.NewStyle().Background(bg).Foreground(r.ToneColor(tone)).Bold(true).
 			Render(padRight(item.Name, labelWidth))
 
 		// What is outstanding matters more than which branch it is on, so the

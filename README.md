@@ -33,7 +33,8 @@ go get github.com/allisonhere/tideui
 - **Dashboard widgets** — weather, agenda, clock, system, GPU, network, storage, services, updates, news, tasks, notes, git activity, and markets, each driven by a plain data model and backed by a `Renderer` method, with a shared Enter-to-drill-down pattern.
 - **Real data sources** — a standard-library `provider` package: background collectors with per-source intervals and graceful degradation, plus providers for Open-Meteo weather, RSS/Atom/RDF with a curated source
   catalogue (`provider.NewsSources()`), Linux system/GPU/network/storage, pending package updates, systemd and Docker, git activity, todo.txt, notes, iCalendar (local files or remote `https`/`webcal` feeds), and markets.
-- **Panel registry** — a `dash` package where a panel's data, rendering, and settings are one object: opt-in `Fetcher`/`Configurable`/`Ticker`/`Badger`/`Actor` interfaces, pull-based refresh with per-panel intervals and last-good-value degradation, a settings screen built from the fields panels declare, a configuration document that preserves keys it does not recognise, and external plugins that are ordinary programs printing a JSON document.
+- **Panel registry** — a `dash` package where a panel's data, rendering, and settings are one object: opt-in `Fetcher`/`Configurable`/`Ticker`/`Badger`/`Actor` interfaces, pull-based refresh with per-panel intervals and last-good-value degradation, a settings screen built from the fields panels declare, a configuration document that preserves keys it does not recognise, and external plugins that are ordinary programs printing a JSON document — which can report the values their own settings can usefully take, so a setting nothing static could know becomes a populated list.
+- **Form controls** — a `form` package of settings inputs built on `bubbles`: a text field with real word motions and a scrolling viewport, a choice that opens a themed picker rather than only cycling, a toggle that takes the arrow keys, a bounded number checked as it is typed, and a button that cannot fire twice — each drawing only its value cell, through the host's `Renderer`, so the screen keeps its own row layout.
 - **Per-panel themes** — any panel can take its own full theme or color overrides while density, corners, gutters, and global chrome stay workspace-wide; panel content inherits it through `PanelContext.Renderer`.
 - **Full-border pane focus** — every pane renders a 4-sided border colored by focus state, contrast-boosted to a 7:1 floor (square or round corners) so the focused pane is never hard to spot.
 - **List primitives** — single-line `Row` and multi-line `Block` with selected/muted states.
@@ -837,6 +838,75 @@ The config is stored at `~/.config/tidedeck/config.json` (application-scoped,
 versionless) and the status strip shows `live` instead of `demo data`. Panels
 whose provider is not configured simply start empty.
 
+## Form controls
+
+`tideui/form` is the set of input controls a settings screen needs. It sits
+downstream of `tideui`, the way `provider` and `dash` do, and for the same
+reason: a control owns edit state — a caret position, an open picker, a
+pending action — and `tideui` itself stays purely presentational. Nothing in
+the package names a colour of its own; every control draws through a
+`tideui.Renderer` and inherits whatever theme the host resolved.
+
+```go
+type Control interface {
+    Value() string
+    SetValue(value string)
+    Update(msg tea.KeyMsg) Action
+    View(r tideui.Renderer, width int) string
+    Editing() bool
+    Err() error
+    Hints() []tideui.SoftHint
+}
+```
+
+| Control | Keys | Notes |
+|---|---|---|
+| `form.Text` | word motions, `ctrl+a/e/k/u/w`, paste, `tab` completes | wraps `bubbles/textinput`; `WithSummary` shortens a long value when idle |
+| `form.Choice` | `←/→` step, `enter` opens a list at five or more options | `WithSample` draws a gauge or sparkline *beside* the name, never instead of it |
+| `form.Toggle` | `enter`, `space`, **and** `←/→` | so an arrow key changes the value under the cursor whatever kind it is |
+| `form.Number` | `←/→` step by `Step`, clamped to a range | checked as it is typed; a lone `-` or trailing `.` is accepted, or those values could never be entered |
+| `form.Button` | `enter`, once | shows a spinner while running and refuses to fire twice |
+
+**A control draws the value cell, never the row.** The screen owns the row —
+its rail, label and selection — because only the screen knows how its rows are
+laid out, and that split is what lets the same control sit in a settings list,
+a modal, or a panel body.
+
+`Update` returns what the keystroke did, so the host knows whether to mark its
+form dirty, restore a value, or let the key through to its own navigation:
+
+| `Action` | Means |
+|---|---|
+| `ActionIgnored` | the control did not take the key — the host should |
+| `ActionChanged` | the value changed |
+| `ActionEditing` | the control is now taking keys exclusively |
+| `ActionCommitted` | an edit finished and the value was kept |
+| `ActionCancelled` | an edit finished and the value was restored |
+
+`ActionIgnored` is what keeps the arrow keys working as navigation on a row
+that is not being edited, and it is also how a text field hands back `up`,
+`down` and `tab`: none of them mean anything inside a one-line field, and
+swallowing them silently made the field a trap — the keys that move between
+rows everywhere else simply stopped working. They commit and fall through.
+
+A control that needs more than a cell implements `Overlayer`, and the host
+draws what it returns as its modal:
+
+```go
+if overlayer, ok := control.(form.Overlayer); ok {
+    if overlay, open := overlayer.Overlay(r, width, height); open {
+        layout.Modal = overlay
+    }
+}
+```
+
+`form.Choice` uses it for the picker, which keeps the theme picker's
+preview/commit split — moving the cursor previews, `enter` commits, `esc`
+restores — because a choice that changes how the dashboard looks should show
+the change while you are choosing it. `Hints()` is the control's own key
+legend, so the hint bar is generated from whatever has the keyboard rather
+than hand-written per screen.
+
 ## Panel registry
 
 `github.com/allisonhere/tideui/dash` binds a panel's three concerns — its data,
@@ -948,16 +1018,37 @@ func (u *updates) Schema() []dash.Field {
 
 | `FieldKind` | Edited as |
 |---|---|
-| `FieldText` | free text |
+| `FieldText` | free text, or a list when the panel reports `Options` |
 | `FieldBool` | a tick |
-| `FieldChoice` | one of `Options`, stepped with `←/→` |
-| `FieldFloat` | a number, validated on save |
+| `FieldChoice` | one of `Options`, stepped with `←/→`, picked from a list at five or more |
+| `FieldFloat` | a bounded number, checked as it is typed |
 | `FieldAction` | a button that runs `Field.Run` |
 
 `Field.Key` is a dotted path into the configuration document, and it names the
 key that is *already* in `config.json` — moving a setting onto its panel does
 not rename it or rewrite anyone's file. `Normalize` tidies a value on save and
 `Summary` renders a long value to fit one row.
+
+A field can also say what it is for, and what it will accept:
+
+```go
+dash.Field{
+    Key: "weather.latitude", Label: "latitude", Kind: dash.FieldFloat,
+    Description: "Decimal degrees. Positive is north.",
+    Placeholder: "from the location above",
+    Unit: "°", Min: -90, Max: 90, Step: 0.1,
+}
+```
+
+`Description` is drawn under the row while it is selected, which is the only
+place a setting gets to explain itself — a label alone cannot say that a
+docker socket of `1` means the default one. `Placeholder` is what an empty
+field shows, so a setting that already does something sensible when blank
+(`every account`, `the inbox`) reads as a working default rather than as
+unset. `Validate` marks a bad value on its own row as it is typed, instead of
+failing the whole save with one banner naming one field. `Unit`, `Min`, `Max`
+and `Step` apply to `FieldFloat`: the arrow keys step by `Step` and clamp to
+the range, and `Field.Bounded()` reports whether a range was given at all.
 
 `dash.Values` is that document: decoded JSON addressed by path, which **keeps
 keys it does not recognise**. A key belonging to a panel this build does not
@@ -1048,6 +1139,7 @@ key or with another plugin's.
     { "type": "divider", "label": "DETAIL" },
     { "type": "spacer" }
   ],
+  "options": { "account": ["", "Gmail", "work"] },
   "detail": [ { "type": "text", "label": "Plan", "value": "Claude Pro" } ]
 }
 ```
@@ -1063,7 +1155,33 @@ key or with another plugin's.
 | `spacer` | a blank line |
 
 A plugin's settings are edited in the settings screen and reach the program as
-environment variables on the next run. A plugin can also **take typing**:
+environment variables on the next run. A plugin can also **answer back about its own settings**. `options` maps a
+declared setting's name to the values it can usefully take, and the settings
+screen turns that row into a list. A manifest is static JSON written before the
+plugin was ever installed, so it cannot know which accounts exist on this
+machine, which containers are running, or which interfaces are up — but the
+program finds out every time it runs, and an empty box the reader has to guess
+at is the worst kind of setting. A `string` row reported with options becomes a
+list; a row declared `choice` keeps the options it declared, because a program
+may not widen a contract its manifest made. The lists are re-read on every run,
+so a setting whose options depend on another one — the mailboxes of the
+account you just chose — narrows as soon as the panel runs again. A value the
+new list does not contain stays *in* it, at the end: the row keeps reading what
+is actually saved, the list opens on it, and confirming keeps it. Dropping it
+would make the screen draw the first option instead, so the row would say the
+inbox while the setting said otherwise.
+
+The lists a panel reports are held in its last document, so the settings screen
+reads them without running anything: the run happens on the panel's interval, or
+straight after a setting it depends on changes — and then only for the panel
+whose page you are on. Changing one panel's settings re-reads that panel and
+nothing else; `ctrl+s` applies the whole document and re-reads everything,
+because a save may have changed anything. (Invalidating every panel on every
+keystroke is how a plugin's list, which takes 16 ms to produce, came to feel
+like a two-second dropdown: the frame was waiting on the package check, the
+market quotes and the news feeds the keystroke had not touched.)
+
+A plugin can also **take typing**:
 declaring `panel.input` names a setting that receives keystrokes while the panel
 is focused, and `panel.inputChars` lists the runes it accepts, so anything else
 still reaches the application. The single-key commands are reserved: `m`, `w`,
@@ -1109,6 +1227,28 @@ is also published at
 [`allisonhere/tidedeck-plugins`](https://github.com/allisonhere/tidedeck-plugins),
 so you can install it from a live URL with
 `https://github.com/allisonhere/tidedeck-plugins#docker`.
+
+`contrib/mail/` is a third, and shows what to do when the application you want
+on the dashboard has no API to ask. TideMail is a foreground TUI, not a daemon,
+so there is nothing running to query for most of the day - but its cache is
+SQLite in WAL mode, which admits one writer and any number of readers. The
+plugin opens that file read-only and previews the mailbox, so the panel is
+right whether TideMail is open or closed, and opening it changes nothing. Each
+message renders as a `block`: the sender and age on one line, the subject
+indented beneath, so a long subject wraps into the panel instead of being cut
+at a label column. Unread mail carries the panel and read mail is muted;
+starred wins over unread, because saving something says more than not having
+opened it.
+
+It is also the example of a plugin that sets itself up. Every setting has a
+working default, so one account with one inbox needs no configuration at all:
+a blank mailbox finds the inbox by name, matched case-insensitively because
+servers disagree about capitalisation. What makes that safe to rely on is the
+empty panel - a plugin whose blank state says only "empty" cannot be told apart
+from a broken one, so this one names the accounts it can see and how much mail
+each has, which is exactly what the account setting wants typed into it. A
+mistyped account says so and lists the real ones; a machine with no accounts
+yet says that instead of looking broken.
 
 #### Running them
 

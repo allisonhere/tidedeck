@@ -48,10 +48,11 @@ func (u *updates) Meta() dash.Meta {
 
 func (u *updates) Schema() []dash.Field {
 	return []dash.Field{{
-		Key:     aurHelperKey,
-		Label:   "aur helper",
-		Kind:    dash.FieldText,
-		Default: defaultAURHelper,
+		Key:         aurHelperKey,
+		Label:       "aur helper",
+		Kind:        dash.FieldText,
+		Default:     defaultAURHelper,
+		Description: "The command that lists AUR updates, such as yay or paru.",
 	}}
 }
 

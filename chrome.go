@@ -110,6 +110,11 @@ type Sparkline struct {
 type SectionDivider struct {
 	Label string
 	Width int
+	// Tone colours the rule and its label. ToneNeutral, the zero value, keeps
+	// the quiet separator colouring a divider has by default; a tone makes the
+	// rule itself carry meaning, which is what a divider labelled with a state
+	// wants - the words and the line should agree.
+	Tone Tone
 }
 
 // FocusChrome centralises the decisions a themed panel makes about its focus
@@ -626,11 +631,16 @@ func (r Renderer) RenderSectionDivider(d SectionDivider, bg lipgloss.Color) stri
 	if r.Styles.PlainUI {
 		ruleGlyph = "-"
 	}
-	rule := lipgloss.NewStyle().Background(bg).Foreground(ws.Separator)
+	ruleFg, labelFg := ws.Separator, ws.SubtitleFg
+	if d.Tone != ToneNeutral {
+		ruleFg = r.ToneColor(d.Tone)
+		labelFg = ruleFg
+	}
+	rule := lipgloss.NewStyle().Background(bg).Foreground(ruleFg)
 	if d.Label == "" {
 		return rule.Render(strings.Repeat(ruleGlyph, d.Width))
 	}
-	label := lipgloss.NewStyle().Background(bg).Foreground(ws.SubtitleFg).Bold(true).Render(" " + d.Label + " ")
+	label := lipgloss.NewStyle().Background(bg).Foreground(labelFg).Bold(true).Render(" " + d.Label + " ")
 	prefixWidth := lipgloss.Width(label) + 1
 	if prefixWidth >= d.Width {
 		return clampStyled(rule.Render(ruleGlyph)+label, d.Width, bg)
@@ -646,7 +656,7 @@ func (r Renderer) RenderProgressBar(bar ProgressBar, bg lipgloss.Color) string {
 	fraction := clamp01(bar.Fraction)
 	filled := int(math.Round(fraction * float64(width)))
 	filled = min(width, max(0, filled))
-	fullStyle := lipgloss.NewStyle().Background(bg).Foreground(r.toneColor(bar.Tone))
+	fullStyle := lipgloss.NewStyle().Background(bg).Foreground(r.ToneColor(bar.Tone))
 	emptyStyle := lipgloss.NewStyle().Background(bg).Foreground(r.Styles.Workspace.MetricTrack)
 	if r.Styles.PlainUI {
 		return fullStyle.Render(strings.Repeat("#", filled)) + emptyStyle.Render(strings.Repeat("-", width-filled))
@@ -767,7 +777,7 @@ func (r Renderer) RenderSparkline(spark Sparkline, bg lipgloss.Color) string {
 	var b strings.Builder
 	for _, value := range values {
 		level := clamp01(value)          // flat run: size by the absolute value
-		color := r.toneColor(spark.Tone) // flat run: keep the caller's tone
+		color := r.ToneColor(spark.Tone) // flat run: keep the caller's tone
 		if varying {
 			level = (value - low) / (high - low)
 			color = ws.MetricGradient(level)
@@ -871,7 +881,7 @@ func (r Renderer) RenderMetricRow(m MetricRow, bg lipgloss.Color) string {
 	gap := lipgloss.NewStyle().Background(bg).Render("  ")
 	line := lipgloss.NewStyle().Background(bg).Foreground(ws.BodyMutedFg).Render(label) +
 		gap +
-		lipgloss.NewStyle().Background(bg).Foreground(r.toneColor(m.Tone)).Bold(true).Render(valueCell)
+		lipgloss.NewStyle().Background(bg).Foreground(r.ToneColor(m.Tone)).Bold(true).Render(valueCell)
 
 	if plotWidth := m.PlotWidth(); plotWidth > 0 {
 		plot := ""
@@ -890,7 +900,10 @@ func (r Renderer) RenderMetricRow(m MetricRow, bg lipgloss.Color) string {
 	return line
 }
 
-func (r Renderer) toneColor(tone Tone) lipgloss.Color {
+// ToneColor resolves a semantic tone to a colour from the active theme. It is
+// exported so an application can colour its own chrome to match a widget's
+// tone without naming a colour, which is the whole point of the vocabulary.
+func (r Renderer) ToneColor(tone Tone) lipgloss.Color {
 	ws := r.Styles.Workspace
 	switch tone {
 	case ToneGood:

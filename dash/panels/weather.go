@@ -56,9 +56,14 @@ func (w *weather) Meta() dash.Meta {
 func (w *weather) Schema() []dash.Field {
 	return []dash.Field{
 		{Key: weatherEnabledKey, Label: "live weather", Kind: dash.FieldBool, Default: "true"},
-		{Key: weatherLatitudeKey, Label: "latitude", Kind: dash.FieldFloat},
-		{Key: weatherLongitudeKey, Label: "longitude", Kind: dash.FieldFloat},
-		{Key: weatherLocationKey, Label: "location", Kind: dash.FieldText, Default: "Local"},
+		{Key: weatherLatitudeKey, Label: "latitude", Kind: dash.FieldFloat,
+			Description: "Degrees north, -90 to 90. The place search fills this in.",
+			Unit:        "°N", Min: -90, Max: 90, Step: 0.1, Placeholder: "unset"},
+		{Key: weatherLongitudeKey, Label: "longitude", Kind: dash.FieldFloat,
+			Description: "Degrees east, -180 to 180.",
+			Unit:        "°E", Min: -180, Max: 180, Step: 0.1, Placeholder: "unset"},
+		{Key: weatherLocationKey, Label: "location", Kind: dash.FieldText, Default: "Local",
+			Description: "The name shown on the panel. It does not affect the forecast."},
 		{Key: weatherFahrenheitKey, Label: "fahrenheit", Kind: dash.FieldBool, Default: "true"},
 		{Key: weatherWindMPHKey, Label: "wind mph", Kind: dash.FieldBool, Default: "true"},
 	}

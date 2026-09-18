@@ -139,7 +139,7 @@ func (p ThemePicker) Modal(renderer Renderer, width, height int) Overlay {
 	rowsAvailable := height - renderer.Styles.Overlay.GetVerticalFrameSize() - titleHeight - footerHeight
 	rowsAvailable = max(1, rowsAvailable)
 
-	first, last := visibleRange(len(p.themes), p.cursor, rowsAvailable)
+	first, last := VisibleRange(len(p.themes), p.cursor, rowsAvailable)
 	innerWidth := max(1, width-renderer.Styles.Overlay.GetHorizontalFrameSize())
 	rows := make([]string, 0, last-first)
 	for index := first; index < last; index++ {
@@ -182,7 +182,7 @@ func (p ThemePicker) SoftModal(renderer Renderer, width, height int, prefix stri
 		prefix = "tide"
 	}
 	rowsAvailable := max(1, height-4)
-	first, last := visibleRange(len(p.themes), p.cursor, rowsAvailable)
+	first, last := VisibleRange(len(p.themes), p.cursor, rowsAvailable)
 	innerWidth := max(1, width-4)
 	rows := make([]string, 0, last-first+1)
 	for index := first; index < last; index++ {
@@ -225,7 +225,12 @@ func themeIndex(themes []Theme, name string) int {
 	return 0
 }
 
-func visibleRange(total, cursor, limit int) (int, int) {
+// VisibleRange returns the half-open window of rows to draw so that cursor
+// stays visible: centred on the cursor, clamped to the ends, and the whole
+// range when it fits. It is exported because every scrolling list wants the
+// same answer, and the alternative is each one growing its own copy that
+// drifts - which is exactly what had already happened.
+func VisibleRange(total, cursor, limit int) (int, int) {
 	if limit >= total {
 		return 0, total
 	}

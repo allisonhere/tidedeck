@@ -30,14 +30,44 @@ type Field struct {
 	// than an empty row.
 	Default string
 
+	// Description explains what the setting does, in one sentence. The
+	// settings screen shows it under the field it belongs to. A label alone
+	// cannot say that a docker socket of "1" means the default one, or what a
+	// blank value falls back to, and that is exactly what a reader needs.
+	Description string
+
+	// Placeholder is shown in place of an empty value, so a field that does
+	// something sensible when blank can say so rather than looking unset.
+	Placeholder string
+
 	// Normalize tidies a value on save, as the repository list does.
 	Normalize func(string) string
 	// Summary renders a long value as something that fits one row, as the
 	// repository list does; the raw value is still what gets edited.
 	Summary func(string) string
+	// Validate reports whether a value is usable, as it is typed. It is the
+	// counterpart to Normalize: Normalize tidies a value that is already
+	// acceptable, Validate says a value is not. Returning an error marks the
+	// field rather than rejecting the keystroke, so a half-typed value is
+	// still editable - "47." is not a number yet, but deleting it to get
+	// there would make the field impossible to fill in.
+	Validate func(string) error
 	// Run performs a FieldAction and returns the message to show.
 	Run func() string
+
+	// Unit, Min, Max and Step describe a FieldFloat. Step is how far an arrow
+	// key moves the value; zero leaves the field typed rather than stepped.
+	// Min and Max bound it, and are ignored when equal.
+	Unit string
+	Min  float64
+	Max  float64
+	Step float64
 }
+
+// Bounded reports whether a numeric field has a range to clamp to. Min and Max
+// both left at zero means "unbounded", which is the useful default: a field
+// that wanted 0..0 has nothing to edit.
+func (f Field) Bounded() bool { return f.Min != f.Max }
 
 // Category is one page of the settings screen: a panel's fields under its
 // title. A panel with no settings still gets a page, because the screen adds

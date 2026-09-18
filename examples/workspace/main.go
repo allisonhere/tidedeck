@@ -583,6 +583,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncOmarchyTheme()
 		// Panels fetch on their own intervals and hold their own data.
 		m.deck.Refresh(context.Background(), m.state.now)
+		// A panel may have just reported different choices for its own settings -
+		// the mailboxes of a newly chosen account - so let the open page follow.
+		m.settings.SyncOptions()
 		m.deck.Tick(m.state.now)
 		// Auto-clear transient status feedback a few seconds after it stops
 		// changing, so it is prominent but never sticks around.
@@ -612,6 +615,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// The panel's State changed off the UI goroutine; re-render it.
 		return m, nil
 	case tea.MouseMsg:
+		// The settings screen is a full takeover: the dashboard is not on
+		// screen, so a click cannot mean anything there. Without this guard
+		// clicks went to the panels underneath, focusing them and copying
+		// their values while the user was looking at settings.
+		if m.settings.Opened() {
+			return m, nil
+		}
 		if m.handlePanelClick(msg) {
 			return m, nil
 		}

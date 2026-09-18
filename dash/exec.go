@@ -103,7 +103,32 @@ func normalizeGlyph(value string) string {
 	return value
 }
 
-func (e *execPanel) Schema() []Field { return e.manifest.Fields() }
+// Schema is the manifest's declared settings, with any options the program
+// discovered on its last run folded in. The manifest says a setting exists;
+// the program says what it can usefully be set to.
+func (e *execPanel) Schema() []Field {
+	fields := e.manifest.Fields()
+	discovered := e.Load().Options
+	if len(discovered) == 0 {
+		return fields
+	}
+	for i := range fields {
+		// Options are keyed by the setting's own name, not by the namespaced
+		// configuration key: a plugin should not have to know where its
+		// settings are filed.
+		options, ok := discovered[e.manifest.settingName(fields[i].Key)]
+		if !ok || len(options) == 0 {
+			continue
+		}
+		// A declared choice keeps its declared options: the manifest is the
+		// contract, and a program must not be able to widen it.
+		if fields[i].Kind == FieldChoice {
+			continue
+		}
+		fields[i].Options = options
+	}
+	return fields
+}
 
 // AlwaysLive runs the program whatever the deck's mode: a plugin is a real
 // program the user installed, not sample data, so demo mode must not starve it.

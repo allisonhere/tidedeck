@@ -289,6 +289,35 @@ func (d *Deck) Configure(values Values) map[string]error {
 	return out
 }
 
+// ConfigurePanel applies settings to one panel, and forgets that panel's last
+// run so it re-reads its source.
+//
+// A save configures everything, because a save may have changed anything. A
+// keystroke did not: the live path reconfigures one page, and a full Configure
+// there forgets *every* panel's interval, so the next tick re-fetches the whole
+// dashboard - news, weather, markets, updates - none of which was edited. With
+// one write per typed character and one per arrow key, that is a stall for the
+// reader on every keystroke, and it is what made a plugin's dropdown feel
+// broken: the frame waited for the slowest unrelated source before the page
+// could follow what the panel had just reported.
+func (d *Deck) ConfigurePanel(id string, values Values) error {
+	for _, panel := range d.order {
+		if panel.Meta().ID != id {
+			continue
+		}
+		configurable, ok := panel.(Configurable)
+		if !ok {
+			return nil
+		}
+		if err := configurable.Configure(values); err != nil {
+			return err
+		}
+		d.RefreshNow(id)
+		return nil
+	}
+	return nil
+}
+
 // Schema returns one settings category per panel, in registration order.
 // Panels with no settings still appear, because the settings screen adds a
 // visibility toggle and metric styles to every panel's page.

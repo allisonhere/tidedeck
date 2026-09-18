@@ -3,12 +3,15 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
 
 	"github.com/allisonhere/tideui"
 	"github.com/allisonhere/tideui/dash"
@@ -255,16 +258,20 @@ func TestSettingsPanelToggles(t *testing.T) {
 	if !form.panelVisible("weather") {
 		t.Fatal("panel should start visible")
 	}
+	// Hiding is a pending edit: the tick flips at once, but the workspace is
+	// left alone until the settings are saved. Toggling used to commit
+	// immediately, so cancelling the screen said "settings unchanged" and left
+	// the panel hidden anyway.
 	form.Update(tea.KeyMsg{Type: tea.KeyEnter}) // hide
-	if !ws.Hidden("weather") {
-		t.Fatal("enter did not hide the panel")
-	}
 	if form.panelVisible("weather") {
 		t.Fatal("tick should be off after hiding")
 	}
-	form.Update(tea.KeyMsg{Type: tea.KeyEnter}) // show
 	if ws.Hidden("weather") {
-		t.Fatal("second enter did not show the panel")
+		t.Fatal("the workspace changed before the settings were saved")
+	}
+	form.Update(tea.KeyMsg{Type: tea.KeyEnter}) // show
+	if !form.panelVisible("weather") {
+		t.Fatal("second enter did not turn the tick back on")
 	}
 	if !form.panelVisible("weather") {
 		t.Fatal("tick should be on after showing")
@@ -327,9 +334,11 @@ func TestSettingsGaugeStyleChoice(t *testing.T) {
 	if got := form.value(*field); got != "solid" {
 		t.Fatalf("gauge value = %q, want solid", got)
 	}
-	form.Update(tea.KeyMsg{Type: tea.KeyEnter}) // cycle
+	// There are more gauge styles than are worth cycling blind, so enter opens
+	// a picker. The arrows still step the value in place.
+	form.Update(tea.KeyMsg{Type: tea.KeyRight})
 	if form.state.gauge == "solid" {
-		t.Fatal("gauge style did not cycle")
+		t.Fatal("gauge style did not step")
 	}
 	if action := form.Update(tea.KeyMsg{Type: tea.KeyCtrlS}); action != settingsSaved {
 		t.Fatalf("save action = %v", action)
@@ -440,9 +449,9 @@ func TestSettingsPanelGaugeChoice(t *testing.T) {
 	if got := form.value(*field); got != "default" {
 		t.Fatalf("initial panel gauge = %q, want default", got)
 	}
-	form.Update(tea.KeyMsg{Type: tea.KeyEnter}) // cycle
+	form.Update(tea.KeyMsg{Type: tea.KeyRight}) // step
 	if got := form.value(*form.currentField()); got == "default" {
-		t.Fatal("panel gauge choice did not cycle")
+		t.Fatal("panel gauge choice did not step")
 	}
 	if action := form.Update(tea.KeyMsg{Type: tea.KeyCtrlS}); action != settingsSaved {
 		t.Fatalf("save action = %v", action)
@@ -680,50 +689,6 @@ func openCategory(t *testing.T, form *settingsForm, name string) {
 	t.Fatalf("no %s category", name)
 }
 
-func TestEditingViewFollowsCaret(t *testing.T) {
-	const value = "~/Projects/tidedeck, ~/Projects/tideui, ~/Projects/tidegit, ~/Projects/tidemail"
-	runes := []rune(value)
-
-	// A value that fits is shown whole, with the caret where it belongs.
-	if got := editingView("main", 2, 46); got != "ma"+caretMark+"in" {
-		t.Fatalf("short value = %q", got)
-	}
-	// The caret marker used to be pinned to the end of the value whatever the
-	// caret position, so typing after Home inserted text away from the cursor.
-	for _, caret := range []int{0, 20, 42, len(runes)} {
-		got := editingView(value, caret, 46)
-		if lipgloss.Width(got) != 46 {
-			t.Fatalf("caret %d: width = %d, want 46 (%q)", caret, lipgloss.Width(got), got)
-		}
-		if !strings.Contains(got, caretMark) {
-			t.Fatalf("caret %d: no caret drawn in %q", caret, got)
-		}
-		// Text before the caret marker must be text that precedes it in the
-		// value, which is what makes the cursor position believable.
-		before := strings.TrimPrefix(strings.Split(got, caretMark)[0], "…")
-		if before != "" && !strings.Contains(value, before) {
-			t.Fatalf("caret %d: %q is not part of the value", caret, before)
-		}
-	}
-	// Clipping is marked at whichever end is cut.
-	if got := editingView(value, 0, 46); !strings.HasSuffix(got, "…") || strings.HasPrefix(got, "…") {
-		t.Fatalf("caret at start should clip only the tail: %q", got)
-	}
-	if got := editingView(value, len(runes), 46); !strings.HasPrefix(got, "…") || strings.HasSuffix(got, "…") {
-		t.Fatalf("caret at end should clip only the head: %q", got)
-	}
-	// Degenerate inputs must not panic or overflow.
-	for _, c := range []struct {
-		value        string
-		caret, width int
-	}{{"", 0, 46}, {value, 999, 46}, {value, -5, 46}, {value, 40, 2}, {"ünïcödé-brånch", 6, 10}} {
-		got := editingView(c.value, c.caret, c.width)
-		if lipgloss.Width(got) > max(6, c.width) {
-			t.Fatalf("editingView(%q, %d, %d) = %q overflows", c.value, c.caret, c.width, got)
-		}
-	}
-}
-
 // A long path list used to render raw: it truncated mid-path and pushed the
 // field's own label off the row entirely.
 func TestSettingsRepoFieldSummarizes(t *testing.T) {
@@ -946,5 +911,503 @@ func TestMetricStylesOnlyForPanelsThatUseThem(t *testing.T) {
 		if labels["gauge style"] != c.gauge || labels["spark style"] != c.spark {
 			t.Fatalf("%s: gauge=%v spark=%v, got %v", c.category, c.gauge, c.spark, labels)
 		}
+	}
+}
+
+// Cancelling must leave the workspace exactly as it was. Toggling a panel used
+// to call TogglePanel straight away, which commits, so esc reported "settings
+// unchanged" and left the panel hidden regardless.
+func TestSettingsCancelRestoresPanelVisibility(t *testing.T) {
+	ws := tideui.NewWorkspace()
+	deck := dash.New()
+	deck.Register(panels.Weather())
+	deck.Attach(ws)
+
+	form := newSettingsForm()
+	form.SetWorkspace(ws)
+	form.SetDeck(deck)
+	cfg := defaultConfig()
+	cfg.doc = dash.NewValues()
+	form.Open(cfg)
+
+	openCategory(t, form, "Weather")
+	form.Update(tea.KeyMsg{Type: tea.KeyEnter}) // hide the panel
+	if form.panelVisible("weather") {
+		t.Fatal("the tick did not turn off")
+	}
+
+	// esc from the field list goes back to the categories; a second closes.
+	form.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if action := form.Update(tea.KeyMsg{Type: tea.KeyEsc}); action != settingsCancelled {
+		t.Fatalf("esc = %v, want settingsCancelled", action)
+	}
+	if ws.Hidden("weather") {
+		t.Fatal("cancelling left the panel hidden")
+	}
+}
+
+func TestSettingsSaveAppliesPanelVisibility(t *testing.T) {
+	ws := tideui.NewWorkspace()
+	deck := dash.New()
+	deck.Register(panels.Weather())
+	deck.Attach(ws)
+
+	form := newSettingsForm()
+	form.SetWorkspace(ws)
+	form.SetDeck(deck)
+	cfg := defaultConfig()
+	cfg.doc = dash.NewValues()
+	form.Open(cfg)
+
+	openCategory(t, form, "Weather")
+	form.Update(tea.KeyMsg{Type: tea.KeyEnter}) // hide
+	if action := form.Update(tea.KeyMsg{Type: tea.KeyCtrlS}); action != settingsSaved {
+		t.Fatalf("save = %v", action)
+	}
+	if !ws.Hidden("weather") {
+		t.Fatal("saving did not hide the panel")
+	}
+}
+
+// Icons is called from the style preview on every keystroke, including before
+// the form has ever been opened, so it has to tolerate a nil state like every
+// other accessor here.
+func TestSettingsAccessorsSurviveNilState(t *testing.T) {
+	var form settingsForm
+	if form.Icons() == "" {
+		t.Fatal("Icons returned nothing for a nil state")
+	}
+	_ = form.GlyphMode()
+	_ = form.ClockFont()
+	_ = form.GaugeStyle()
+	_ = form.SparkStyle()
+}
+
+// A message that is not a failure must not be drawn as one.
+func TestSettingsNoticeTones(t *testing.T) {
+	form := newSettingsForm()
+	form.fail("broken")
+	if form.tone != noticeError {
+		t.Fatalf("fail tone = %v", form.tone)
+	}
+	form.working("installing…")
+	if form.tone != noticeProgress {
+		t.Fatalf("working tone = %v", form.tone)
+	}
+	form.report("found Portland, OR")
+	if form.tone != noticeGood {
+		t.Fatalf("report tone = %v", form.tone)
+	}
+	form.clearNotice()
+	if form.problem != "" {
+		t.Fatalf("problem = %q after clearing", form.problem)
+	}
+}
+
+// Both list panes have to fit the rows they were given: the section headers and
+// the overflow markers come out of the same budget as the rows, and used to be
+// appended after the window had already claimed all of it.
+func TestSettingsListsFitTheirBudget(t *testing.T) {
+	form := gpuForm(t)
+	r := tideui.NewRenderer(tideui.BuiltinThemes[0], tideui.StyleOptions{})
+	openCategory(t, form, "GPU")
+	for _, rows := range []int{1, 2, 3, 5, 8, 40} {
+		if got := len(form.renderCategories(r, 30, rows)); got > rows {
+			t.Errorf("categories at %d rows rendered %d lines", rows, got)
+		}
+		if got := len(form.renderFields(r, 30, rows)); got > rows {
+			t.Errorf("fields at %d rows rendered %d lines", rows, got)
+		}
+	}
+}
+
+// A plugin's description has to reach the row that shows it. The manifest
+// format has always had the field; it was parsed and discarded, so a plugin
+// could explain itself and never be heard.
+func TestSettingsShowsPluginDescriptions(t *testing.T) {
+	manifest := dash.Manifest{
+		SchemaVersion: dash.ManifestSchemaVersion,
+		ID:            "tidedeck.example",
+		Name:          "Example",
+		Kinds:         []string{dash.KindPanel},
+		EntryPoints:   map[string][]string{dash.KindPanel: {"./render.sh"}},
+		Panel: dash.PanelManifest{
+			DisplayName: "Example",
+			Schema: []dash.SchemaField{{
+				Key: "account", Type: "string", Label: "account",
+				Description: "Blank shows every account.",
+			}},
+		},
+	}
+	ws := tideui.NewWorkspace()
+	deck := dash.New()
+	deck.Register(dash.Exec(manifest))
+	deck.Attach(ws)
+
+	form := newSettingsForm()
+	form.SetWorkspace(ws)
+	form.SetDeck(deck)
+	cfg := defaultConfig()
+	cfg.doc = dash.NewValues()
+	form.Open(cfg)
+
+	openCategory(t, form, "Example")
+	var found *formField
+	for i := range form.currentFields() {
+		if form.currentFields()[i].label == "account" {
+			found = &form.currentFields()[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatal("no account field on the plugin's page")
+	}
+	if found.description != "Blank shows every account." {
+		t.Fatalf("description = %q, want it carried from the manifest", found.description)
+	}
+}
+
+// A numeric field gets a numeric control, so a bad value is caught as it is
+// typed rather than failing the whole save with one banner.
+func TestSettingsNumberFieldValidatesAsTyped(t *testing.T) {
+	form := weatherForm(t)
+	openCategory(t, form, "Weather")
+	for form.currentField() != nil && form.currentField().label != "latitude" {
+		form.Update(tea.KeyMsg{Type: tea.KeyDown})
+	}
+	field := form.currentField()
+	if field == nil || field.kind != fieldNumber {
+		t.Fatalf("latitude = %+v, want a numeric field", field)
+	}
+
+	form.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	for _, ch := range "abc" {
+		form.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+	}
+	if form.editor == nil || form.editor.Err() == nil {
+		t.Fatal("letters in a numeric field were not reported")
+	}
+	note, tone := form.fieldNote(*form.currentField())
+	if tone != noticeError || note == "" {
+		t.Fatalf("note = %q tone = %v, want the complaint on the row", note, tone)
+	}
+
+	// The bad value is kept so it can be corrected, not silently dropped.
+	if got := form.editor.Value(); got != "abc" {
+		t.Fatalf("value = %q, want it kept", got)
+	}
+}
+
+// A long choice opens a picker and draws it; without the overlay the control
+// would hold the keyboard while nothing on screen had changed.
+func TestSettingsChoicePickerDraws(t *testing.T) {
+	form := gpuForm(t)
+	openCategory(t, form, "GPU")
+	form.Update(tea.KeyMsg{Type: tea.KeyDown}) // gauge style
+	form.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if !form.editing {
+		t.Fatal("enter did not open the picker")
+	}
+	r := tideui.NewRenderer(tideui.BuiltinThemes[0], tideui.StyleOptions{})
+	view := form.RenderWorkspace(r, 96, 24)
+	if !strings.Contains(view, "gauge style") {
+		t.Fatal("the picker was not drawn")
+	}
+}
+
+// The General page is the one you land on, and every field on it is written by
+// hand rather than declared by a panel. Those fields were the last to get
+// descriptions, and without them the page that gets seen most explained least.
+func TestSettingsGeneralFieldsAreDescribed(t *testing.T) {
+	form := weatherForm(t)
+	openCategory(t, form, "General")
+	for _, field := range form.currentFields() {
+		if field.kind == fieldAction {
+			continue
+		}
+		if field.description == "" {
+			t.Errorf("General field %q has no description", field.label)
+		}
+	}
+}
+
+func TestWrapTextBreaksOnWords(t *testing.T) {
+	lines := wrapText("Fetch from real sources. Off shows sample data instead.", 24, 2)
+	if len(lines) != 2 {
+		t.Fatalf("lines = %q, want 2", lines)
+	}
+	for _, line := range lines {
+		if ansi.StringWidth(line) > 24 {
+			t.Errorf("line %q is wider than 24", line)
+		}
+		if strings.HasPrefix(line, " ") || strings.HasSuffix(line, " ") {
+			t.Errorf("line %q has stray padding", line)
+		}
+	}
+
+	// More than fits is marked as cut short rather than ending mid-word.
+	long := wrapText(strings.Repeat("word ", 40), 20, 2)
+	if len(long) != 2 {
+		t.Fatalf("lines = %d, want the limit respected", len(long))
+	}
+	if !strings.HasSuffix(long[1], "…") {
+		t.Errorf("last line = %q, want it marked as elided", long[1])
+	}
+}
+
+// Every row in a settings pane has to sit on the pane's own background. The
+// rows are soft rows, which default to the lifted modal surface; drawn into a
+// pane that way they come out a different shade from the blank space around
+// them and the whole screen looks banded.
+func TestSettingsRowsSitOnThePaneBackground(t *testing.T) {
+	old := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(old) })
+
+	pattern := regexp.MustCompile(`48;2;(\d+);(\d+);(\d+)`)
+	// Read colours back out of rendered text so the comparison runs through
+	// the same conversion the rows do.
+	swatch := func(c lipgloss.Color) string {
+		m := pattern.FindStringSubmatch(lipgloss.NewStyle().Background(c).Render(" "))
+		return m[1] + "," + m[2] + "," + m[3]
+	}
+	seen := func(text string) map[string]bool {
+		found := map[string]bool{}
+		for _, m := range pattern.FindAllStringSubmatch(text, -1) {
+			found[m[1]+","+m[2]+","+m[3]] = true
+		}
+		return found
+	}
+
+	form := weatherForm(t)
+	openCategory(t, form, "General")
+
+	for _, theme := range tideui.BuiltinThemes[:4] {
+		r := tideui.NewRenderer(theme, tideui.StyleOptions{})
+		body := strings.Join(form.renderFields(r, 60, 12), "\n") + "\n" +
+			strings.Join(form.renderCategories(r, 30, 12), "\n")
+
+		pane := swatch(theme.Bg)
+		modal := swatch(r.Styles.Overlay.GetBackground().(lipgloss.Color))
+		found := seen(body)
+
+		if !found[pane] {
+			t.Errorf("%s: nothing drawn on the pane background %s (saw %v)",
+				theme.Name, pane, found)
+		}
+		if modal != pane && found[modal] {
+			t.Errorf("%s: rows still drawn on the modal surface %s", theme.Name, modal)
+		}
+	}
+}
+
+// A panel's page says what it is for before any row is read: the title is green
+// when the panel is on the dashboard and red when it is not. Colour alone would
+// not say it — a red title and a green one are the same title to anyone who
+// cannot tell them apart, and identical under PlainUI — so the rule under the
+// header carries the word too.
+func TestSettingsHeaderShowsPanelState(t *testing.T) {
+	old := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(old) })
+
+	theme := tideui.BuiltinThemes[0]
+	r := tideui.NewRenderer(theme, tideui.StyleOptions{})
+	fg := regexp.MustCompile(`38;2;(\d+);(\d+);(\d+)`)
+	swatch := func(c lipgloss.Color) string {
+		m := fg.FindStringSubmatch(lipgloss.NewStyle().Foreground(c).Render("x"))
+		return m[1] + "," + m[2] + "," + m[3]
+	}
+	titleColour := func(header string) string {
+		m := fg.FindStringSubmatch(header)
+		return m[1] + "," + m[2] + "," + m[3]
+	}
+
+	form := weatherForm(t)
+	openCategory(t, form, "Weather")
+	category := form.categories[form.category]
+
+	// allColours reports every foreground in a rendered string.
+	allColours := func(text string) map[string]bool {
+		found := map[string]bool{}
+		for _, m := range fg.FindAllStringSubmatch(text, -1) {
+			found[m[1]+","+m[2]+","+m[3]] = true
+		}
+		return found
+	}
+
+	plain := swatch(r.Styles.Workspace.BodyFg)
+	enabled := form.renderHeader(r, category, 50)
+	green := swatch(r.Styles.Workspace.MetricGood)
+	// The title reads the same on every page; only the rule carries the state.
+	if got := titleColour(enabled); got != plain {
+		t.Errorf("enabled title = %s, want the ordinary heading colour %s", got, plain)
+	}
+	if !strings.Contains(enabled, "enabled") {
+		t.Error("the rule does not name the state")
+	}
+	// The rule has to agree with the title it sits under: one state, one colour.
+	if got := allColours(strings.Split(enabled, "\n")[1]); len(got) != 1 || !got[green] {
+		t.Errorf("enabled rule colours = %v, want only the good colour %s", keys(got), green)
+	}
+
+	form.Update(tea.KeyMsg{Type: tea.KeyEnter}) // turn the panel off
+	disabled := form.renderHeader(r, form.categories[form.category], 50)
+	red := swatch(r.Styles.Workspace.MetricBad)
+	if got := titleColour(disabled); got != plain {
+		t.Errorf("disabled title = %s, want the ordinary heading colour %s", got, plain)
+	}
+	if !strings.Contains(disabled, "disabled") {
+		t.Error("the rule does not name the state")
+	}
+	if got := allColours(strings.Split(disabled, "\n")[1]); len(got) != 1 || !got[red] {
+		t.Errorf("disabled rule colours = %v, want only the bad colour %s", keys(got), red)
+	}
+
+	// A page with nothing to enable keeps the ordinary title colour and an
+	// unlabelled rule.
+	openCategory(t, form, "General")
+	general := form.renderHeader(r, form.categories[form.category], 50)
+	if got := titleColour(general); got != plain {
+		t.Errorf("General title = %s, want the same heading colour as every other page %s",
+			got, plain)
+	}
+	if strings.Contains(general, "enabled") || strings.Contains(general, "disabled") {
+		t.Error("General's rule claims a state it does not have")
+	}
+}
+
+// The header is two lines — the title and the rule beneath it — and the editor
+// pane budgets its rows around that.
+func TestSettingsHeaderIsTitleAndRule(t *testing.T) {
+	form := weatherForm(t)
+	openCategory(t, form, "Weather")
+	r := tideui.NewRenderer(tideui.BuiltinThemes[0], tideui.StyleOptions{})
+	header := form.renderHeader(r, form.categories[form.category], 50)
+	if got := len(strings.Split(header, "\n")); got != 2 {
+		t.Fatalf("header is %d lines, want 2", got)
+	}
+}
+
+// The settings screen is a full takeover: it must be exactly the size of the
+// terminal, whatever page is open and however short the window.
+func TestSettingsScreenFitsTheTerminal(t *testing.T) {
+	form := weatherForm(t)
+	r := tideui.NewRenderer(tideui.BuiltinThemes[0], tideui.StyleOptions{})
+
+	for _, page := range []string{"General", "Weather", "Plugins"} {
+		openCategory(t, form, page)
+		for _, size := range [][2]int{{110, 24}, {110, 12}, {110, 8}, {88, 20}, {60, 14}} {
+			width, height := size[0], size[1]
+			view := form.RenderWorkspace(r, width, height)
+			lines := strings.Split(view, "\n")
+			if len(lines) != height {
+				t.Errorf("%s at %dx%d: %d lines, want %d", page, width, height, len(lines), height)
+			}
+			for i, line := range lines {
+				if got := ansi.StringWidth(line); got > width {
+					t.Errorf("%s at %dx%d: line %d is %d cells", page, width, height, i, got)
+				}
+			}
+		}
+	}
+}
+
+// keys lists a set, for readable failure messages.
+func keys(set map[string]bool) []string {
+	out := make([]string, 0, len(set))
+	for k := range set {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// The note under the selected row is followed by a blank row, so the sentence
+// reads as belonging to the row above it rather than running into the one below.
+func TestSettingsNoteIsFollowedByABlankRow(t *testing.T) {
+	form := weatherForm(t)
+	openCategory(t, form, "Weather")
+	r := tideui.NewRenderer(tideui.BuiltinThemes[0], tideui.StyleOptions{})
+
+	field := form.currentField()
+	if field == nil || field.description == "" {
+		t.Fatal("the first Weather field has no description to sit under")
+	}
+
+	lines := form.renderFields(r, 60, 14)
+	noteAt := -1
+	for i, line := range lines {
+		if strings.Contains(line, "Show this panel on the dashboard") {
+			noteAt = i
+		}
+	}
+	if noteAt < 0 {
+		t.Fatal("the description was not rendered")
+	}
+	// The description wraps, so walk past the rest of it.
+	last := noteAt
+	for last+1 < len(lines) && strings.Contains(lines[last+1], "save.") {
+		last++
+	}
+	if last+1 >= len(lines) {
+		t.Fatal("nothing follows the note")
+	}
+	if got := strings.TrimSpace(ansi.Strip(lines[last+1])); got != "" {
+		t.Errorf("row after the note = %q, want it blank", got)
+	}
+}
+
+// Pressing down while editing commits the value and moves to the next field,
+// rather than being swallowed. A field you can only leave with a key you have
+// to already know about is a trap.
+func TestSettingsArrowLeavesTextFieldAndMoves(t *testing.T) {
+	form := weatherForm(t)
+	openCategory(t, form, "Weather")
+	for form.currentField() != nil && form.currentField().label != "city or ZIP" {
+		form.Update(tea.KeyMsg{Type: tea.KeyDown})
+	}
+	before := form.cursor
+
+	form.Update(tea.KeyMsg{Type: tea.KeyEnter}) // start editing
+	if !form.editing {
+		t.Fatal("enter did not open an edit")
+	}
+	for _, ch := range "Portland" {
+		form.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+	}
+
+	form.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if form.editing {
+		t.Fatal("down left the field editing")
+	}
+	if form.cursor != before+1 {
+		t.Errorf("cursor = %d, want it moved to %d", form.cursor, before+1)
+	}
+	if form.state.place != "Portland" {
+		t.Errorf("place = %q, want the edit kept when moving off", form.state.place)
+	}
+	if !form.dirty {
+		t.Error("the form is not marked dirty after the edit")
+	}
+}
+
+// esc still discards, which is the whole point of having both keys.
+func TestSettingsEscStillReverts(t *testing.T) {
+	form := weatherForm(t)
+	openCategory(t, form, "Weather")
+	for form.currentField() != nil && form.currentField().label != "city or ZIP" {
+		form.Update(tea.KeyMsg{Type: tea.KeyDown})
+	}
+	form.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	for _, ch := range "Portland" {
+		form.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+	}
+	form.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if form.editing {
+		t.Fatal("esc left the field editing")
+	}
+	if form.state.place != "" {
+		t.Errorf("place = %q, want esc to discard the edit", form.state.place)
 	}
 }

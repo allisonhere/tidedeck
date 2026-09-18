@@ -12,6 +12,7 @@ import (
 
 	"github.com/allisonhere/tideui"
 	"github.com/allisonhere/tideui/dash"
+	"github.com/allisonhere/tideui/form"
 	"github.com/allisonhere/tideui/provider"
 )
 
@@ -24,6 +25,7 @@ const (
 	fieldPanel
 	fieldChoice
 	fieldGlyph
+	fieldNumber
 )
 
 const (
@@ -35,7 +37,11 @@ const (
 const settingsMaxWidth = 128
 
 type formField struct {
-	label        string
+	label string
+	// key is the configuration key a panel-declared row came from. Rows the
+	// form writes by hand leave it empty. It is what lets a row be found again
+	// when the panel reports new options for it.
+	key          string
 	kind         fieldKind
 	flag         *bool
 	text         *string
@@ -58,6 +64,16 @@ type formField struct {
 	// blank value.
 	input       bool
 	placeholder string
+	// description explains the setting in one sentence, shown under the row
+	// while it is selected. A manifest has always been able to supply one;
+	// until now it was parsed and dropped.
+	description string
+	// validate reports a value the field cannot use, as it is typed.
+	validate func(string) error
+	// unit, minimum, maximum and step describe a fieldNumber.
+	unit             string
+	minimum, maximum float64
+	step             float64
 }
 
 // choiceValue reads the field's current choice from its pointer or map.
@@ -81,6 +97,18 @@ func (f *formField) setChoice(value string) {
 		f.choiceMap[f.choiceKey] = value
 	}
 }
+
+// noticeTone says how the editor's one-line message should read. All three
+// kinds used to share one string rendered in the error colour, so "found
+// Portland, OR - ctrl+s to apply" and "installing foo…" both looked like
+// something had gone wrong.
+type noticeTone int
+
+const (
+	noticeError noticeTone = iota
+	noticeProgress
+	noticeGood
+)
 
 // settingsAction reports how a settings update ended.
 type settingsAction int
@@ -117,6 +145,12 @@ type formState struct {
 	panelGauges map[string]string
 	panelSparks map[string]string
 	panelGlyphs map[string]bool
+	// panelShown is the edit buffer for panel visibility. It exists so that
+	// toggling a panel is a pending edit like every other row: it used to
+	// call Workspace.TogglePanel straight away, which commits, so cancelling
+	// the settings screen reported "settings unchanged" and left the panel
+	// off anyway.
+	panelShown  map[string]bool
 	feeds       string // custom URLs only; catalogue URLs live in feedPresets
 	feedPresets []bool // one per provider.NewsSources(), same order
 	// pluginSource is the plugin install field. It is transient: the value is
@@ -138,6 +172,7 @@ func formFromConfig(cfg config) formState {
 		panelGauges: copyStringMap(cfg.PanelGauges),
 		panelSparks: copyStringMap(cfg.PanelSparks),
 		panelGlyphs: copyBoolMap(cfg.PanelGlyphs),
+		panelShown:  map[string]bool{},
 		feeds:       customFeeds,
 		feedPresets: feedPresets,
 	}
@@ -356,7 +391,13 @@ type settingsForm struct {
 	caret      int
 	editBefore string
 	problem    string
+	tone       noticeTone
 	dirty      bool
+	// editor is the control driving the selected row. It is created when a row
+	// is activated and discarded when the edit ends, so only one row holds
+	// state at a time and a control never outlives the field it edits.
+	editor  form.Control
+	editKey string
 
 	// deck supplies the settings of panels that own their own. It may be nil,
 	// in which case only the hand-written categories are shown.
@@ -420,10 +461,16 @@ func (s settingsForm) PanelSparkStyle(id string) string {
 	return s.state.panelSparks[id]
 }
 
-// ClockFont returns the large-clock font currently selected in the form.
 // Icons reports the live icon style, so the preview updates while the setting
-// is being changed.
-func (s settingsForm) Icons() string { return iconStyleOrDefault(s.state.icons) }
+// is being changed. Like every other accessor here it has to tolerate a nil
+// state: main's style preview calls it on every keystroke, including before
+// the form has ever been opened.
+func (s settingsForm) Icons() string {
+	if s.state == nil {
+		return iconStyleOrDefault("")
+	}
+	return iconStyleOrDefault(s.state.icons)
+}
 
 func (s settingsForm) GlyphMode() string {
 	if s.state == nil {
@@ -443,6 +490,7 @@ func (s settingsForm) PanelGlyphEnabled(id string) bool {
 	return value
 }
 
+// ClockFont returns the large-clock font currently selected in the form.
 func (s settingsForm) ClockFont() string {
 	if s.state == nil {
 		return string(tideui.ClockFontDash)
@@ -471,7 +519,7 @@ func (s *settingsForm) Open(cfg config) {
 	s.cursor = 0
 	s.editing = false
 	s.caret = 0
-	s.problem = ""
+	s.clearNotice()
 	s.dirty = false
 }
 
@@ -481,16 +529,29 @@ func (s settingsForm) Opened() bool { return s.opened }
 func (s *settingsForm) buildCategories() []settingsCategory {
 	categories := []settingsCategory{
 		{name: "General", fields: []formField{
-			{label: "Live data", kind: fieldBool, flag: &s.state.live},
-			{label: "gauge style", kind: fieldChoice, choice: &s.state.gauge, options: gaugeStyleNames(), gaugePreview: true},
-			{label: "spark style", kind: fieldChoice, choice: &s.state.spark, options: sparkStyleNames(), sparkPreview: true},
-			{label: "clock font", kind: fieldChoice, choice: &s.state.clockFont, options: clockFontNames()},
-			{label: "icons", kind: fieldChoice, choice: &s.state.icons, options: iconStyleNames()},
-			{label: "panel glyphs", kind: fieldChoice, choice: &s.state.glyphMode, options: glyphModeNames()},
+			{label: "Live data", kind: fieldBool, flag: &s.state.live,
+				description: "Fetch from real sources. Off shows sample data instead."},
+			{label: "gauge style", kind: fieldChoice, choice: &s.state.gauge,
+				options: gaugeStyleNames(), gaugePreview: true,
+				description: "How progress bars are drawn across the dashboard."},
+			{label: "spark style", kind: fieldChoice, choice: &s.state.spark,
+				options: sparkStyleNames(), sparkPreview: true,
+				description: "How history sparklines are drawn across the dashboard."},
+			{label: "clock font", kind: fieldChoice, choice: &s.state.clockFont,
+				options:     clockFontNames(),
+				description: "The face the large clock uses."},
+			{label: "icons", kind: fieldChoice, choice: &s.state.icons,
+				options:     iconStyleNames(),
+				description: "Emoji, glyphs from a patched font, or plain text."},
+			{label: "panel glyphs", kind: fieldChoice, choice: &s.state.glyphMode,
+				options:     glyphModeNames(),
+				description: "Show an icon in each panel's title. Per panel lets each one decide."},
 		}},
 		{name: "Plugins", fields: s.pluginFields()},
 		{name: "Weather", panelID: "weather", fields: []formField{
-			{label: "city or ZIP", kind: fieldText, text: &s.state.place},
+			{label: "city or ZIP", kind: fieldText, text: &s.state.place,
+				description: "A place to look up. Searching fills in the coordinates below.",
+				placeholder: "search for a place"},
 			{label: "Look up coordinates", kind: fieldAction, action: s.lookupCoordinates},
 		}},
 		{name: "GPU", panelID: "gpu", fields: nil},
@@ -541,7 +602,8 @@ func (s *settingsForm) panelGlyphField(id string) formField {
 	if _, ok := s.state.panelGlyphs[id]; !ok {
 		s.state.panelGlyphs[id] = true
 	}
-	return formField{label: "show glyph", kind: fieldGlyph, panel: id}
+	return formField{label: "show glyph", kind: fieldGlyph, panel: id,
+		description: "Show this panel's icon in its title bar."}
 }
 
 // panelGaugeField builds a per-panel gauge style choice. "default" follows the
@@ -568,6 +630,7 @@ func (s *settingsForm) panelGaugeField(id string) *formField {
 		options:      options,
 		panel:        id,
 		gaugePreview: true,
+		description:  "Overrides the dashboard-wide gauge style for this panel only.",
 	}
 }
 
@@ -595,6 +658,7 @@ func (s *settingsForm) panelSparkField(id string) *formField {
 		options:      options,
 		panel:        id,
 		sparkPreview: true,
+		description:  "Overrides the dashboard-wide sparkline style for this panel only.",
 	}
 }
 
@@ -725,22 +789,47 @@ func (s *settingsForm) panelCategories() []settingsCategory {
 	for _, category := range s.deck.Schema() {
 		rows := make([]formField, 0, len(category.Fields))
 		for _, field := range category.Fields {
-			row := formField{label: field.Label, summary: field.Summary}
+			row := formField{
+				key:         field.Key,
+				label:       field.Label,
+				summary:     field.Summary,
+				description: field.Description,
+				placeholder: field.Placeholder,
+				validate:    field.Validate,
+			}
 			switch field.Kind {
 			case dash.FieldBool:
 				row.kind, row.flag = fieldBool, s.state.panelFlag[field.Key]
 			case dash.FieldChoice:
 				row.kind, row.choice, row.options = fieldChoice, s.state.panelText[field.Key], field.Options
+			case dash.FieldFloat:
+				// FieldFloat was declared from the start and never had a case
+				// here, so latitude and longitude fell through to free text
+				// and were only ever checked by the save.
+				row.kind, row.text = fieldNumber, s.state.panelText[field.Key]
+				row.unit, row.step = field.Unit, field.Step
+				if field.Bounded() {
+					row.minimum, row.maximum = field.Min, field.Max
+				}
 			case dash.FieldAction:
 				run := field.Run
 				row.kind, row.action = fieldAction, func() settingsAction {
 					if run != nil {
-						s.problem = run()
+						s.report(run())
 					}
 					return settingsNone
 				}
 			default:
 				row.kind, row.text = fieldText, s.state.panelText[field.Key]
+				// A plain setting whose program reported the values it can
+				// usefully take becomes a list. A blank box the reader has to
+				// guess at is the worst kind of setting, and the program
+				// already knows the answer - it just looked.
+				if len(field.Options) > 0 {
+					row.kind = fieldChoice
+					row.choice = s.state.panelText[field.Key]
+					row.options = withCurrent(field.Options, row.choiceValue())
+				}
 			}
 			if row.kind != fieldAction && row.text == nil && row.flag == nil && row.choice == nil {
 				continue // a field whose buffer is missing would edit nothing
@@ -811,7 +900,7 @@ func (s *settingsForm) pluginFields() []formField {
 			problem := info.Problem
 			name := info.DisplayName()
 			fields = append(fields, formField{label: "broken: " + name, kind: fieldAction, action: func() settingsAction {
-				s.problem = problem.Error()
+				s.fail(problem.Error())
 				return settingsNone
 			}})
 			continue
@@ -838,7 +927,7 @@ func (s *settingsForm) pluginFields() []formField {
 func (s *settingsForm) installPlugin() settingsAction {
 	source := strings.TrimSpace(s.state.pluginSource)
 	if source == "" {
-		s.problem = "paste a plugin URL or path first"
+		s.fail("paste a plugin URL or path first")
 		return settingsNone
 	}
 	s.beginPluginOp("install", source)
@@ -850,13 +939,13 @@ func (s *settingsForm) beginPluginOp(kind, value string) {
 	s.pendingPlugin = pluginOp{kind: kind, value: value}
 	switch kind {
 	case "install":
-		s.problem = "installing " + value + "…"
+		s.working("installing " + value + "…")
 	case "update":
-		s.problem = "updating " + value + "…"
+		s.working("updating " + value + "…")
 	case "remove":
-		s.problem = "removing " + value + "…"
+		s.working("removing " + value + "…")
 	default:
-		s.problem = kind + " " + value + "…"
+		s.working(kind + " " + value + "…")
 	}
 }
 
@@ -875,10 +964,10 @@ func (s *settingsForm) TakePluginOp() (pluginOp, bool) {
 // again.
 func (s *settingsForm) ApplyPluginOp(message string, err error) {
 	if err != nil {
-		s.problem = err.Error()
+		s.fail(err.Error())
 		return
 	}
-	s.problem = message
+	s.report(message)
 	if s.state != nil && strings.TrimSpace(s.state.pluginSource) != "" {
 		s.state.pluginSource = ""
 	}
@@ -918,7 +1007,8 @@ func (s *settingsForm) panelField(id string) *formField {
 	if !ok || !panel.CanHide() {
 		return nil
 	}
-	return &formField{label: "enabled", kind: fieldPanel, panel: id}
+	return &formField{label: "enabled", kind: fieldPanel, panel: id,
+		description: "Show this panel on the dashboard. Takes effect when you save."}
 }
 
 func (s *settingsForm) currentFields() []formField {
@@ -942,12 +1032,12 @@ func (s *settingsForm) currentField() *formField {
 func (s *settingsForm) lookupCoordinates() settingsAction {
 	query := strings.TrimSpace(s.state.place)
 	if query == "" {
-		s.problem = "enter a city or postal code first"
+		s.fail("enter a city or postal code first")
 		return settingsNone
 	}
 	s.pendingLookup = query
 	s.lookingUp = true
-	s.problem = "looking up " + query + "…"
+	s.working("looking up " + query + "…")
 	return settingsNone
 }
 
@@ -962,7 +1052,7 @@ func (s *settingsForm) TakeLookup() string {
 func (s *settingsForm) ApplyLookup(place provider.Place, err error) {
 	s.lookingUp = false
 	if err != nil {
-		s.problem = err.Error()
+		s.fail(err.Error())
 		return
 	}
 	s.applyPlace(place)
@@ -981,7 +1071,7 @@ func (s *settingsForm) applyPlace(place provider.Place) {
 	s.setPanelFlag(weatherEnabledKey, true)
 	s.state.live = true
 	s.dirty = true
-	s.problem = "found " + place.Label() + " — ctrl+s to apply"
+	s.report("found " + place.Label() + " — ctrl+s to apply")
 }
 
 // Configuration keys the settings screen fills in on the weather panel's
@@ -1046,7 +1136,7 @@ func (s *settingsForm) updateCategories(key string) settingsAction {
 			s.view = viewFields
 			s.focus = settingsEditor
 			s.cursor = 0
-			s.problem = ""
+			s.clearNotice()
 		}
 	}
 	return settingsNone
@@ -1064,6 +1154,7 @@ func (s *settingsForm) updateFields(key string) settingsAction {
 		if field := s.currentField(); field != nil && field.kind == fieldChoice {
 			field.setChoice(stepChoice(field.choiceValue(), field.options, -1))
 			s.dirty = true
+			s.notifyDeck()
 		} else {
 			s.view = viewCategories
 			s.focus = settingsNav
@@ -1073,6 +1164,7 @@ func (s *settingsForm) updateFields(key string) settingsAction {
 		if field := s.currentField(); field != nil && field.kind == fieldChoice {
 			field.setChoice(stepChoice(field.choiceValue(), field.options, 1))
 			s.dirty = true
+			s.notifyDeck()
 		}
 	case "up", "k":
 		s.cursor = wrapIndex(s.cursor-1, len(fields))
@@ -1087,53 +1179,52 @@ func (s *settingsForm) updateFields(key string) settingsAction {
 	return settingsNone
 }
 
+// updateEditing hands a keystroke to the control that owns the row. The
+// control decides what the key means; the form only records that something
+// changed and notices when the edit is over.
 func (s *settingsForm) updateEditing(msg tea.KeyMsg, key string) settingsAction {
 	field := s.currentField()
-	if field == nil || field.text == nil {
-		s.editing = false
+	if field == nil || s.editor == nil {
+		s.endEdit()
 		return settingsNone
 	}
-	length := len([]rune(*field.text))
-	s.caret = min(max(s.caret, 0), length)
-	switch key {
-	case "esc":
-		*field.text = s.editBefore
-		s.editing = false
-	case "enter":
-		s.editing = false
-	case "ctrl+s":
-		s.editing = false
+	// ctrl+s saves from inside an edit, so a value can be committed and
+	// written in one keystroke.
+	if key == "ctrl+s" {
+		s.writeBack(field, s.editor.Value())
+		s.endEdit()
 		return s.save()
-	case "left":
-		if s.caret > 0 {
-			s.caret--
-		}
-	case "right":
-		if s.caret < length {
-			s.caret++
-		}
-	case "home":
-		s.caret = 0
-	case "end":
-		s.caret = length
-	case "backspace":
-		runes := []rune(*field.text)
-		if s.caret > 0 {
-			runes = append(runes[:s.caret-1], runes[s.caret:]...)
-			s.caret--
-			*field.text = string(runes)
+	}
+
+	action := s.editor.Update(msg)
+	switch action {
+	case form.ActionChanged:
+		s.writeBack(field, s.editor.Value())
+		s.dirty = true
+		s.notifyDeck()
+	case form.ActionCancelled:
+		s.writeBack(field, s.editBefore)
+	case form.ActionCommitted:
+		s.writeBack(field, s.editor.Value())
+	case form.ActionIgnored:
+		// The control finished with the key without using it - a navigation
+		// key pressed mid-edit. Commit, then let it do what it does everywhere
+		// else rather than dropping it.
+		s.writeBack(field, s.editor.Value())
+		if s.editor.Value() != s.editBefore {
 			s.dirty = true
 		}
-	default:
-		if msg.Type == tea.KeyRunes {
-			runes := []rune(*field.text)
-			merged := append([]rune{}, runes[:s.caret]...)
-			merged = append(merged, msg.Runes...)
-			merged = append(merged, runes[s.caret:]...)
-			s.caret += len(msg.Runes)
-			*field.text = string(merged)
+		s.endEdit()
+		return s.updateFields(key)
+	}
+	if !s.editor.Editing() {
+		// A committed value is normalized by the control, so read it once more
+		// before letting it go.
+		s.writeBack(field, s.editor.Value())
+		if s.editor.Value() != s.editBefore {
 			s.dirty = true
 		}
+		s.endEdit()
 	}
 	return settingsNone
 }
@@ -1147,18 +1238,18 @@ func (s *settingsForm) activate() settingsAction {
 	case fieldBool:
 		*field.flag = !*field.flag
 		s.dirty = true
-	case fieldText:
-		s.editing = true
-		s.editBefore = *field.text
-		s.caret = len([]rune(*field.text))
+	case fieldText, fieldNumber:
+		s.beginEdit(field)
 	case fieldAction:
 		if field.action != nil {
 			return field.action()
 		}
 	case fieldPanel:
-		if s.ws != nil {
-			s.ws.TogglePanel(field.panel)
+		if s.state.panelShown == nil {
+			s.state.panelShown = map[string]bool{}
 		}
+		s.state.panelShown[field.panel] = !s.panelVisible(field.panel)
+		s.dirty = true
 	case fieldGlyph:
 		if s.state.panelGlyphs == nil {
 			s.state.panelGlyphs = map[string]bool{}
@@ -1166,10 +1257,193 @@ func (s *settingsForm) activate() settingsAction {
 		s.state.panelGlyphs[field.panel] = !s.PanelGlyphEnabled(field.panel)
 		s.dirty = true
 	case fieldChoice:
-		field.setChoice(stepChoice(field.choiceValue(), field.options, 1))
-		s.dirty = true
+		// A long list opens a picker rather than stepping blind; the control
+		// decides which, because it knows how many options there are.
+		s.beginEdit(field)
 	}
 	return settingsNone
+}
+
+// notifyDeck hands the deck the settings as they stand and marks the panel due.
+//
+// A panel whose options depend on another of its settings - the mailboxes of
+// the chosen account - cannot offer the right ones until it has been told what
+// was chosen. Without this the list would correct itself on the panel's next
+// scheduled run, which for the mail panel is a minute away.
+func (s *settingsForm) notifyDeck() {
+	if s.deck == nil || s.state == nil {
+		return
+	}
+	id := s.currentPanelID()
+	if id == "" {
+		return
+	}
+	document, err := s.state.applyPanelFields(s.state.doc.Clone(), s.deck)
+	if err != nil {
+		return // a half-typed value is not a reason to stop editing
+	}
+	// Only the page being edited is re-read. A full Configure forgets every
+	// panel's interval, and the next tick then re-fetches the whole dashboard -
+	// news, weather, markets, updates - none of which was edited, at one
+	// keystroke per typed character. A save still applies everything at once,
+	// because a save may have changed anything.
+	s.deck.ConfigurePanel(id, document)
+}
+
+// currentPanelID is the panel whose page is open, or "" for a page that is not
+// a panel's.
+func (s settingsForm) currentPanelID() string {
+	if s.category < 0 || s.category >= len(s.categories) {
+		return ""
+	}
+	return s.categories[s.category].panelID
+}
+
+// SyncOptions refreshes the choices a panel reports for its own settings, in
+// place, so the open page follows what the panel last discovered without
+// discarding anything being edited. Rebuilding the form would re-seed every
+// buffer from the saved document and lose the very choice that caused the
+// options to change.
+func (s *settingsForm) SyncOptions() {
+	if !s.opened || s.deck == nil {
+		return
+	}
+	id := s.currentPanelID()
+	if id == "" {
+		return
+	}
+	for _, category := range s.deck.Schema() {
+		if category.PanelID != id {
+			continue
+		}
+		latest := make(map[string][]string, len(category.Fields))
+		for _, field := range category.Fields {
+			if len(field.Options) > 0 {
+				latest[field.Key] = field.Options
+			}
+		}
+		fields := s.categories[s.category].fields
+		for i := range fields {
+			if fields[i].key == "" {
+				continue // a row the form writes by hand owns its own options
+			}
+			options, ok := latest[fields[i].key]
+			switch {
+			case ok && fields[i].kind == fieldText:
+				// The panel had not run yet when this page was built, so the
+				// row became a text box. Promote it now that there is a list
+				// to offer - otherwise opening settings within a second of
+				// launch left the field a text box for good.
+				fields[i].kind = fieldChoice
+				fields[i].choice = fields[i].text
+				fields[i].options = withCurrent(options, fields[i].choiceValue())
+				// A row promoted while it is being edited is still holding the
+				// text editor it was given, and an editor is only ever built
+				// when an edit starts. Ending the edit is what turns the box
+				// on screen into the list: without it, opening settings fast
+				// enough to catch the old kind, then pressing enter, left a
+				// text box that no later sync could ever replace.
+				if s.editing && i == s.cursor {
+					s.endEdit()
+				}
+			case ok && fields[i].kind == fieldChoice:
+				fields[i].options = withCurrent(options, fields[i].choiceValue())
+			}
+		}
+		return
+	}
+}
+
+// newControl builds the control for a field.
+func (s *settingsForm) newControl(field *formField) form.Control {
+	switch field.kind {
+	case fieldNumber:
+		number := form.NewNumber(*field.text).
+			WithUnit(field.unit).
+			WithStep(field.step).
+			WithPlaceholder(field.placeholder)
+		if field.minimum != field.maximum {
+			number.WithRange(field.minimum, field.maximum)
+		}
+		return number
+	case fieldChoice:
+		choice := form.NewChoice(field.options, field.choiceValue()).
+			WithTitle(field.label).
+			WithBlankLabel(field.placeholder)
+		switch {
+		case field.gaugePreview:
+			choice.WithSample(func(r tideui.Renderer, option string, width int) string {
+				return r.GaugeSample(tideui.GaugeStyle(s.styleOrDefault(option, s.GaugeStyle())), width)
+			})
+		case field.sparkPreview:
+			choice.WithSample(func(r tideui.Renderer, option string, width int) string {
+				return r.SparkSample(tideui.SparklineStyle(s.styleOrDefault(option, s.SparkStyle())), width)
+			})
+		}
+		return choice
+	default:
+		text := form.NewText(*field.text).
+			WithPlaceholder(field.placeholder).
+			WithSummary(field.summary).
+			WithValidate(field.validate)
+		return text
+	}
+}
+
+// styleOrDefault resolves the "default" option to the style it stands for, so
+// a preview of "default" shows what it will actually look like.
+func (s settingsForm) styleOrDefault(option, fallback string) string {
+	if option == "" || option == "default" {
+		return fallback
+	}
+	return option
+}
+
+// beginEdit hands the row to a control and reports whether the control kept
+// the keyboard. Not every activation opens an edit: a choice short enough to
+// step changes its value on the spot and is done, which is why the control is
+// asked rather than the form guessing from the field's kind.
+func (s *settingsForm) beginEdit(field *formField) bool {
+	control := s.newControl(field)
+	before := s.fieldValue(field)
+	switch control.Update(tea.KeyMsg{Type: tea.KeyEnter}) {
+	case form.ActionEditing:
+		s.editor, s.editKey, s.editing = control, field.label, true
+		s.editBefore = before
+		return true
+	case form.ActionChanged:
+		s.writeBack(field, control.Value())
+		s.dirty = true
+		s.notifyDeck()
+	}
+	return false
+}
+
+// fieldValue reads whichever buffer a field is backed by.
+func (s settingsForm) fieldValue(field *formField) string {
+	if field.kind == fieldChoice {
+		return field.choiceValue()
+	}
+	if field.text != nil {
+		return *field.text
+	}
+	return ""
+}
+
+// writeBack stores the control's value into the field's buffer.
+func (s *settingsForm) writeBack(field *formField, value string) {
+	if field.kind == fieldChoice {
+		field.setChoice(value)
+		return
+	}
+	if field.text != nil {
+		*field.text = value
+	}
+}
+
+// endEdit discards the control.
+func (s *settingsForm) endEdit() {
+	s.editor, s.editKey, s.editing = nil, "", false
 }
 
 // stepChoice moves delta options from current, wrapping around.
@@ -1188,8 +1462,49 @@ func stepChoice(current string, options []string, delta int) string {
 }
 
 // panelVisible reports whether a panel's enable row should show a tick.
+// panelVisible reports whether a panel is shown, preferring the pending edit
+// over the workspace's current state so a toggle takes effect on the row
+// before it takes effect on the dashboard.
 func (s settingsForm) panelVisible(id string) bool {
+	if s.state != nil {
+		if shown, ok := s.state.panelShown[id]; ok {
+			return shown
+		}
+	}
 	return s.ws == nil || !s.ws.Hidden(id)
+}
+
+// fail, working and report set the editor's message and say how to read it.
+// Going through these rather than assigning s.problem directly is what keeps a
+// success from being rendered as a failure.
+func (s *settingsForm) fail(message string) {
+	s.problem, s.tone = message, noticeError
+}
+
+func (s *settingsForm) working(message string) {
+	s.problem, s.tone = message, noticeProgress
+}
+
+func (s *settingsForm) report(message string) {
+	s.problem, s.tone = message, noticeGood
+}
+
+func (s *settingsForm) clearNotice() {
+	s.problem, s.tone = "", noticeError
+}
+
+// applyPanelVisibility pushes the pending show/hide edits onto the workspace.
+// It runs only on save, which is what makes cancelling a toggle possible.
+func (s *settingsForm) applyPanelVisibility() {
+	if s.ws == nil || s.state == nil {
+		return
+	}
+	for id, shown := range s.state.panelShown {
+		if shown == !s.ws.Hidden(id) {
+			continue
+		}
+		s.ws.TogglePanel(id)
+	}
 }
 
 func (s *settingsForm) save() settingsAction {
@@ -1198,10 +1513,11 @@ func (s *settingsForm) save() settingsAction {
 	}
 	cfg, err := s.state.toConfig(s.deck)
 	if err != nil {
-		s.problem = err.Error()
+		s.fail(err.Error())
 		return settingsNone
 	}
-	s.problem = ""
+	s.applyPanelVisibility()
+	s.clearNotice()
 	s.opened = false
 	s.editing = false
 	s.dirty = false
@@ -1209,14 +1525,14 @@ func (s *settingsForm) save() settingsAction {
 	return settingsSaved
 }
 
+// value is the row's right-hand cell for the kinds that are not drawn by a
+// control. Booleans return nothing: the tick in the prefix already says on or
+// off, and the old row said it a second time in the same line.
 func (s settingsForm) value(field formField) string {
 	switch field.kind {
-	case fieldBool:
-		if field.flag != nil && *field.flag {
-			return "on"
-		}
-		return "off"
-	case fieldText:
+	case fieldBool, fieldGlyph, fieldPanel:
+		return ""
+	case fieldText, fieldNumber:
 		if field.text != nil {
 			if field.summary != nil {
 				return field.summary(*field.text)
@@ -1225,11 +1541,6 @@ func (s settingsForm) value(field formField) string {
 		}
 	case fieldChoice:
 		return field.choiceValue()
-	case fieldGlyph:
-		if s.PanelGlyphEnabled(field.panel) {
-			return "on"
-		}
-		return "off"
 	}
 	return ""
 }
@@ -1258,18 +1569,23 @@ func (s settingsForm) RenderWorkspace(r tideui.Renderer, width, height int) stri
 	if s.category >= 0 && s.category < len(s.categories) {
 		category := s.categories[s.category]
 		rows := max(1, height-6)
-		right = r.Styles.OverlayTitle.Render(settingsIcon(category)+" "+strings.ToUpper(category.name)) + "\n"
-		if category.panelID != "" {
-			right += r.Styles.OverlayHint.Render("Panel") + "\n"
-		}
+		headerWidth := max(1, rightWidth-4)
+		right = s.renderHeader(r, category, headerWidth) + "\n"
 		if len(category.fields) == 0 {
-			right += r.Styles.OverlayHint.Render("No additional settings for this panel.")
+			right += paneHint(r).Render("No additional settings for this panel.")
 		} else {
 			right += strings.Join(s.renderFields(r, max(1, rightWidth-4), rows), "\n")
 		}
 	}
 	if s.problem != "" {
-		right = r.Styles.StatusError.Render(ansi.Truncate(s.problem, max(1, rightWidth-4), "…")) + "\n" + right
+		style := r.Styles.StatusError
+		switch s.tone {
+		case noticeProgress:
+			style = r.Styles.StatusHint
+		case noticeGood:
+			style = r.Styles.StatusSuccess
+		}
+		right = style.Render(ansi.Truncate(s.problem, max(1, rightWidth-4), "…")) + "\n" + right
 	}
 
 	mode := tideui.SidebarOnly
@@ -1278,26 +1594,128 @@ func (s settingsForm) RenderWorkspace(r tideui.Renderer, width, height int) stri
 		{Title: "Editor", Content: right, Focused: s.focus == settingsEditor, Hint: "tab focus"},
 	}
 	if narrow {
+		// Two tabs, one focused. The old branch overwrote one pane and left
+		// the other, so both ended up with the same title and both claimed
+		// focus - "Settings | Settings", with the wrong one highlighted.
 		mode = tideui.Tabbed
-		if s.focus == settingsNav {
-			panes[1] = tideui.Pane{Title: "Settings", Content: left, Focused: true}
-		} else {
-			panes[0] = tideui.Pane{Title: "Editor", Content: right, Focused: true}
-		}
+		panes[0].Focused = s.focus == settingsNav
+		panes[1].Focused = s.focus == settingsEditor
+		panes[2] = tideui.Pane{}
 	}
-	hints := "tab focus · esc back"
-	if s.dirty {
-		hints = "ctrl+s save · tab focus · esc back"
-	}
-	view := r.Render(tideui.Layout{
+	hints := s.hintBar()
+	layout := tideui.Layout{
 		Width: layoutWidth, Height: height, Mode: mode, Panes: panes,
 		SidebarRatio: float64(leftWidth) / float64(max(1, layoutWidth)),
 		Status:       &tideui.StatusBar{Left: "TideDeck › Settings", Right: hints},
-	})
+	}
+	// A control that opens a list draws it over the screen. Without this the
+	// picker would take the keyboard while nothing on screen had changed.
+	if overlayer, ok := s.editor.(form.Overlayer); ok && s.editing {
+		pickerWidth := max(24, min(48, layoutWidth-8))
+		if overlay, open := overlayer.Overlay(r, pickerWidth, height-4); open {
+			layout.Modal = &overlay
+		}
+	}
+	view := r.Render(layout)
 	if layoutWidth == width {
 		return view
 	}
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Top, view)
+}
+
+// renderHeader draws a category's title and the rule beneath it.
+//
+// A panel's page carries its own state: the title is green when the panel is on
+// the dashboard and red when it is not, so the page says what it is for before
+// any row is read. Colour alone would not say it - a red title and a green one
+// are the same title to anyone who cannot tell them apart, and identical under
+// PlainUI - so the rule underneath is labelled with the state as well.
+func (s settingsForm) renderHeader(r tideui.Renderer, category settingsCategory, width int) string {
+	bg := paneSurface(r)
+	title := settingsIcon(category) + " " + strings.ToUpper(category.name)
+
+	// The title stays the ordinary heading colour; the rule beneath it carries
+	// the state. Colouring both made the page shout, and the title is the one
+	// part that should read the same on every page.
+	label, tone := "", tideui.ToneNeutral
+	if category.panelID != "" {
+		if s.panelVisible(category.panelID) {
+			label, tone = "enabled", tideui.ToneGood
+		} else {
+			label, tone = "disabled", tideui.ToneDanger
+		}
+	}
+	rule := r.RenderSectionDivider(
+		tideui.SectionDivider{Label: label, Width: width, Tone: tone}, bg)
+	return paneTitle(r).Render(title) + "\n" + rule
+}
+
+// paneSurface is the background a settings pane's body actually has. Rows are
+// drawn directly into a Pane, not into a modal, so they have to be resolved
+// against this rather than against the lifted modal surface - otherwise every
+// row is a different shade from the blank space around it and the pane looks
+// banded.
+func paneSurface(r tideui.Renderer) lipgloss.Color { return r.Styles.Theme.Bg }
+
+// paneHint styles quiet text on the pane background: section headers, overflow
+// markers, and the "no settings" note.
+func paneHint(r tideui.Renderer) lipgloss.Style {
+	return lipgloss.NewStyle().
+		Background(paneSurface(r)).
+		Foreground(r.Styles.Workspace.HintFg)
+}
+
+// paneTitle styles a page heading on the pane background.
+func paneTitle(r tideui.Renderer) lipgloss.Style {
+	return lipgloss.NewStyle().
+		Background(paneSurface(r)).
+		Foreground(r.Styles.Workspace.BodyFg).
+		Bold(true)
+}
+
+// hintBar says which keys work right now. It used to be one fixed string that
+// never mentioned enter, space, or the arrows, so the screen documented none of
+// the keys that actually edited anything.
+func (s settingsForm) hintBar() string {
+	parts := make([]string, 0, 4)
+	if s.editor != nil && s.editing {
+		// Only the control's keys, because they are the only ones that work:
+		// esc means revert here, not "go back", and listing both would give
+		// the same key two meanings in one bar.
+		for _, hint := range s.editor.Hints() {
+			if hint.Key == "" {
+				parts = append(parts, hint.Label)
+				continue
+			}
+			parts = append(parts, hint.Key+" "+hint.Label)
+		}
+		return strings.Join(parts, " · ")
+	}
+	if field := s.currentField(); field != nil && s.focus == settingsEditor {
+		switch field.kind {
+		case fieldBool, fieldPanel, fieldGlyph:
+			parts = append(parts, "space toggle")
+		case fieldChoice:
+			parts = append(parts, "←→ change")
+			if len(field.options) >= 5 {
+				parts = append(parts, "enter list")
+			}
+		case fieldAction:
+			parts = append(parts, "enter run")
+		case fieldNumber:
+			if field.step != 0 {
+				parts = append(parts, "←→ step")
+			}
+			parts = append(parts, "enter edit")
+		default:
+			parts = append(parts, "enter edit")
+		}
+	}
+	if s.dirty {
+		parts = append(parts, "ctrl+s save")
+	}
+	parts = append(parts, "tab focus", "esc back")
+	return strings.Join(parts, " · ")
 }
 
 func settingsIcon(category settingsCategory) string {
@@ -1349,42 +1767,62 @@ func panelGlyph(id string) string {
 	}
 }
 
+// renderCategories draws the navigation list within rows lines.
+//
+// The window is shrunk until everything fits, because the section headers and
+// the "more" markers are drawn from the same budget as the rows and are not
+// known until the window is chosen. Windowing to exactly rows and then
+// appending up to four more lines is how this pane used to overflow its pane.
 func (s settingsForm) renderCategories(r tideui.Renderer, width, rows int) []string {
-	first, last := visibleWindow(len(s.categories), s.category, rows)
+	return fitRows(rows, func(limit int) []string {
+		return s.categoryLines(r, width, limit)
+	})
+}
+
+func (s settingsForm) categoryLines(r tideui.Renderer, width, rows int) []string {
+	first, last := tideui.VisibleRange(len(s.categories), s.category, rows)
 	var lines []string
 	if first > 0 {
-		lines = append(lines, r.Styles.OverlayHint.Width(width).Render("  ▲ more"))
+		lines = append(lines, paneHint(r).Width(width).Render("  ▲ more"))
 	}
 	for index := first; index < last; index++ {
 		category := s.categories[index]
 		if index == 0 {
-			lines = append(lines, r.Styles.OverlayHint.Render("GENERAL"))
+			lines = append(lines, paneHint(r).Render("GENERAL"))
 		} else if category.panelID != "" && s.categories[index-1].panelID == "" {
-			lines = append(lines, r.Styles.OverlayHint.Render("PANELS"))
+			lines = append(lines, paneHint(r).Render("PANELS"))
 		}
 		suffix := fmt.Sprintf("%d", len(category.fields))
 		if category.panelID != "" && !s.panelVisible(category.panelID) {
 			suffix = "off"
 		}
-		lines = append(lines, r.RenderSoftRow(tideui.SoftRow{
+		lines = append(lines, r.RenderSoftRowOn(tideui.SoftRow{
 			Prefix:   "  ",
 			Text:     settingsIcon(category) + " " + category.name,
 			Suffix:   suffix,
 			Selected: index == s.category,
-		}, width))
+		}, width, paneSurface(r)))
 	}
 	if last < len(s.categories) {
-		lines = append(lines, r.Styles.OverlayHint.Width(width).Render("  ▼ more"))
+		lines = append(lines, paneHint(r).Width(width).Render("  ▼ more"))
 	}
 	return lines
 }
 
+// renderFields draws the editor list within rows lines, shrinking the window
+// until the "more" markers it adds fit alongside the rows.
 func (s settingsForm) renderFields(r tideui.Renderer, width, rows int) []string {
+	return fitRows(rows, func(limit int) []string {
+		return s.fieldLines(r, width, limit)
+	})
+}
+
+func (s settingsForm) fieldLines(r tideui.Renderer, width, rows int) []string {
 	fields := s.currentFields()
-	first, last := visibleWindow(len(fields), s.cursor, rows)
+	first, last := tideui.VisibleRange(len(fields), s.cursor, rows)
 	var lines []string
 	if first > 0 {
-		lines = append(lines, r.Styles.OverlayHint.Width(width).Render("  ▲ more"))
+		lines = append(lines, paneHint(r).Width(width).Render("  ▲ more"))
 	}
 	for index := first; index < last; index++ {
 		field := fields[index]
@@ -1414,53 +1852,155 @@ func (s settingsForm) renderFields(r tideui.Renderer, width, rows int) []string 
 			}
 		case fieldChoice:
 			row.Prefix = "    "
-			switch {
-			case field.gaugePreview:
-				style := field.choiceValue()
-				if style == "" || style == "default" {
-					style = s.GaugeStyle()
-				}
-				row.Suffix = r.GaugeSample(tideui.GaugeStyle(style), 8)
-			case field.sparkPreview:
-				style := field.choiceValue()
-				if style == "" || style == "default" {
-					style = s.SparkStyle()
-				}
-				row.Suffix = r.SparkSample(tideui.SparklineStyle(style), 8)
-			default:
-				row.Suffix = "‹ " + s.value(field) + " ›"
-			}
+			budget := max(12, width-ansi.StringWidth(row.Text)-8)
+			row.Suffix = s.newControl(&field).View(r, budget)
 		case fieldAction:
 			row.Prefix = "  "
 			row.Text = "[ " + field.label + " ]"
 			row.Accent = true
+		case fieldText, fieldNumber:
+			row.Prefix = "    "
+			// Cap the cell so a long value cannot squeeze the label away; the
+			// full value is still what the field holds and edits.
+			budget := max(12, width-ansi.StringWidth(row.Text)-8)
+			if field.input {
+				row.Suffix = inputView(s.value(field), field.placeholder, budget)
+				break
+			}
+			row.Suffix = s.newControl(&field).View(r, budget)
 		default:
 			row.Prefix = "    "
-			if field.input {
-				// Cap the box so a long value cannot squeeze the label away;
-				// the full value is still what the field holds and edits.
-				budget := max(12, width-ansi.StringWidth(row.Text)-8)
-				row.Suffix = inputView(s.value(field), field.placeholder, budget)
-			}
 		}
-		if index == s.cursor && s.editing && field.kind == fieldText && field.text != nil {
+		if index == s.cursor && s.editing && s.editor != nil {
 			// Editing shows the raw value, not a summary: a field cannot be
-			// edited through a description of itself. The window follows the
-			// caret so a value longer than the row stays reachable.
-			budget := max(12, width-len([]rune(row.Text))-8)
-			view := editingView(*field.text, s.caret, budget)
+			// edited through a description of itself. The control keeps the
+			// caret visible in a value wider than the row.
+			budget := max(12, width-ansi.StringWidth(row.Text)-8)
+			view := s.editor.View(r, budget)
 			if field.input {
 				row.Suffix = "[ " + view + " ]"
 			} else {
 				row.Suffix = view
 			}
 		}
-		lines = append(lines, r.RenderSoftRow(row, width))
+		lines = append(lines, r.RenderSoftRowOn(row, width, paneSurface(r)))
+
+		// The selected row gets a line explaining itself, or saying why its
+		// value cannot be used. A label alone cannot say that a docker socket
+		// of "1" means the default one; a description can, and a plugin has
+		// always been able to supply one.
+		if index == s.cursor {
+			if note, tone := s.fieldNote(field); note != "" {
+				// Wrapped rather than truncated: an explanation cut off
+				// mid-sentence is barely better than no explanation.
+				for _, line := range wrapText(note, max(8, width-8), 2) {
+					lines = append(lines, r.RenderSoftRowOn(tideui.SoftRow{
+						Prefix: "      ",
+						Text:   line,
+						Muted:  tone != noticeError,
+						Accent: tone == noticeError,
+					}, width, paneSurface(r)))
+				}
+				// A blank row after the note, so the sentence belongs to the
+				// row above it rather than running into the row below.
+				lines = append(lines, r.RenderSoftRowOn(tideui.SoftRow{}, width, paneSurface(r)))
+			}
+		}
 	}
 	if last < len(fields) {
-		lines = append(lines, r.Styles.OverlayHint.Width(width).Render("  ▼ more"))
+		lines = append(lines, paneHint(r).Width(width).Render("  ▼ more"))
 	}
 	return lines
+}
+
+// withBlank puts an explicit "any" in front of a discovered option list, so a
+// setting whose blank value already does something sensible can still be
+// chosen rather than only left alone.
+func withBlank(options []string) []string {
+	for _, option := range options {
+		if option == "" {
+			return options
+		}
+	}
+	return append([]string{""}, options...)
+}
+
+// withCurrent is the list a panel-reported setting should offer: the blank
+// "leave it unset" value, and the value the setting already holds.
+//
+// A panel re-reads its options on every run, and a list that narrows - the
+// mailboxes of the account just chosen - can leave the saved value out.
+// form.Choice draws the first option for a value that is not in its list,
+// because a control cannot show a value it was not given: the row would read
+// "the inbox" while the setting said "Receipts", and confirming the list would
+// write that lie back over the value. Keeping it in the list means the row
+// tells the truth, the picker opens on the value, enter keeps it - and
+// switching back to the account the mailbox belongs to does not mean finding
+// it again.
+func withCurrent(options []string, current string) []string {
+	options = withBlank(options)
+	if current == "" {
+		return options
+	}
+	for _, option := range options {
+		if option == current {
+			return options
+		}
+	}
+	// A fresh slice: options may be the manifest's own, and a choice's list
+	// must not write into the field declaration it came from.
+	return append(append(make([]string, 0, len(options)+1), options...), current)
+}
+
+// wrapText breaks text on word boundaries into at most limit lines, marking
+// the last one with an ellipsis when there was more to say.
+func wrapText(text string, width, limit int) []string {
+	words := strings.Fields(text)
+	if len(words) == 0 || width <= 0 {
+		return nil
+	}
+	var lines []string
+	line := ""
+	for _, word := range words {
+		switch {
+		case line == "":
+			line = word
+		case ansi.StringWidth(line)+1+ansi.StringWidth(word) <= width:
+			line += " " + word
+		default:
+			lines = append(lines, line)
+			if len(lines) == limit {
+				return elide(lines, width)
+			}
+			line = word
+		}
+	}
+	if line != "" {
+		lines = append(lines, line)
+	}
+	if len(lines) > limit {
+		return elide(lines[:limit], width)
+	}
+	return lines
+}
+
+// elide marks a wrapped block as cut short.
+func elide(lines []string, width int) []string {
+	last := len(lines) - 1
+	lines[last] = ansi.Truncate(lines[last], max(1, width-1), "") + "…"
+	return lines
+}
+
+// fieldNote is the line under the selected row: the reason a value is unusable
+// when there is one, and otherwise the field's description. The complaint wins,
+// because a field that is both described and wrong needs the complaint.
+func (s settingsForm) fieldNote(field formField) (string, noticeTone) {
+	if s.editor != nil && s.editing {
+		if err := s.editor.Err(); err != nil {
+			return err.Error(), noticeError
+		}
+	}
+	return field.description, noticeGood
 }
 
 // inputView draws a text field as an input box. An empty field shows its
@@ -1483,51 +2023,20 @@ func inputView(value, placeholder string, budget int) string {
 	return "[ " + text + " ]"
 }
 
-// editingView renders the part of a value around the caret, marking the caret
-// where it actually is. The marker used to be appended at the end of the
-// value regardless of caret position, so moving left and typing inserted text
-// nowhere near the visible cursor.
-func editingView(value string, caret, width int) string {
-	runes := []rune(value)
-	caret = min(max(caret, 0), len(runes))
-	if width < 6 {
-		width = 6
+// fitRows draws a list with the largest window whose rendered height still
+// fits in rows. build may add lines of its own - headers, overflow markers -
+// so asking for a window of rows and trusting the result is not enough.
+func fitRows(rows int, build func(limit int) []string) []string {
+	for limit := rows; limit > 1; limit-- {
+		if lines := build(limit); len(lines) <= rows {
+			return lines
+		}
 	}
-	budget := width - 1 // the caret marker occupies a cell
-	if len(runes) <= budget {
-		return string(runes[:caret]) + caretMark + string(runes[caret:])
+	lines := build(1)
+	if len(lines) > rows {
+		return lines[:rows]
 	}
-	start := min(max(caret-budget/2, 0), len(runes)-budget)
-	end := start + budget
-	head, tail := "", ""
-	if start > 0 {
-		head, start = "…", start+1
-	}
-	if end < len(runes) {
-		tail, end = "…", end-1
-	}
-	if start > end {
-		start = end
-	}
-	window := runes[start:end]
-	at := min(max(caret-start, 0), len(window))
-	return head + string(window[:at]) + caretMark + string(window[at:]) + tail
-}
-
-const caretMark = "▏"
-
-func visibleWindow(total, cursor, limit int) (int, int) {
-	if limit >= total {
-		return 0, total
-	}
-	start := cursor - limit/2
-	if start < 0 {
-		start = 0
-	}
-	if start+limit > total {
-		start = total - limit
-	}
-	return start, start + limit
+	return lines
 }
 
 func wrapIndex(index, length int) int {

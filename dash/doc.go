@@ -24,6 +24,18 @@ type Doc struct {
 	Rows          []Row     `json:"rows"`
 	Detail        []Row     `json:"detail"` // shown when zoomed; empty reuses Rows
 	Badge         *DocBadge `json:"badge"`
+
+	// Options offers the values a setting can usefully take, keyed by the
+	// setting's own name as the manifest declares it. A manifest is static
+	// JSON written before the machine it runs on existed, so it cannot know
+	// what accounts, interfaces or units are actually present; the program
+	// can, because it just looked. A setting that reports options is offered
+	// as a list rather than as an empty box the reader has to guess at.
+	//
+	// The empty string is a valid option and means "leave it unset", which is
+	// how a setting whose blank value already does something sensible keeps
+	// saying so.
+	Options map[string][]string `json:"options"`
 }
 
 // DocBadge is a badge as a plugin writes it. It is separate from Badge

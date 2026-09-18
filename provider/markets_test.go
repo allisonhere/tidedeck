@@ -10,7 +10,7 @@ import (
 const sampleYahoo = `{"chart":{"result":[{"meta":{
   "symbol":"AMD","currency":"USD","regularMarketPrice":162.40,"chartPreviousClose":159.52
 },"indicators":{"quote":[{"high":[164.2],"low":[158.8]}]}
-}}]}}`
+}]}}`
 
 func TestFetchQuote(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

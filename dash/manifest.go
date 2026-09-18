@@ -85,6 +85,7 @@ type SchemaField struct {
 	Type         string   `json:"type"` // string, boolean, choice
 	Label        string   `json:"label"`
 	Description  string   `json:"description"`
+	Placeholder  string   `json:"placeholder"`
 	DefaultValue any      `json:"defaultValue"`
 	Options      []string `json:"options"`
 }
@@ -156,9 +157,9 @@ func (m Manifest) Validate() []string {
 			problems = append(problems, fmt.Sprintf("panel.schema[%d].key is required", i))
 		}
 		switch field.Type {
-		case "string", "boolean", "choice", "":
+		case "string", "boolean", "choice", "number", "":
 		default:
-			problems = append(problems, fmt.Sprintf("panel.schema[%d].type %q is not string, boolean or choice", i, field.Type))
+			problems = append(problems, fmt.Sprintf("panel.schema[%d].type %q is not string, boolean, choice or number", i, field.Type))
 		}
 		if field.Type == "choice" && len(field.Options) == 0 {
 			problems = append(problems, fmt.Sprintf("panel.schema[%d] is a choice with no options", i))
@@ -227,12 +228,19 @@ func (m Manifest) Fields() []Field {
 			Key:   m.SettingKey(declared.Key),
 			Label: declared.Label,
 			Kind:  FieldText,
+			// A manifest has always been able to describe a setting; until
+			// now the description was parsed and then dropped on the floor,
+			// so a plugin could explain itself and never be heard.
+			Description: declared.Description,
+			Placeholder: declared.Placeholder,
 		}
 		switch declared.Type {
 		case "boolean":
 			field.Kind = FieldBool
 		case "choice":
 			field.Kind, field.Options = FieldChoice, declared.Options
+		case "number":
+			field.Kind = FieldFloat
 		}
 		if declared.DefaultValue != nil {
 			field.Default = fmt.Sprintf("%v", declared.DefaultValue)
@@ -243,6 +251,12 @@ func (m Manifest) Fields() []Field {
 		fields = append(fields, field)
 	}
 	return fields
+}
+
+// settingName is the inverse of SettingKey: the name the plugin declared, back
+// out of the namespaced configuration key.
+func (m Manifest) settingName(key string) string {
+	return strings.TrimPrefix(key, "plugins."+m.ID+".")
 }
 
 // SettingKey is where a plugin's setting lives in the configuration document.
