@@ -170,6 +170,61 @@ func TestRowCarriesAnID(t *testing.T) {
 	}
 }
 
+// The row the reader picked is drawn as one selection block - every line of it
+// in the cursor colours, padded to the pane - the same affair the news list
+// draws its cursor with, so a plugin's list reads like a built-in one.
+func TestRenderDocMarksTheSelectedRow(t *testing.T) {
+	// Without a TTY there is no colour to assert on, and every SGR test passes
+	// vacuously.
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	renderer := docRenderer()
+	ws := renderer.Styles.Workspace
+	doc := Doc{Rows: []Row{
+		{Type: "block", ID: "1", Label: "ana@example.com · 5m", Body: []string{"standup notes"}},
+		{Type: "spacer"},
+		{Type: "block", ID: "2", Label: "sam@example.com · 1h", Body: []string{"dinner?"}},
+	}}
+
+	out := RenderDocSelected(renderer, doc, 30, false, "2")
+	// The escape lipgloss emits for the selection, taken from lipgloss itself
+	// rather than spelled out here, so the assertion is about the colours the
+	// panel chose and not about this test's idea of them.
+	block := lipgloss.NewStyle().Background(ws.SelectionBg).Foreground(ws.SelectionFg).Width(30)
+	open := strings.SplitN(block.Render("x"), "x", 2)[0]
+	if !strings.HasPrefix(open, "\x1b[") || open == "" {
+		t.Fatalf("could not read the selection escape out of lipgloss: %q", open)
+	}
+	if !strings.Contains(out, open+"sam@example.com · 1h") {
+		t.Errorf("the selected block's label is not in the cursor colours:\n%q", out)
+	}
+	if !strings.Contains(out, open+"  dinner?") {
+		t.Errorf("the selected block's body is not in the cursor colours:\n%q", out)
+	}
+	if strings.Contains(out, open+"standup notes") {
+		t.Errorf("an unselected row took the cursor colours:\n%q", out)
+	}
+	// The block spans the pane, so a selection reads as one row rather than as
+	// a word, and the bound every panel is held to still holds.
+	for _, line := range strings.Split(ansi.Strip(out), "\n") {
+		if got := ansi.StringWidth(line); got != 30 {
+			t.Errorf("selected line is %d cells wide, want 30: %q", got, line)
+		}
+	}
+	// An id nothing carries marks nothing: the document draws exactly as it does
+	// with no selection at all, so a document that changed under the cursor
+	// still renders.
+	if got, want := RenderDocSelected(renderer, doc, 30, false, "gone"), RenderDocSelected(renderer, doc, 30, false, ""); got != want {
+		t.Error("an id nothing carries still marked a row")
+	}
+	// And zoomed, the detail rows are the list, so an id there is what marks -
+	// a selection the reader cannot see is worse than none.
+	zoomed := doc
+	zoomed.Detail = []Row{{Type: "block", ID: "2", Label: "sam", Body: []string{"zoomed subject"}}}
+	if out := RenderDocSelected(renderer, zoomed, 30, true, "2"); !strings.Contains(out, open+"  zoomed subject") {
+		t.Errorf("a zoomed document did not mark the detail row:\n%q", out)
+	}
+}
+
 // A block's body is the row's content, so it is drawn in the panel's normal
 // text colour; a body that is only detail under its label names a bodyTone.
 // When every body was drawn in the subtitle colour, a mail subject read as a

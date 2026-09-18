@@ -6,6 +6,7 @@ import (
 
 	"github.com/allisonhere/tideui"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // DocSchemaVersion is the contract version a document declares. It describes
@@ -136,21 +137,37 @@ func parseSeverity(name string) (tideui.Tone, bool) {
 // Renderer.RenderLines, so a plugin cannot overflow its pane whatever it
 // prints.
 func RenderDoc(renderer tideui.Renderer, doc Doc, width int, zoomed bool) string {
-	rows := doc.Rows
-	if zoomed && len(doc.Detail) > 0 {
-		rows = doc.Detail
-	}
+	return RenderDocSelected(renderer, doc, width, zoomed, "")
+}
+
+// RenderDocSelected draws a document and marks one row as the reader's
+// selection: selected is that row's id, drawn as the panel's selection block -
+// the one the news list draws its cursor with. An empty id, or one no row
+// carries, marks nothing, so a document that changed under the cursor still
+// renders rather than going blank.
+func RenderDocSelected(renderer tideui.Renderer, doc Doc, width int, zoomed bool, selected string) string {
+	rows := shownRows(doc, zoomed)
 	bg := renderer.Styles.Workspace.Bg
 	labelWidth := docLabelWidth(rows, width)
 	lines := make([]string, 0, len(rows))
 	for _, row := range rows {
-		lines = append(lines, renderRow(renderer, row, width, labelWidth, bg)...)
+		lines = append(lines, renderRow(renderer, row, width, labelWidth, bg, row.ID != "" && row.ID == selected)...)
 	}
 	if len(lines) == 0 {
 		lines = []string{lipgloss.NewStyle().Background(bg).
 			Foreground(renderer.Styles.Workspace.HintFg).Render("No content")}
 	}
 	return renderer.RenderLines(lines, width, bg)
+}
+
+// shownRows is the row list a document draws: its detail rows when it has them
+// and the panel is zoomed, otherwise its rows. A panel that walks a document
+// keeps the same answer, so what the cursor counts is what the reader sees.
+func shownRows(doc Doc, zoomed bool) []Row {
+	if zoomed && len(doc.Detail) > 0 {
+		return doc.Detail
+	}
+	return doc.Rows
 }
 
 // docLabelWidth sizes the label column from the document's own labels. A
@@ -172,7 +189,10 @@ func docLabelWidth(rows []Row, width int) int {
 	return max(longest, 3)
 }
 
-func renderRow(renderer tideui.Renderer, row Row, width, labelWidth int, bg lipgloss.Color) []string {
+func renderRow(renderer tideui.Renderer, row Row, width, labelWidth int, bg lipgloss.Color, selected bool) []string {
+	if selected {
+		return renderRowSelected(renderer, row, width, labelWidth, bg)
+	}
 	switch strings.ToLower(strings.TrimSpace(row.Type)) {
 	case "spacer", "":
 		return []string{""}
@@ -203,6 +223,39 @@ func renderRow(renderer tideui.Renderer, row Row, width, labelWidth int, bg lipg
 		// should lose a line, not the whole panel.
 		return nil
 	}
+}
+
+// renderRowSelected draws a row the reader is on as one selection block: every
+// line of it takes the cursor colours and is padded to the pane, the way the
+// news list's cursor is drawn, so a whole message reads as selected rather than
+// as a highlighted word. A type that is not a list row - a gauge, a divider -
+// is drawn as usual, so a plugin cannot mark one by attaching an id to it.
+func renderRowSelected(renderer tideui.Renderer, row Row, width, labelWidth int, bg lipgloss.Color) []string {
+	ws := renderer.Styles.Workspace
+	style := lipgloss.NewStyle().Background(ws.SelectionBg).Foreground(ws.SelectionFg).Width(width)
+	switch strings.ToLower(strings.TrimSpace(row.Type)) {
+	case "text":
+		return []string{style.Render(ansi.Truncate(docRowText(row.Label, row.Value, labelWidth), width, "…"))}
+	case "block":
+		lines := make([]string, 0, len(row.Body)+1)
+		if row.Label != "" {
+			lines = append(lines, style.Render(ansi.Truncate(docRowText(row.Label, row.Value, labelWidth), width, "…")))
+		}
+		for _, line := range row.Body {
+			lines = append(lines, style.Render(ansi.Truncate("  "+line, width, "…")))
+		}
+		return lines
+	}
+	return renderRow(renderer, row, width, labelWidth, bg, false)
+}
+
+// docRowText is what a label-and-value row says, without styling, so the same
+// bytes can be drawn either as a muted pair or as one selection block.
+func docRowText(label, value string, labelWidth int) string {
+	if label == "" {
+		return value
+	}
+	return padLabel(label, labelWidth) + "  " + value
 }
 
 // renderMetric draws the three numeric row types, which differ only in
