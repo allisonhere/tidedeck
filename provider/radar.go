@@ -6,7 +6,8 @@ import (
 	"fmt"
 	"image"
 	"image/draw"
-	"image/png"
+	_ "image/jpeg" // the basemap's tiles
+	_ "image/png"  // the radar's tiles and every other service's
 	"math"
 	"net/http"
 	"time"
@@ -33,9 +34,9 @@ const radarTileSize = 512
 // this pane bigger than one tile" is asked.
 const RadarTilePixels = radarTileSize
 
-// radarUserAgent names this dashboard. A free public service deserves to know who
+// tileUserAgent names this dashboard. A free public service deserves to know who
 // is calling it, and a user agent is the only courtesy it gets.
-const radarUserAgent = "tideui-radar/1 (+https://github.com/allisonhere/tideui)"
+const tileUserAgent = "tideui/1 (+https://github.com/allisonhere/tideui)"
 
 // RadarOptions is where and how closely to look.
 type RadarOptions struct {
@@ -83,11 +84,11 @@ func Radar(opts RadarOptions) func(context.Context) (tideui.RadarFrame, error) {
 			host = radarFallbackHost
 		}
 		zoom := clampZoom(opts.Zoom)
-		grid := radarGridFor(opts.Latitude, opts.Longitude, zoom, opts.Cols, opts.Rows)
+		grid := tileGridFor(opts.Latitude, opts.Longitude, zoom, opts.Cols, opts.Rows)
 		picture := image.NewRGBA(image.Rect(0, 0, grid.Cols*radarTileSize, grid.Rows*radarTileSize))
 		for row := 0; row < grid.Rows; row++ {
 			for col := 0; col < grid.Cols; col++ {
-				tile, err := fetchRadarTile(ctx, grid.tileURL(host, newest.Path, col, row))
+				tile, err := fetchTile(ctx, grid.tileURL(host, newest.Path, col, row))
 				if err != nil {
 					return tideui.RadarFrame{}, err
 				}
@@ -103,9 +104,9 @@ func Radar(opts RadarOptions) func(context.Context) (tideui.RadarFrame, error) {
 	}
 }
 
-// radarTileFraction is where a coordinate sits inside its own tile, 0..1 in each
+// tileFraction is where a coordinate sits inside its own tile, 0..1 in each
 // direction.
-func radarTileFraction(lat, lon float64, zoom int) (fx, fy float64) {
+func tileFraction(lat, lon float64, zoom int) (fx, fy float64) {
 	scale := math.Exp2(float64(clampZoom(zoom)))
 	x := (lon + 180) / 360 * scale
 	radians := lat * math.Pi / 180
@@ -113,26 +114,28 @@ func radarTileFraction(lat, lon float64, zoom int) (fx, fy float64) {
 	return x - math.Floor(x), y - math.Floor(y)
 }
 
-// radarGrid is the block of tiles to fetch around the one that contains a
-// coordinate, and where in the stitched picture that coordinate falls.
-type radarGrid struct {
+// tileGrid is the block of tiles to fetch around the one that contains a
+// coordinate, and where in the stitched picture that coordinate falls. It is
+// slippy-map geometry rather than anything radar about it: the basemap is drawn on
+// the same grid, one zoom in.
+type tileGrid struct {
 	X, Y       int // the top-left tile of the block
 	Cols, Rows int
 	Zoom       int
 	Centre     image.Point
 }
 
-// radarGridFor centres a cols by rows block on the coordinate's own tile. The
+// tileGridFor centres a cols by rows block on the coordinate's own tile. The
 // coordinate is the subject, so the block grows the same distance in every
 // direction from it, and an even-sided block is off-centre by half a tile - which
 // is exactly why Centre is computed rather than assumed.
-func radarGridFor(lat, lon float64, zoom, cols, rows int) radarGrid {
+func tileGridFor(lat, lon float64, zoom, cols, rows int) tileGrid {
 	zoom = clampZoom(zoom)
 	cols, rows = normaliseGrid(cols), normaliseGrid(rows)
-	x, y := radarTileFor(lat, lon, zoom)
-	fx, fy := radarTileFraction(lat, lon, zoom)
+	x, y := tileAt(lat, lon, zoom)
+	fx, fy := tileFraction(lat, lon, zoom)
 	offsetX, offsetY := blockOffset(cols, fx), blockOffset(rows, fy)
-	return radarGrid{
+	return tileGrid{
 		X: x - offsetX, Y: y - offsetY, Cols: cols, Rows: rows, Zoom: zoom,
 		Centre: image.Pt(
 			offsetX*radarTileSize+int(fx*radarTileSize),
@@ -142,7 +145,7 @@ func radarGridFor(lat, lon float64, zoom, cols, rows int) radarGrid {
 }
 
 // rect is where the tile at col/row of the block goes in the stitched picture.
-func (g radarGrid) rect(col, row int) image.Rectangle {
+func (g tileGrid) rect(col, row int) image.Rectangle {
 	return image.Rect(col*radarTileSize, row*radarTileSize,
 		(col+1)*radarTileSize, (row+1)*radarTileSize)
 }
@@ -151,7 +154,7 @@ func (g radarGrid) rect(col, row int) image.Rectangle {
 // {path}/{size}/{z}/{x}/{y}/{color}/{smooth}_{snow}.png. An extra segment is not
 // rejected, it silently shifts what the numbers mean. A block that runs off the
 // world repeats the edge tile: a duplicated edge is honest, a hole is not.
-func (g radarGrid) tileURL(host, path string, col, row int) string {
+func (g tileGrid) tileURL(host, path string, col, row int) string {
 	scale := 1 << g.Zoom
 	x := clampTile(g.X+col, scale)
 	y := clampTile(g.Y+row, scale)
@@ -190,7 +193,7 @@ func fetchRadarIndex(ctx context.Context) (radarIndex, error) {
 	if err != nil {
 		return radarIndex{}, err
 	}
-	request.Header.Set("User-Agent", radarUserAgent)
+	request.Header.Set("User-Agent", tileUserAgent)
 	response, err := httpClient.Do(request)
 	if err != nil {
 		return radarIndex{}, err
@@ -206,32 +209,34 @@ func fetchRadarIndex(ctx context.Context) (radarIndex, error) {
 	return index, nil
 }
 
-// fetchRadarTile reads and decodes one PNG tile.
-func fetchRadarTile(ctx context.Context, url string) (image.Image, error) {
+// fetchTile reads and decodes one tile, whatever the service encodes it as: the
+// radar serves PNG and the basemap serves JPEG, and both are registered here so
+// one fetch serves both sources.
+func fetchTile(ctx context.Context, url string) (image.Image, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
-	request.Header.Set("User-Agent", radarUserAgent)
+	request.Header.Set("User-Agent", tileUserAgent)
 	response, err := httpClient.Do(request)
 	if err != nil {
 		return nil, err
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("radar tile: %s", response.Status)
+		return nil, fmt.Errorf("tile: %s", response.Status)
 	}
-	img, err := png.Decode(response.Body)
+	img, _, err := image.Decode(response.Body)
 	if err != nil {
-		return nil, fmt.Errorf("radar tile: %w", err)
+		return nil, fmt.Errorf("tile: %w", err)
 	}
 	return img, nil
 }
 
-// radarTileFor is the slippy-map tile containing a coordinate, which is the whole
+// tileAt is the slippy-map tile containing a coordinate, which is the whole
 // of the geography this panel needs: lon maps linearly onto the world, lat does
 // not, and nobody has ever enjoyed that fact.
-func radarTileFor(lat, lon float64, zoom int) (int, int) {
+func tileAt(lat, lon float64, zoom int) (int, int) {
 	scale := math.Exp2(float64(clampZoom(zoom)))
 	x := (lon + 180) / 360 * scale
 	radians := lat * math.Pi / 180

@@ -62,9 +62,9 @@ func TestRadarTileForCoordinates(t *testing.T) {
 		{30.2672, -97.7431, 7, 29, 52},
 		{51.5074, -0.1278, 7, 63, 42},
 	} {
-		x, y := radarTileFor(c.lat, c.lon, c.zoom)
+		x, y := tileAt(c.lat, c.lon, c.zoom)
 		if x != c.x || y != c.y {
-			t.Errorf("radarTileFor(%v, %v, %d) = %d/%d, want %d/%d", c.lat, c.lon, c.zoom, x, y, c.x, c.y)
+			t.Errorf("tileAt(%v, %v, %d) = %d/%d, want %d/%d", c.lat, c.lon, c.zoom, x, y, c.x, c.y)
 		}
 	}
 }
@@ -131,7 +131,7 @@ func TestRadarReportsWhatWentWrong(t *testing.T) {
 // reader on the wrong county.
 func TestRadarGridCentresTheCoordinate(t *testing.T) {
 	// Austin at zoom 7 is tile 29/52 (checked against the live service).
-	grid := radarGridFor(30.2672, -97.7431, 7, 3, 3)
+	grid := tileGridFor(30.2672, -97.7431, 7, 3, 3)
 	if grid.X != 28 || grid.Y != 51 {
 		t.Fatalf("grid origin = %d/%d, want 28/51", grid.X, grid.Y)
 	}
@@ -142,7 +142,7 @@ func TestRadarGridCentresTheCoordinate(t *testing.T) {
 		t.Fatalf("the coordinate landed at y=%d, outside its own tile", grid.Centre.Y)
 	}
 	// One tile means the coordinate's own tile, and the centre is inside it.
-	single := radarGridFor(30.2672, -97.7431, 7, 1, 1)
+	single := tileGridFor(30.2672, -97.7431, 7, 1, 1)
 	if single.X != 29 || single.Y != 52 {
 		t.Fatalf("a single-tile grid = %d/%d, want 29/52", single.X, single.Y)
 	}
@@ -157,7 +157,7 @@ func TestRadarGridCentresTheCoordinate(t *testing.T) {
 
 	// An even block cannot put the coordinate in the middle, and must not make it
 	// worse: half a tile out is the best there is, a whole one is a bug.
-	even := radarGridFor(30.2672, -97.7431, 7, 2, 2)
+	even := tileGridFor(30.2672, -97.7431, 7, 2, 2)
 	if got := math.Abs(float64(even.Centre.X - even.Cols*radarTileSize/2)); got > radarTileSize/2 {
 		t.Fatalf("the coordinate is %.0f px from the middle of a 2x2 block, want at most %d", got, radarTileSize/2)
 	}
@@ -188,7 +188,7 @@ func TestRadarKilometresPerPixel(t *testing.T) {
 // A block that runs off the edge of the world repeats the edge tile instead of
 // asking for a tile that cannot exist.
 func TestRadarGridClampsToTheWorld(t *testing.T) {
-	grid := radarGridFor(0, -179.9, 1, 3, 3)
+	grid := tileGridFor(0, -179.9, 1, 3, 3)
 	url := grid.tileURL("https://example.test", "/v2/radar/x", 0, 0)
 	if !strings.Contains(url, "/1/0/0/") {
 		t.Fatalf("a tile off the west edge = %q, want x clamped to 0", url)
@@ -201,7 +201,7 @@ func TestRadarGridClampsToTheWorld(t *testing.T) {
 // A mosaic is stitched in the order it was asked for, and the picture is as big as
 // the block: four tiles is 2*radarTileSize square.
 func TestRadarMosaicStitchesTheBlock(t *testing.T) {
-	block := radarGridFor(30.2672, -97.7431, 7, 2, 2)
+	block := tileGridFor(30.2672, -97.7431, 7, 2, 2)
 	var asked []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasSuffix(r.URL.Path, ".json") {
