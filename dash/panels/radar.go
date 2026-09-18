@@ -6,6 +6,7 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -33,6 +34,11 @@ type radar struct {
 	newFetcher func(provider.RadarOptions) func(context.Context) (tideui.RadarFrame, error)
 	location   string
 	zoom       int
+	// The pane the panel was last drawn into, and the renderer it was drawn with.
+	// A fetch is asked for without a pane, so the block of tiles is chosen from
+	// the last pane drawn - and the cell size, which only the renderer knows.
+	paneWidth, paneHeight int
+	renderer              tideui.Renderer
 	// quiet is true when the newest frame has nothing in it. An empty sky and a
 	// broken panel look identical, so the panel is the only thing that can tell
 	// the reader which one this is.
@@ -43,6 +49,15 @@ const (
 	radarEnabledKey = "radar.enabled"
 	radarZoomKey    = "radar.zoom"
 )
+
+// radarTileBudget is the most tiles one refresh will fetch. The service is free
+// and somebody else pays for it, and a glance at a dashboard panel is not worth
+// nine requests; two by two covers a pane four times the size of a normal one.
+const radarTileBudget = 4
+
+// defaultCellWidth is the cell width assumed when the terminal will not report
+// one, in pixels: the usual monospace cell at the usual size.
+const defaultCellWidth = 8
 
 func (r *radar) Meta() dash.Meta {
 	return dash.Meta{
@@ -89,8 +104,50 @@ func (r *radar) Configure(values dash.Values) error {
 		r.fetch = nil
 		return nil
 	}
-	r.fetch = r.newFetcher(provider.RadarOptions{Latitude: latitude, Longitude: longitude, Zoom: r.zoom})
+	cols, rows := radarGrid(r.renderer, r.paneWidth, r.paneHeight)
+	r.fetch = r.newFetcher(provider.RadarOptions{
+		Latitude: latitude, Longitude: longitude, Zoom: r.zoom, Cols: cols, Rows: rows,
+	})
 	return nil
+}
+
+// radarGrid is how many tiles a pane is worth: enough to cover its pixels, so a
+// zoomed panel is sharprather than a stretched 512, and never more than the
+// budget, so a glance at the dashboard is not a download.
+func radarGrid(renderer tideui.Renderer, width, height int) (cols, rows int) {
+	cellWidth := renderer.CellWidth
+	if cellWidth <= 0 {
+		cellWidth = defaultCellWidth
+	}
+	cellAspect := renderer.CellAspect
+	if cellAspect <= 0 {
+		cellAspect = 2 // a monospace cell of unknown shape: taller than wide
+	}
+	cols = clampTiles(int(math.Ceil(float64(width)*cellWidth/float64(provider.RadarTilePixels))), 3)
+	rows = clampTiles(int(math.Ceil(float64(height)*cellWidth*cellAspect/float64(provider.RadarTilePixels))), 3)
+	for cols*rows > radarTileBudget {
+		// Give up height before width: a panel is generally wider than it is tall,
+		// so a column of tiles is the part that matters.
+		if rows > 1 {
+			rows--
+		} else if cols > 1 {
+			cols--
+		} else {
+			break
+		}
+	}
+	return max(1, cols), max(1, rows)
+}
+
+// clampTiles keeps an axis inside what the provider will fetch, three either way.
+func clampTiles(tiles, most int) int {
+	if tiles < 1 {
+		return 1
+	}
+	if tiles > most {
+		return most
+	}
+	return tiles
 }
 
 func (r *radar) Refresh(ctx context.Context) error {
@@ -146,13 +203,14 @@ func radarEcho(img image.Image) float64 {
 }
 
 func (r *radar) View(ctx tideui.PanelContext) string {
+	r.mu.Lock()
+	r.paneWidth, r.paneHeight, r.renderer = ctx.Width, ctx.Height, ctx.Renderer
+	location, zoom, quiet := r.location, r.zoom, r.quiet
+	r.mu.Unlock()
 	frame := r.Load()
 	if frame.Image == nil {
 		return r.emptyView(ctx)
 	}
-	r.mu.Lock()
-	location, zoom, quiet := r.location, r.zoom, r.quiet
-	r.mu.Unlock()
 	if location == "" {
 		location = "local"
 	}
@@ -169,7 +227,7 @@ func (r *radar) View(ctx tideui.PanelContext) string {
 	// The picture is drawn with the reader's own position marked. The middle of
 	// the tile is where they are, and without it a lone echo is a smudge on dark
 	// glass: no telling weather one county over from weather two states away.
-	marked := markCentre(frame.Image, tideui.RGBAOf(ctx.Renderer.Styles.Workspace.BodyFg))
+	marked := markCentre(frame.Image, frame.Centre, tideui.RGBAOf(ctx.Renderer.Styles.Workspace.BodyFg))
 	picture := ctx.Renderer.RenderImage(marked, ctx.Width, max(1, ctx.Height-len(lines)))
 	// A frame that draws nothing is still a frame: the caption goes up either way,
 	// because "nothing is falling" and "nothing has loaded" are different things
@@ -191,9 +249,11 @@ func radarCaption(width int, when, location string, zoom int) string {
 	return strings.Join(parts, " · ")
 }
 
-// markCentre draws the reader into the picture, on a copy: the frame in state is
-// the one the next draw reuses.
-func markCentre(img image.Image, colour color.RGBA) image.Image {
+// markCentre draws the reader into the picture at the pixel the frame says they
+// are at, on a copy: the frame in state is the one the next draw reuses. The
+// middle of the picture is only their position when the block of tiles is
+// odd-sized, which is why the frame carries the point instead.
+func markCentre(img image.Image, centre image.Point, colour color.RGBA) image.Image {
 	if img == nil {
 		return nil
 	}
@@ -204,7 +264,7 @@ func markCentre(img image.Image, colour color.RGBA) image.Image {
 	marked := image.NewRGBA(bounds)
 	draw.Draw(marked, bounds, img, bounds.Min, draw.Src)
 
-	centreX, centreY := bounds.Min.X+bounds.Dx()/2, bounds.Min.Y+bounds.Dy()/2
+	centreX, centreY := centre.X, centre.Y
 	// Sized from the frame, so the mark survives being scaled into the pane and
 	// stays a crosshair rather than becoming a blob or a single invisible pixel.
 	arm := max(2, bounds.Dx()/48)

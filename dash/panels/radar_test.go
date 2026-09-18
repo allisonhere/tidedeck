@@ -190,28 +190,37 @@ func TestRadarEchoIsTheFractionOfTheFrameWithWeather(t *testing.T) {
 	}
 }
 
-// The reader's own position is drawn into the picture, because the middle of a
-// radar tile is where they are: without it a lone echo gives no sense of distance.
-func TestRadarMarksWhereTheReaderIs(t *testing.T) {
+// The reader's own position is drawn into the picture at the pixel the frame
+// names. Without it a lone echo gives no sense of distance - and the middle of the
+// picture is only that position when the block of tiles is odd-sized, which is
+// exactly why it is passed in rather than assumed.
+func TestRadarMarksWhereTheFrameSaysTheReaderIs(t *testing.T) {
 	blank := image.NewRGBA(image.Rect(0, 0, 64, 64))
-	marked, ok := markCentre(blank, color.RGBA{R: 255, G: 255, B: 255, A: 255}).(*image.RGBA)
+	// Deliberately off centre: a mark that always landed in the middle would pass
+	// the old code and be wrong for an even-sided block of tiles.
+	centre := image.Pt(20, 40)
+	marked, ok := markCentre(blank, centre, color.RGBA{R: 255, G: 255, B: 255, A: 255}).(*image.RGBA)
 	if !ok {
 		t.Fatal("markCentre did not return a drawable image")
 	}
-	_, _, _, centreAlpha := marked.At(32, 32).RGBA()
+	_, _, _, centreAlpha := marked.At(centre.X, centre.Y).RGBA()
+	_, _, _, tipAlpha := marked.At(centre.X, centre.Y-64/48).RGBA()
+	_, _, _, middleAlpha := marked.At(32, 32).RGBA()
 	_, _, _, cornerAlpha := marked.At(2, 2).RGBA()
-	_, _, _, tipAlpha := marked.At(32, 32-64/48).RGBA()
 	if centreAlpha == 0 {
-		t.Fatal("the centre of the picture was left unmarked")
+		t.Fatal("the position the frame named was left unmarked")
 	}
 	if tipAlpha == 0 {
 		t.Fatal("the mark is a single pixel, which a scaled-down picture loses")
+	}
+	if middleAlpha != 0 {
+		t.Fatal("the mark was drawn in the middle of the picture rather than where the frame said")
 	}
 	if cornerAlpha != 0 {
 		t.Fatal("the mark was drawn across the whole frame")
 	}
 	// The frame in state is the one the next draw reuses, so the original is untouched.
-	if _, _, _, alpha := blank.At(32, 32).RGBA(); alpha != 0 {
+	if _, _, _, alpha := blank.At(centre.X, centre.Y).RGBA(); alpha != 0 {
 		t.Fatal("markCentre marked the picture it was given")
 	}
 }
@@ -229,5 +238,72 @@ func TestRadarCaptionDropsTheZoomBeforeTheSource(t *testing.T) {
 	}
 	if ansi.StringWidth(narrow) > 26 {
 		t.Fatalf("a narrow caption = %q, which is %d cells wide", narrow, ansi.StringWidth(narrow))
+	}
+}
+
+// A pane bigger than one tile is asked for as more tiles rather than a stretched
+// 512: the service's own size is fixed, so sharpness is a question of how many of
+// them the panel orders.
+func TestRadarGridFollowsThePaneSize(t *testing.T) {
+	renderer := func(cellWidth, cellAspect float64) tideui.Renderer {
+		return tideui.NewRenderer(tideui.CatppuccinMocha, tideui.StyleOptions{CellWidth: cellWidth, CellAspect: cellAspect})
+	}
+	cases := []struct {
+		name               string
+		renderer           tideui.Renderer
+		width, height      int
+		wantCols, wantRows int
+	}{
+		{"a normal pane is one tile", renderer(8, 2), 40, 12, 1, 1},
+		{"a wide pane is two tiles across", renderer(8, 2), 120, 30, 2, 1},
+		{"a zoomed pane is a block", renderer(8, 2), 120, 60, 2, 2},
+		{"the block stays inside the budget", renderer(8, 2), 200, 100, 3, 1},
+		{"an unknown cell size is assumed to be the usual one", renderer(0, 0), 40, 12, 1, 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cols, rows := radarGrid(tc.renderer, tc.width, tc.height)
+			if cols != tc.wantCols || rows != tc.wantRows {
+				t.Fatalf("a %dx%d pane is worth %dx%d tiles, want %dx%d",
+					tc.width, tc.height, cols, rows, tc.wantCols, tc.wantRows)
+			}
+			if cols*rows > radarTileBudget {
+				t.Fatalf("%dx%d tiles is %d requests, more than the budget of %d",
+					cols, rows, cols*rows, radarTileBudget)
+			}
+		})
+	}
+}
+
+// The block the panel asks for is the block the pane is worth: the fetch is built
+// from the pane last drawn, because a fetch is asked for without a pane size.
+func TestRadarAsksForTheTilesItsPaneIsWorth(t *testing.T) {
+	noPlaceholderCellsForTests(t)
+	var asked provider.RadarOptions
+	panel := &radar{newFetcher: func(opts provider.RadarOptions) func(context.Context) (tideui.RadarFrame, error) {
+		asked = opts
+		return func(context.Context) (tideui.RadarFrame, error) { return tideui.RadarFrame{}, nil }
+	}}
+	if err := panel.Configure(radarValues(t, 30.2672, -97.7431)); err != nil {
+		t.Fatal(err)
+	}
+	// Draw once at a big pane (120 cells of 8px at an aspect of 2 is 960x960 px,
+	// four 512px tiles), then configure again the way the deck does.
+	panel.View(tideui.PanelContext{Width: 120, Height: 60,
+		Renderer: tideui.NewRenderer(tideui.CatppuccinMocha, tideui.StyleOptions{CellWidth: 8, CellAspect: 2})})
+	if err := panel.Configure(radarValues(t, 30.2672, -97.7431)); err != nil {
+		t.Fatal(err)
+	}
+	if asked.Cols != 2 || asked.Rows != 2 {
+		t.Fatalf("a 120x60 pane asked for %dx%d tiles, want 2x2", asked.Cols, asked.Rows)
+	}
+	// And a small pane is one tile, so the ordinary case costs one request.
+	panel.View(tideui.PanelContext{Width: 40, Height: 12,
+		Renderer: tideui.NewRenderer(tideui.CatppuccinMocha, tideui.StyleOptions{CellWidth: 8, CellAspect: 2})})
+	if err := panel.Configure(radarValues(t, 30.2672, -97.7431)); err != nil {
+		t.Fatal(err)
+	}
+	if asked.Cols != 1 || asked.Rows != 1 {
+		t.Fatalf("a 40x12 pane asked for %dx%d tiles, want 1x1", asked.Cols, asked.Rows)
 	}
 }
