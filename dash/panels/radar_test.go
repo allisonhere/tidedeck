@@ -98,8 +98,11 @@ func TestRadarDrawsTheFrameAndItsTime(t *testing.T) {
 	if !strings.Contains(ansi.Strip(view), "18:05") {
 		t.Fatalf("the panel does not say when the frame is from:\n%q", ansi.Strip(view))
 	}
-	if !strings.Contains(ansi.Strip(view), "RainViewer") {
-		t.Fatalf("the panel does not credit its source:\n%q", ansi.Strip(view))
+	// The credit names whichever service covers the place, asked for the same way the
+	// panel asks - so the test cannot drift from the routing.
+	credit := provider.RadarSourceFor(30.2672, -97.7431).Credit()
+	if !strings.Contains(ansi.Strip(view), credit) {
+		t.Fatalf("the panel does not credit %q:\n%q", credit, ansi.Strip(view))
 	}
 }
 
@@ -285,6 +288,12 @@ func TestRadarAsksForTheTilesItsPaneIsWorth(t *testing.T) {
 	if asked.Cols != 2 || asked.Rows != 2 {
 		t.Fatalf("a 120x60 pane asked for %dx%d tiles, want 2x2", asked.Cols, asked.Rows)
 	}
+	// And the pane in pixels, which is what a server-rendered source is asked for: 120
+	// cells of 8 px wide, and 58 rows of 8 px at a cell twice as tall as it is wide -
+	// 58 and not 60, because the caption's two rows are not picture.
+	if asked.Width != 960 || asked.Height != 928 {
+		t.Fatalf("a 120x60 pane asked for a %dx%d picture, want 960x928", asked.Width, asked.Height)
+	}
 	// And a small pane is one tile, so the ordinary case costs one request.
 	panel.View(tideui.PanelContext{Width: 40, Height: 12,
 		Renderer: tideui.NewRenderer(tideui.CatppuccinMocha, tideui.StyleOptions{CellWidth: 8, CellAspect: 2})})
@@ -337,11 +346,11 @@ func TestRadarDrawsTheRingAtItsDistance(t *testing.T) {
 // turns it from a pattern into a distance - and drops the scale before the place,
 // and the place before the source. A credit the layout truncated is not a credit.
 func TestRadarCaptionNamesTheScale(t *testing.T) {
-	wide := radarCaption(60, "17:50", "Kansas City", "243 km wide", false)
+	wide := radarCaption(60, "17:50", "Kansas City", "243 km wide", "RainViewer")
 	if !strings.Contains(wide, "243 km wide") || !strings.Contains(wide, "RainViewer") {
 		t.Fatalf("wide caption = %q, want the scale and the source", wide)
 	}
-	narrow := radarCaption(26, "17:50", "Kansas City", "243 km wide", false)
+	narrow := radarCaption(26, "17:50", "Kansas City", "243 km wide", "RainViewer")
 	if strings.Contains(narrow, "243 km wide") {
 		t.Fatalf("narrow caption = %q, want it to have dropped the scale", narrow)
 	}
@@ -353,7 +362,7 @@ func TestRadarCaptionNamesTheScale(t *testing.T) {
 	}
 	// A frame with no scale on it (one the provider could not measure) does not
 	// leave an empty part behind.
-	if got := radarCaption(60, "17:50", "Kansas City", "", false); strings.Contains(got, "··") || strings.Contains(got, " · · ") {
+	if got := radarCaption(60, "17:50", "Kansas City", "", "RainViewer"); strings.Contains(got, "··") || strings.Contains(got, " · · ") {
 		t.Fatalf("a caption with no scale = %q", got)
 	}
 }
@@ -560,17 +569,17 @@ func TestRadarWithNoMapDrawsOnlyTheFrame(t *testing.T) {
 // Both sources are credited, and as one part, so the caption's own dropping never
 // keeps one and throws the other away.
 func TestRadarCaptionCreditsTheMapService(t *testing.T) {
-	withMap := radarCaption(90, "17:50", "Kansas City", "243 km wide", true)
-	if !strings.Contains(withMap, "RainViewer") || !strings.Contains(withMap, "NASA GIBS") {
-		t.Fatalf("caption = %q, want both sources credited", withMap)
+	// With a map, both services are named, and the radar's source is whichever one
+	// covers the place.
+	withMap := radarCaption(90, "17:50", "Kansas City", "243 km wide", "NEXRAD · IEM · NASA GIBS")
+	if !strings.Contains(withMap, "NEXRAD · IEM") || !strings.Contains(withMap, "NASA GIBS") {
+		t.Fatalf("caption = %q, want both services credited", withMap)
 	}
-	withoutMap := radarCaption(90, "17:50", "Kansas City", "243 km wide", false)
+	withoutMap := radarCaption(90, "17:50", "Kansas City", "243 km wide", "NEXRAD · IEM")
 	if strings.Contains(withoutMap, "GIBS") {
 		t.Fatalf("caption = %q, want no map credit when there is no map", withoutMap)
 	}
-	if narrow := radarCaption(26, "17:50", "Kansas City", "243 km wide", true); strings.Contains(narrow, "GIBS") {
-		if !strings.Contains(narrow, "RainViewer") {
-			t.Fatalf("narrow caption = %q, want the radar's source kept at least", narrow)
-		}
+	if narrow := radarCaption(26, "17:50", "Kansas City", "243 km wide", "NEXRAD · IEM · NASA GIBS"); !strings.Contains(narrow, "NEXRAD · IEM") {
+		t.Fatalf("narrow caption = %q, want the radar's source kept at least", narrow)
 	}
 }

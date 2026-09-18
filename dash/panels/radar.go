@@ -49,6 +49,9 @@ type radar struct {
 	longitude  float64
 	enabled    bool
 	cols, rows int
+	// The pane in the pixels a source is asked to render, which is what a
+	// server-rendered radar is given and what makes the picture the pane's own shape.
+	paneWidthPixels, paneHeightPixels int
 	// The pane the panel was last drawn into, and the renderer it was drawn with.
 	// A fetch is asked for without a pane, so the block of tiles is chosen from
 	// the last pane drawn - and the cell size, which only the renderer knows.
@@ -77,7 +80,9 @@ const radarBasemapOff = "off"
 type basemapRequest struct {
 	layer               string
 	latitude, longitude float64
-	zoom, cols, rows    int
+	zoom                int
+	cols, rows          int
+	width, height       int
 }
 
 // radarTileBudget is the most tiles one refresh will fetch. The service is free
@@ -153,6 +158,21 @@ func (r *radar) Configure(values dash.Values) error {
 	return nil
 }
 
+// panePixels is the pane in the pixels a source should render: the cells it has times
+// the cell the terminal reported, which is what a server-rendered radar is asked for
+// and what makes its picture the pane's own shape rather than something to fit.
+func panePixels(renderer tideui.Renderer, width, height int) (int, int) {
+	cellWidth, cellAspect := renderer.CellWidth, renderer.CellAspect
+	if cellWidth <= 0 {
+		cellWidth = defaultCellWidth
+	}
+	if cellAspect <= 0 {
+		cellAspect = 2
+	}
+	return max(1, int(math.Round(float64(width)*cellWidth))),
+		max(1, int(math.Round(float64(height)*cellWidth*cellAspect)))
+}
+
 // basemapLayerFor is the map layer a setting asked for, or nothing when it asked
 // for none. An unknown name is the default rather than nothing: the settings screen
 // only offers real layers, so an unknown one is a hand-edited file, and a file that
@@ -185,12 +205,14 @@ func (r *radar) rebuildLocked() {
 		return
 	}
 	cols, rows := radarGrid(r.renderer, r.paneWidth, r.paneHeight)
-	if r.fetch != nil && cols == r.cols && rows == r.rows {
+	width, height := panePixels(r.renderer, r.paneWidth, r.paneHeight)
+	if r.fetch != nil && cols == r.cols && rows == r.rows && width == r.paneWidthPixels {
 		return
 	}
-	r.cols, r.rows = cols, rows
+	r.cols, r.rows, r.paneWidthPixels, r.paneHeightPixels = cols, rows, width, height
 	r.fetch = r.newFetcher(provider.RadarOptions{
-		Latitude: r.latitude, Longitude: r.longitude, Zoom: r.zoom, Cols: cols, Rows: rows,
+		Latitude: r.latitude, Longitude: r.longitude, Zoom: r.zoom,
+		Cols: cols, Rows: rows, Width: width, Height: height,
 	})
 }
 
@@ -306,6 +328,7 @@ func (r *radar) ensureBasemap(ctx context.Context) {
 	wanted := basemapRequest{
 		layer: layer, latitude: r.latitude, longitude: r.longitude,
 		zoom: r.zoom, cols: r.cols, rows: r.rows,
+		width: r.paneWidthPixels, height: r.paneHeightPixels,
 	}
 	have, havePicture := r.basemapOf, r.basemap != nil
 	r.mu.Unlock()
@@ -314,7 +337,7 @@ func (r *radar) ensureBasemap(ctx context.Context) {
 	}
 	ground, err := newBasemap(provider.BasemapOptions{
 		Latitude: wanted.latitude, Longitude: wanted.longitude,
-		Zoom: wanted.zoom, Cols: wanted.cols, Rows: wanted.rows, Layer: layer,
+		Zoom: wanted.zoom, Width: wanted.width, Height: wanted.height, Layer: layer,
 	})(ctx)
 	if err != nil || ground.Image == nil {
 		// A map the panel could not fetch is not news: the radar is the panel's
@@ -380,7 +403,7 @@ func (r *radar) View(ctx tideui.PanelContext) string {
 	bg := ctx.Renderer.Styles.Workspace.Bg
 	// A picture of the weather with no time on it is a picture of a rumour, and
 	// the service is credited because it asks to be.
-	lines := []string{radarCaption(ctx.Width, frame.Time.Local().Format("15:04"), location, radarScale(frame), r.hasBasemap())}
+	lines := []string{radarCaption(ctx.Width, frame.Time.Local().Format("15:04"), location, radarScale(frame), r.credits())}
 	// The picture is drawn under the caption, so the space it has is the pane less
 	// what the caption and its notice take: a pane is not all picture.
 	r.notePane(ctx, max(1, ctx.Height-len(lines)))
@@ -457,12 +480,18 @@ func (r *radar) drawnFrame(frame tideui.RadarFrame, ctx tideui.PanelContext) ima
 	return r.drawn
 }
 
-// hasBasemap reports whether there is a map under the frame, which is what the
-// caption's credit is about.
-func (r *radar) hasBasemap() bool {
+// credits is what the caption prints for the services that answered: whichever radar
+// source covers this place, and the map's when there is a map. It is one part, not
+// two, because the caption drops its least important part first and two credits become
+// one credit and a lost source.
+func (r *radar) credits() string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.basemap != nil
+	credit := provider.RadarSourceFor(r.latitude, r.longitude).Credit()
+	if r.basemap != nil {
+		credit += " · NASA GIBS"
+	}
+	return credit
 }
 
 // radarScale is what the picture is worth on the ground: a tile is a fixed number
@@ -479,13 +508,7 @@ func radarScale(frame tideui.RadarFrame) string {
 // radarCaption is the panel's context line, dropped in order of stubbornness as
 // the pane narrows: the time and the source stay, the scale goes first and the
 // place before it. A credit the layout truncated away is not a credit.
-func radarCaption(width int, when, location, scale string, withMap bool) string {
-	credit := "RainViewer"
-	if withMap {
-		// One part, not two: the caption drops its least important part first, and
-		// two credits would turn into one credit and a lost source.
-		credit = "RainViewer · NASA GIBS"
-	}
+func radarCaption(width int, when, location, scale, credit string) string {
 	parts := []string{when, location, "", credit}
 	parts[2] = scale
 	// A frame with no scale is not a reason to print an empty part.

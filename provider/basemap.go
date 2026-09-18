@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image"
 	"image/draw"
+	"math"
 	"strings"
 
 	"github.com/allisonhere/tideui"
@@ -27,33 +28,41 @@ const BasemapDefaultLayer = "night lights"
 // of its own.
 var basemapHost = "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best"
 
-// basemapTilePixels is GIBS's tile size. It is half the radar's, which is the whole
-// reason the two pictures line up: one radar tile is a 2x2 block of these, over the
-// same ground in the same 512 pixels.
+// basemapZoom is the only zoom the imagery is served at. GIBS declares a tile matrix
+// set per zoom and these layers carry one each (Level8 is zoom eight and nothing
+// else: z7 and z9 answer 400), so this is not a preference - it is the ground
+// resolution of the imagery. A view at any zoom is cut out of these tiles and
+// resampled to the pane.
+const basemapZoom = 8
+
+// basemapTilePixels is GIBS's tile size, half the radar's.
 const basemapTilePixels = radarTileSize / 2
 
-// basemapZoomOffset is how many zooms deeper the basemap is fetched than the radar.
-// Not a preference: GIBS serves a tile matrix set per zoom (Level8 is zoom eight and
-// nothing else), and a 256 px tile one zoom in is exactly a radar pixel's worth of
-// ground - the one choice that needs no scaling.
-const basemapZoomOffset = 1
+// basemapMaxTiles is how many tiles one view may cost. The imagery is fixed at one
+// zoom, so a view of a continent would want hundreds of them: past this the panel
+// draws the radar alone, which is honest - a map helps when a pane is looking at a
+// region, and a view this wide is not one.
+const basemapMaxTiles = 16
 
 // BasemapOptions is where and how big the basemap should be. It mirrors
-// RadarOptions deliberately: the two pictures have to cover the same ground, so a
-// panel hands them the same numbers.
+// RadarOptions deliberately: the two pictures are drawn over one another, so a panel
+// hands them the same numbers.
 type BasemapOptions struct {
 	Latitude, Longitude float64
 	Zoom                int
-	Cols, Rows          int
+	// Width and Height are the pixels the caller will draw: the picture comes back
+	// exactly that size, which is what lets it line up with the radar at any zoom
+	// rather than only when the two tile grids happen to agree.
+	Width, Height int
 	// Layer is a name from BasemapLayers. An unknown one is an error rather than a
 	// silent fallback, because a wrong layer name is a typo, not a preference.
 	Layer string
 }
 
 // Basemap fetches the ground a radar panel is looking at, for drawing under it: a
-// picture of a place with the reader's own position and the ground scale on it, the
-// same model the radar returns so a panel can compose the two without caring which
-// came from where.
+// picture of a place at the size the pane asked for, with the reader's own position
+// and the ground scale on it - the same model the radar returns, so a panel can
+// compose the two without caring which came from where.
 func Basemap(opts BasemapOptions) func(context.Context) (tideui.MapFrame, error) {
 	layer, known := BasemapLayers[strings.ToLower(strings.TrimSpace(opts.Layer))]
 	if !known {
@@ -62,53 +71,90 @@ func Basemap(opts BasemapOptions) func(context.Context) (tideui.MapFrame, error)
 		}
 	}
 	return func(ctx context.Context) (tideui.MapFrame, error) {
-		// The radar's own block, so both pictures stand on the same ground, and one
-		// zoom in, where a tile covers a quarter of the ground and a quarter of the
-		// pixels - which is to say, the same ground per pixel.
-		grid := tileGridFor(opts.Latitude, opts.Longitude, clampZoom(opts.Zoom), opts.Cols, opts.Rows)
-		zoom := grid.Zoom + basemapZoomOffset
-		picture := image.NewRGBA(image.Rect(0, 0, grid.Cols*radarTileSize, grid.Rows*radarTileSize))
-		for row := 0; row < grid.Rows; row++ {
-			for col := 0; col < grid.Cols; col++ {
-				for dy := 0; dy < 2; dy++ {
-					for dx := 0; dx < 2; dx++ {
-						x := clampTile(2*(grid.X+col)+dx, 1<<zoom)
-						y := clampTile(2*(grid.Y+row)+dy, 1<<zoom)
-						tile, err := fetchTile(ctx, basemapTileURL(layer, zoom, x, y))
-						if err != nil {
-							return tideui.MapFrame{}, err
-						}
-						if tileHasNothingInIt(tile) {
-							// Ground the service has no imagery for comes back as one
-							// flat colour. Left out, the panel's own background shows
-							// through, which is honest; drawn, it is a grey slab where
-							// a map should be.
-							continue
-						}
-						draw.Draw(picture, image.Rect(
-							col*radarTileSize+dx*basemapTilePixels, row*radarTileSize+dy*basemapTilePixels,
-							col*radarTileSize+(dx+1)*basemapTilePixels, row*radarTileSize+(dy+1)*basemapTilePixels,
-						), tile, tile.Bounds().Min, draw.Src)
-					}
+		// The view is the same ground the radar covers, in the same pixels, so the two
+		// pictures are the same picture of the same place.
+		view := radarViewOf(RadarOptions{
+			Latitude: opts.Latitude, Longitude: opts.Longitude, Zoom: opts.Zoom,
+			Width: opts.Width, Height: opts.Height,
+		})
+		west, south, east, north := view.bounds()
+		grid := basemapGridFor(west, south, east, north)
+		if grid.tiles() > basemapMaxTiles {
+			return tideui.MapFrame{}, fmt.Errorf(
+				"basemap: %d tiles for a view this wide, more than the %d it will fetch",
+				grid.tiles(), basemapMaxTiles)
+		}
+		canvas := image.NewRGBA(image.Rect(0, 0, grid.cols*basemapTilePixels, grid.rows*basemapTilePixels))
+		for row := 0; row < grid.rows; row++ {
+			for col := 0; col < grid.cols; col++ {
+				tile, err := fetchTile(ctx, basemapTileURL(layer, grid.x+col, grid.y+row))
+				if err != nil {
+					return tideui.MapFrame{}, err
 				}
+				if tileHasNothingInIt(tile) {
+					// Ground the service has no imagery for comes back as one flat
+					// colour. Left out, the panel's own background shows through, which
+					// is honest; drawn, it is a grey slab where a map should be.
+					continue
+				}
+				draw.Draw(canvas, image.Rect(
+					col*basemapTilePixels, row*basemapTilePixels,
+					(col+1)*basemapTilePixels, (row+1)*basemapTilePixels,
+				), tile, tile.Bounds().Min, draw.Src)
 			}
 		}
+		picture := tideui.ResampleInto(canvas, grid.crop(west, south, east, north), view.width, view.height)
 		return tideui.MapFrame{
 			Image:  picture,
-			Centre: grid.Centre,
-			// The radar's zoom, because a basemap pixel covers exactly as much ground
-			// as a radar pixel: that is what "one zoom in, half the tile" buys.
-			KilometresPerPixel: kilometresPerPixel(opts.Latitude, grid.Zoom),
+			Centre: image.Pt(view.width/2, view.height/2),
+			// The view's zoom, because that is the ground the pane asked to see: the
+			// imagery's own zoom is about how fine the map is, not how much is shown.
+			KilometresPerPixel: kilometresPerPixel(opts.Latitude, view.zoom),
 		}, nil
 	}
+}
+
+// basemapGrid is the block of imagery tiles that covers a view.
+type basemapGrid struct {
+	x, y, cols, rows int
+}
+
+func (g basemapGrid) tiles() int { return g.cols * g.rows }
+
+// basemapGridFor is the imagery tiles covering a geographic box, at the imagery's own
+// zoom whatever zoom the view is at.
+func basemapGridFor(west, south, east, north float64) basemapGrid {
+	left, top := tilePosition(north, west, basemapZoom)
+	right, bottom := tilePosition(south, east, basemapZoom)
+	limit := 1 << basemapZoom
+	x := clampTile(int(math.Floor(left)), limit)
+	y := clampTile(int(math.Floor(top)), limit)
+	lastX := clampTile(int(math.Floor(right)), limit)
+	lastY := clampTile(int(math.Floor(bottom)), limit)
+	return basemapGrid{x: x, y: y, cols: lastX - x + 1, rows: lastY - y + 1}
+}
+
+// crop is where the box a panel asked for sits inside the block of tiles: the tiles
+// cover more ground than the view, and the view is the part that is wanted.
+func (g basemapGrid) crop(west, south, east, north float64) image.Rectangle {
+	left, top := tilePosition(north, west, basemapZoom)
+	right, bottom := tilePosition(south, east, basemapZoom)
+	canvas := image.Rect(0, 0, g.cols*basemapTilePixels, g.rows*basemapTilePixels)
+	pixel := func(tileX, tileY float64) (int, int) {
+		return int(math.Round((tileX - float64(g.x)) * basemapTilePixels)),
+			int(math.Round((tileY - float64(g.y)) * basemapTilePixels))
+	}
+	minX, minY := pixel(left, top)
+	maxX, maxY := pixel(right, bottom)
+	return image.Rect(minX, minY, maxX, maxY).Intersect(canvas)
 }
 
 // basemapTileURL is the service's own shape, and the numbers are row then column -
 // latitude-ish first, the opposite order to the radar's tiles. A wrong order is not
 // rejected; it fetches a valid tile of somewhere else, so it is worth being exact.
-func basemapTileURL(layer string, zoom, x, y int) string {
+func basemapTileURL(layer string, x, y int) string {
 	return fmt.Sprintf("%s/%s/default/GoogleMapsCompatible_Level%d/%d/%d/%d.jpg",
-		basemapHost, layer, zoom, zoom, y, x)
+		basemapHost, layer, basemapZoom, basemapZoom, y, x)
 }
 
 // tileHasNothingInIt reports a tile of a single flat colour, which is how the

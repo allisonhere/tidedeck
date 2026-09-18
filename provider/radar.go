@@ -53,7 +53,53 @@ type RadarOptions struct {
 	// with more pixels - which is what a pane wider than one tile needs, and what
 	// costs the service more requests, so the caller decides.
 	Cols, Rows int
+	// Width and Height are the pixels the caller will draw the picture in. A source
+	// that renders server-side is asked for exactly this many, which is why its
+	// picture fills a pane of any shape; a tile source falls back to its block.
+	Width, Height int
 }
+
+// RadarSource is where a place's radar comes from.
+type RadarSource string
+
+const (
+	// RadarSourceNEXRAD is the NWS NEXRAD level III base reflectivity composite that
+	// the Iowa Environmental Mesonet renders: real reflectivity, not a smoothed
+	// product, over the continental United States.
+	RadarSourceNEXRAD RadarSource = "nexrad"
+	// RadarSourceTiles is RainViewer's global tiles: everywhere the composite does
+	// not reach.
+	RadarSourceTiles RadarSource = "tiles"
+)
+
+// RadarSourceFor is which source covers a coordinate. A panel does not choose: the
+// place does, because the best source over one country is not the best source
+// elsewhere.
+func RadarSourceFor(lat, lon float64) RadarSource {
+	if lat >= nexradSouth && lat <= nexradNorth && lon >= nexradWest && lon <= nexradEast {
+		return RadarSourceNEXRAD
+	}
+	return RadarSourceTiles
+}
+
+// Credit is what a panel prints for a source. The services ask to be named, and a
+// panel that asks the same function that routed the fetch cannot name the wrong one.
+func (s RadarSource) Credit() string {
+	if s == RadarSourceNEXRAD {
+		return "NEXRAD · IEM"
+	}
+	return "RainViewer"
+}
+
+// nexradWest, nexradSouth, nexradEast and nexradNorth bound the NEXRAD composite's
+// coverage. The service's own box is wider than the radar that feeds it, and a
+// location outside this is served a RainViewer tile rather than an empty composite.
+const (
+	nexradWest  = -127.0
+	nexradSouth = 23.0
+	nexradEast  = -65.0
+	nexradNorth = 50.0
+)
 
 // radarIndex is what the index endpoint answers with.
 type radarIndex struct {
@@ -66,10 +112,21 @@ type radarIndex struct {
 	} `json:"radar"`
 }
 
-// Radar returns a source that fetches the newest frame covering the coordinate.
+// Radar is the radar for a place, from whichever source serves it best: the NEXRAD
+// composite where that is the real thing at full resolution, RainViewer's global
+// tiles everywhere else. One entry point on purpose - a panel should not have to know
+// which service covers a coordinate, and neither should a settings screen.
+func Radar(opts RadarOptions) func(context.Context) (tideui.RadarFrame, error) {
+	if RadarSourceFor(opts.Latitude, opts.Longitude) == RadarSourceNEXRAD {
+		return func(ctx context.Context) (tideui.RadarFrame, error) { return radarNEXRAD(ctx, opts) }
+	}
+	return radarTiles(opts)
+}
+
+// radarTiles fetches the newest frame from RainViewer as a block of 512 px tiles.
 // One tile, one frame: a panel is 40 cells wide, and a mosaic of nine tiles
 // downsampled into it is nine times the traffic for no more picture.
-func Radar(opts RadarOptions) func(context.Context) (tideui.RadarFrame, error) {
+func radarTiles(opts RadarOptions) func(context.Context) (tideui.RadarFrame, error) {
 	return func(ctx context.Context) (tideui.RadarFrame, error) {
 		index, err := fetchRadarIndex(ctx)
 		if err != nil {
@@ -104,13 +161,72 @@ func Radar(opts RadarOptions) func(context.Context) (tideui.RadarFrame, error) {
 	}
 }
 
+// radarView is the ground a radar picture covers and the pixels it is drawn in: the
+// shape every source shares. One pixel of the picture is one tile pixel at the view's
+// zoom, so the box is the same ground the tile sources cover rather than a
+// reprojection of it.
+type radarView struct {
+	latitude, longitude float64
+	zoom                int
+	width, height       int
+}
+
+// maxRadarPixels is the largest picture a source is asked to render. A pane bigger
+// than this is a pane nobody has, and the request would be a request for encoding work
+// nobody asked for.
+const maxRadarPixels = 4096
+
+// radarViewOf reads a view out of the options: the caller's own pixel size when it
+// said how big the pane is, and a source-sized block of tile pixels when it did not.
+func radarViewOf(opts RadarOptions) radarView {
+	cols, rows := normaliseGrid(opts.Cols), normaliseGrid(opts.Rows)
+	width, height := opts.Width, opts.Height
+	if width <= 0 || height <= 0 {
+		width, height = cols*radarTileSize, rows*radarTileSize
+	}
+	return radarView{
+		latitude: opts.Latitude, longitude: opts.Longitude, zoom: clampZoom(opts.Zoom),
+		width: min(max(width, 1), maxRadarPixels), height: min(max(height, 1), maxRadarPixels),
+	}
+}
+
+// bounds is the view as west, south, east, north: the geographic rectangle every
+// source can be asked for, with one picture pixel worth one tile pixel at the view's
+// zoom.
+func (v radarView) bounds() (west, south, east, north float64) {
+	x, y := tilePosition(v.latitude, v.longitude, v.zoom)
+	halfWide := float64(v.width) / (2 * radarTileSize)
+	halfHigh := float64(v.height) / (2 * radarTileSize)
+	_, west = coordinateAt(x-halfWide, y, v.zoom)
+	_, east = coordinateAt(x+halfWide, y, v.zoom)
+	north, _ = coordinateAt(x, y-halfHigh, v.zoom)
+	south, _ = coordinateAt(x, y+halfHigh, v.zoom)
+	return west, south, east, north
+}
+
+// tilePosition is a coordinate in tile units at a zoom: the whole part is the tile,
+// the fraction is where in it, which is the whole of a slippy map's geography.
+func tilePosition(lat, lon float64, zoom int) (x, y float64) {
+	scale := math.Exp2(float64(clampZoom(zoom)))
+	x = (lon + 180) / 360 * scale
+	radians := lat * math.Pi / 180
+	y = (1 - math.Log(math.Tan(radians)+1/math.Cos(radians))/math.Pi) / 2 * scale
+	return x, y
+}
+
+// coordinateAt is the other direction: a position in tile units back to a latitude
+// and longitude.
+func coordinateAt(x, y float64, zoom int) (lat, lon float64) {
+	scale := math.Exp2(float64(clampZoom(zoom)))
+	lon = x/scale*360 - 180
+	lat = math.Atan(math.Sinh(math.Pi*(1-2*y/scale))) * 180 / math.Pi
+	return lat, lon
+}
+
 // tileFraction is where a coordinate sits inside its own tile, 0..1 in each
 // direction.
 func tileFraction(lat, lon float64, zoom int) (fx, fy float64) {
-	scale := math.Exp2(float64(clampZoom(zoom)))
-	x := (lon + 180) / 360 * scale
-	radians := lat * math.Pi / 180
-	y := (1 - math.Log(math.Tan(radians)+1/math.Cos(radians))/math.Pi) / 2 * scale
+	x, y := tilePosition(lat, lon, zoom)
 	return x - math.Floor(x), y - math.Floor(y)
 }
 

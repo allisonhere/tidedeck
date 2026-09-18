@@ -92,7 +92,7 @@ func TestRadarFetchesTheNewestFrame(t *testing.T) {
 	radarIndexURL = server.URL + "/public/weather-maps.json"
 	t.Cleanup(func() { radarIndexURL = restore })
 
-	fetch := Radar(RadarOptions{Latitude: 30.2672, Longitude: -97.7431, Zoom: 7})
+	fetch := radarTiles(RadarOptions{Latitude: 30.2672, Longitude: -97.7431, Zoom: 7})
 	frame, err := fetch(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -121,7 +121,7 @@ func TestRadarReportsWhatWentWrong(t *testing.T) {
 	radarIndexURL = server.URL
 	t.Cleanup(func() { radarIndexURL = restore })
 
-	if _, err := Radar(RadarOptions{Latitude: 1, Longitude: 2, Zoom: 11})(context.Background()); err == nil {
+	if _, err := radarTiles(RadarOptions{Latitude: 1, Longitude: 2, Zoom: 11})(context.Background()); err == nil {
 		t.Fatal("an index that failed was not an error")
 	}
 }
@@ -242,7 +242,7 @@ func TestRadarMosaicStitchesTheBlock(t *testing.T) {
 	radarIndexURL = server.URL + "/public/weather-maps.json"
 	t.Cleanup(func() { radarIndexURL = restore })
 
-	fetch := Radar(RadarOptions{Latitude: 30.2672, Longitude: -97.7431, Zoom: 7, Cols: 2, Rows: 2})
+	fetch := radarTiles(RadarOptions{Latitude: 30.2672, Longitude: -97.7431, Zoom: 7, Cols: 2, Rows: 2})
 	frame, err := fetch(context.Background())
 	if err != nil {
 		t.Fatal(err)
