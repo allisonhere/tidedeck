@@ -679,7 +679,7 @@ Renderers on `Renderer`:
 | Widget | Renderer | Detail renderer |
 |---|---|---|
 | Weather | `RenderWeather` | `RenderWeatherDetail` |
-| Radar | `RenderImage` (the frame, composed with a caption line) | — |
+| Radar | `RenderImage` (the frame, composed with a caption line, a crosshair on your position and a distance ring) | — |
 | Agenda | `RenderAgenda` (all-day events labelled, not `00:00`) | `RenderAgendaDetail` |
 | Calendar | `RenderCalendar` (month grid beside the day's agenda) | `RenderCalendarDetail` |
 | Clock | `RenderClock` (sun/moon glyph, day-period, world clocks) | `RenderClockDetail` (big digital time, day-progress gauge, analog face, `RenderMiniCalendar`) |
@@ -768,7 +768,7 @@ so the last good value stays on screen.
 | Source | Constructor | Backed by |
 |---|---|---|
 | Weather | `provider.Weather(WeatherOptions)` | Open-Meteo (no key) |
-| Radar | `provider.Radar(RadarOptions)` | RainViewer (no key); one 512 px tile, newest frame, zoom ≤ 7 |
+| Radar | `provider.Radar(RadarOptions)` | RainViewer (no key); the newest frame, zoom ≤ 7, as one 512 px tile - or a block of up to four when the pane is bigger than one |
 | Clock | `provider.Clock(location, zones...)` | local time + IANA zones |
 | Calendar | `provider.Calendar(sources...)` | local `.ics` files, `https`/`webcal` iCal URLs, and Google Calendar embed/share links (TZID, all-day, 90-day window) |
 | System | `provider.System()` | `/proc`, `/sys` (Linux) |
