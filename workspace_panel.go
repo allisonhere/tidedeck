@@ -71,12 +71,17 @@ func (r PanelRole) String() string {
 // resolved for this panel, so views that render through it inherit any
 // panel-scoped theme automatically.
 type PanelContext struct {
-	ID       string
-	Title    string
-	Width    int
-	Height   int
-	Focused  bool
-	Zoomed   bool
+	ID      string
+	Title   string
+	Width   int
+	Height  int
+	Focused bool
+	Zoomed  bool
+	// Entered says this panel has the keyboard: space entered it, or it owns
+	// the screen. A panel that draws its own cursor draws it when Entered is
+	// set - Focused alone means the workspace is pointed here, which is a
+	// different question from who reads the keys.
+	Entered  bool
 	Peeked   bool
 	Arrange  bool
 	Renderer Renderer

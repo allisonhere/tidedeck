@@ -171,6 +171,7 @@ func (wr WorkspaceRenderer) renderRegion(ws *Workspace, region SolvedRegion, foc
 			Height:   innerHeight,
 			Focused:  focused,
 			Zoomed:   ws.zoomCandidate() == asset,
+			Entered:  ws.PaneHasKeyboard(asset),
 			Arrange:  ws.Arranging(),
 			Renderer: renderer,
 		}

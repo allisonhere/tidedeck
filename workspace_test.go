@@ -3,6 +3,8 @@ package tideui
 import (
 	"strings"
 	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func newTestWorkspace(t *testing.T) *Workspace {
@@ -15,6 +17,88 @@ func newTestWorkspace(t *testing.T) *Workspace {
 	ws.Focus("main")
 	ws.Solve(80, 24)
 	return ws
+}
+
+// space enters the focused pane - any pane - so its own keys work while the
+// tiled layout stays on screen, and esc hands the keyboard back.
+func TestSpaceEntersTheFocusedPane(t *testing.T) {
+	ws := newTestWorkspace(t)
+	if !ws.HandleKey(tea.KeyMsg{Type: tea.KeySpace}) {
+		t.Fatal("space was not taken by the workspace")
+	}
+	if got := ws.EnteredPane(); got != "main" {
+		t.Fatalf("entered = %q, want the focused pane", got)
+	}
+	if !ws.HandleKey(tea.KeyMsg{Type: tea.KeyEsc}) {
+		t.Fatal("esc was not taken while a pane had the keyboard")
+	}
+	if got := ws.EnteredPane(); got != "" {
+		t.Fatalf("entered = %q after esc, want none", got)
+	}
+}
+
+// Moving focus leaves the pane behind: the keyboard belongs to where you are,
+// and the next space enters that one. All four ways of moving focus come
+// through the same door, so all four are checked.
+func TestFocusChangeLeavesTheEnteredPane(t *testing.T) {
+	for _, move := range []struct {
+		name string
+		run  func(*Workspace)
+	}{
+		{"focus", func(ws *Workspace) { ws.Focus("nav") }},
+		{"tab", func(ws *Workspace) { ws.FocusNext() }},
+		{"shift+tab", func(ws *Workspace) { ws.FocusPrev() }},
+		{"arrows", func(ws *Workspace) { ws.FocusDirection(DirLeft) }},
+	} {
+		t.Run(move.name, func(t *testing.T) {
+			ws := newTestWorkspace(t)
+			ws.HandleKey(tea.KeyMsg{Type: tea.KeySpace})
+			if ws.EnteredPane() == "" {
+				t.Fatal("nothing was entered to leave behind")
+			}
+			move.run(ws)
+			if got := ws.EnteredPane(); got != "" {
+				t.Fatalf("entered = %q after %s, want none", got, move.name)
+			}
+		})
+	}
+}
+
+// A pane that owns the screen has the keyboard too, so anything asking "who
+// reads the keys" has one answer rather than two.
+func TestZoomedPaneHasTheKeyboard(t *testing.T) {
+	ws := newTestWorkspace(t)
+	ws.Zoom("main")
+	if !ws.PaneHasKeyboard("main") {
+		t.Fatal("a zoomed pane does not report the keyboard")
+	}
+	ws.Unzoom()
+	if ws.PaneHasKeyboard("main") {
+		t.Fatal("an unzoomed, unentered pane reports the keyboard")
+	}
+	ws.HandleKey(tea.KeyMsg{Type: tea.KeySpace})
+	if !ws.PaneHasKeyboard(ws.Focused()) {
+		t.Fatal("an entered pane does not report the keyboard")
+	}
+}
+
+// A pane that binds space itself keeps it: entering is the fallback, not the
+// first claim on the key, so a panel cannot be broken by the workspace taking
+// the key it uses.
+func TestASpaceBoundActionStillFires(t *testing.T) {
+	ws := newTestWorkspace(t)
+	ran := ""
+	ws.Panel("main", Text("main")).Actions(Action("toggle", " ", func(*Workspace) { ran = "toggle" }))
+	ws.Focus("main")
+	if !ws.HandleKey(tea.KeyMsg{Type: tea.KeySpace}) {
+		t.Fatal("space was not taken")
+	}
+	if ran != "toggle" {
+		t.Fatalf("the space-bound action did not run (entered = %q)", ws.EnteredPane())
+	}
+	if ws.EnteredPane() != "" {
+		t.Fatal("space both fired the action and entered the pane")
+	}
 }
 
 func TestWorkspaceRegistersPanelsOnce(t *testing.T) {

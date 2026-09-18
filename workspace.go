@@ -31,6 +31,12 @@ type Workspace struct {
 	zoomed string
 	peeked string
 
+	// entered is the pane holding the keyboard, if any. It is not the focus
+	// (which panel the workspace is pointed at) and not the zoom (how much room
+	// a panel gets): space enters a pane so its own keys work, esc leaves it,
+	// and moving focus or tabbing away leaves it behind.
+	entered string
+
 	arrange        bool
 	arrangeCursor  string
 	resizeNotice   string
@@ -570,8 +576,19 @@ func (ws *Workspace) Focus(id string) bool {
 	if !ws.canFocus(id) {
 		return false
 	}
-	ws.focus.Set(id)
+	ws.setFocus(id)
 	return true
+}
+
+// setFocus moves the focus and drops the entered pane: the keyboard belongs to
+// where you are, so pointing the workspace somewhere else hands the keys back.
+// Every way of moving focus comes through here, so tabbing away cannot leave a
+// pane reading keys the reader meant for the workspace.
+func (ws *Workspace) setFocus(id string) {
+	if ws.entered != "" && ws.entered != id {
+		ws.entered = ""
+	}
+	ws.focus.Set(id)
 }
 
 // CanFocus reports whether a panel may currently receive focus.
@@ -594,7 +611,7 @@ func (ws *Workspace) FocusNext() bool {
 	if len(order) == 0 {
 		return false
 	}
-	ws.focus.Set(ws.focus.Next(order))
+	ws.setFocus(ws.focus.Next(order))
 	return true
 }
 
@@ -604,7 +621,7 @@ func (ws *Workspace) FocusPrev() bool {
 	if len(order) == 0 {
 		return false
 	}
-	ws.focus.Set(ws.focus.Prev(order))
+	ws.setFocus(ws.focus.Prev(order))
 	return true
 }
 
@@ -614,7 +631,7 @@ func (ws *Workspace) FocusDirection(dir Direction) bool {
 	if next == "" {
 		return false
 	}
-	ws.focus.Set(next)
+	ws.setFocus(next)
 	return true
 }
 
@@ -695,7 +712,7 @@ func (ws *Workspace) Zoom(id string) bool {
 		return false
 	}
 	ws.zoomed = id
-	ws.focus.Set(id)
+	ws.setFocus(id)
 	return true
 }
 
@@ -706,6 +723,42 @@ func (ws *Workspace) Unzoom() bool {
 	}
 	ws.zoomed = ""
 	return true
+}
+
+// EnterPane gives the focused pane the keyboard: its own keys work - a list's
+// cursor, a form's fields - while the tiled layout stays on screen, so a panel
+// can be walked without zooming it. Any pane can be entered; one with nothing of
+// its own to walk simply takes the keys it has, which keeps the gesture the same
+// everywhere. LeavePane hands them back, and so does moving focus.
+//
+// Entering is not zooming. Zoom decides how much room a panel gets; entering
+// decides who reads the keys, which is why a zoomed panel has the keyboard too.
+func (ws *Workspace) EnterPane() bool {
+	id := ws.focus.Current()
+	if id == "" || ws.entered == id {
+		return false
+	}
+	ws.entered = id
+	return true
+}
+
+// LeavePane returns the keyboard to the workspace.
+func (ws *Workspace) LeavePane() bool {
+	if ws.entered == "" {
+		return false
+	}
+	ws.entered = ""
+	return true
+}
+
+// EnteredPane is the pane holding the keyboard, or "" when the workspace has it.
+func (ws *Workspace) EnteredPane() string { return ws.entered }
+
+// PaneHasKeyboard reports whether a pane reads the keys itself, because it was
+// entered or because it owns the screen. One question with one answer: a panel
+// that draws a cursor asks this rather than inferring it from the zoom.
+func (ws *Workspace) PaneHasKeyboard(id string) bool {
+	return id != "" && (ws.entered == id || ws.zoomCandidate() == id)
 }
 
 // ToggleZoom maximizes the focused panel, or restores the layout.
@@ -1487,6 +1540,18 @@ func (ws *Workspace) HandleKey(msg tea.KeyMsg) bool {
 		return true
 	case "shift+space", "ctrl+space":
 		return ws.ToggleZoom()
+	case " ":
+		// space enters the focused pane, and leaves it. A pane that binds
+		// space itself keeps it: the action dispatch at the end of this
+		// function is asked first, so the workspace claiming a key can never
+		// break a panel that was already using it.
+		if ws.RunFocusedAction(key) {
+			return true
+		}
+		if ws.EnterPane() {
+			return true
+		}
+		return ws.LeavePane()
 	// Shift+arrows resize the focused pane directly, Tide-style. ctrl+arrows
 	// are a silent alias for terminals that swallow shifted arrows.
 	case "shift+left", "ctrl+left":
@@ -1498,6 +1563,13 @@ func (ws *Workspace) HandleKey(msg tea.KeyMsg) bool {
 	case "shift+down", "ctrl+down":
 		return ws.ResizeEdge(DirDown)
 	case "esc":
+		// Esc peels one layer at a time: the pane's keyboard first, then a
+		// peek, then a zoom. Leaving the pane before restoring the layout is
+		// what lets a zoomed, entered pane be walked and then unzoomed with two
+		// presses rather than one that does both.
+		if ws.LeavePane() {
+			return true
+		}
 		if ws.peeked != "" {
 			ws.Unpeek()
 			return true

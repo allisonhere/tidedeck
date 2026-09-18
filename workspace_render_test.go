@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )
@@ -121,5 +122,33 @@ func TestWorkspaceRendererASCIIDegradesCleanly(t *testing.T) {
 	assertBounded(t, view, 40, 12)
 	if strings.Contains(view, "╭") {
 		t.Fatalf("ASCII theme rendered unicode borders:\n%s", ansi.Strip(view))
+	}
+}
+
+// A pane that has the keyboard is told so: the panel is what draws its own
+// cursor, and it cannot guess. Focused keeps its old meaning - this is the pane
+// the workspace is pointed at - which is not the same question.
+func TestPanelContextReportsTheKeyboard(t *testing.T) {
+	wr, ws := renderFixture(t)
+	var entered, focused []bool
+	ws.Panel("main", func(ctx PanelContext) string {
+		entered = append(entered, ctx.Entered)
+		focused = append(focused, ctx.Focused)
+		return "main body"
+	})
+	ws.Focus("main")
+
+	wr.Render(ws, 100, 30)
+	if len(entered) == 0 || entered[len(entered)-1] {
+		t.Fatalf("Entered = %v before anything was entered", entered)
+	}
+
+	ws.HandleKey(tea.KeyMsg{Type: tea.KeySpace})
+	wr.Render(ws, 100, 30)
+	if !entered[len(entered)-1] {
+		t.Fatal("an entered pane was not told it has the keyboard")
+	}
+	if !focused[len(focused)-1] {
+		t.Fatal("the focused pane stopped reporting itself as focused")
 	}
 }
