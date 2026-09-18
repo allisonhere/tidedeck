@@ -85,9 +85,10 @@ func (n *news) View(ctx tideui.PanelContext) string {
 	cursor := n.cursor
 	n.mu.Unlock()
 	// Mark the selected story on a copy, so the cursor is a rendering concern
-	// and never leaks into the stored data. It shows only while the panel has
-	// focus, the way a list cursor does.
-	if ctx.Focused && cursor >= 0 && cursor < len(headlines) {
+	// and never leaks into the stored data. It shows only while the pane has the
+	// keyboard - entered with space, or owning the screen - because a cursor the
+	// arrows cannot move is a cursor that lies about what the reader can do.
+	if ctx.Entered && cursor >= 0 && cursor < len(headlines) {
 		marked := append([]tideui.Headline(nil), headlines...)
 		marked[cursor].Selected = true
 		headlines = marked

@@ -597,7 +597,10 @@ func TestSaveLayoutChooserOverwritesTheChosenSlot(t *testing.T) {
 	}
 }
 
-// Enter on the news list copies the selected story's link.
+// Enter inside a news pane copies the selected story's link and marks it read.
+// Enter at pane level is the zoom, so the pane is entered with space first - the
+// same two steps the mail panel uses, because Enter means one thing at pane
+// level, whatever the panel.
 func TestNewsEnterCopiesLink(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	m := newModel()
@@ -607,12 +610,29 @@ func TestNewsEnterCopiesLink(t *testing.T) {
 	if got := m.ws.Focused(); got != "news" {
 		t.Fatalf("focus = %q, want news", got)
 	}
-	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	m = solve(m)
 
+	// At pane level Enter zooms, and opens nothing.
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = next.(model)
+	if m.state.clipboard != "" {
+		t.Fatalf("Enter at pane level copied %q, want nothing", m.state.clipboard)
+	}
+	if m.ws.Zoomed() != "news" {
+		t.Fatalf("zoomed = %q, want news", m.ws.Zoomed())
+	}
+
+	// Inside the pane the arrows walk the stories and Enter acts on one.
+	m = update(t, m, tea.KeyMsg{Type: tea.KeySpace})
+	if m.ws.EnteredPane() != "news" {
+		t.Fatalf("entered = %q, want news", m.ws.EnteredPane())
+	}
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
+
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(model)
 	if m.state.clipboard == "" {
-		t.Fatal("enter copied nothing")
+		t.Fatal("enter inside the pane copied nothing")
 	}
 	if !strings.Contains(m.state.status, "copied") {
 		t.Fatalf("status = %q", m.state.status)
@@ -707,5 +727,176 @@ func TestEscapeEndsEditSession(t *testing.T) {
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("m")})
 	if !m.ws.Arranging() {
 		t.Fatal("m did not arrange after escape ended the session")
+	}
+}
+
+// solve lays the workspace out, which a real frame does on every render: zooming
+// and focus movement are answers about panels being where the layout put them, so
+// a test that drives keys without rendering has to do it itself.
+func solve(m model) model {
+	m.ws.Solve(m.width, m.height)
+	return m
+}
+
+// showPanel puts a test panel in the workspace the way the dashboard does, then
+// lays it out.
+func showPanel(t *testing.T, m model, id string) model {
+	t.Helper()
+	m.ws.Show(id)
+	if got := m.ws.Focused(); got != id {
+		t.Fatalf("focus = %q, want %q", got, id)
+	}
+	return solve(m)
+}
+
+// fakeLauncher is a panel whose selection opens a program, so the dashboard's key
+// path can be tested without a plugin, a subprocess or a terminal.
+type fakeLauncher struct {
+	rows   []string
+	cursor int
+	asked  []string
+}
+
+func (f *fakeLauncher) Meta() dash.Meta {
+	return dash.Meta{ID: "fake", Title: "Fake", Role: tideui.RoleOptional, MinWidth: 10, MinHeight: 3, Hidden: true}
+}
+
+func (f *fakeLauncher) View(tideui.PanelContext) string { return strings.Join(f.rows, "\n") }
+
+func (f *fakeLauncher) Move(delta int) bool {
+	f.cursor += delta
+	if f.cursor < 0 {
+		f.cursor = 0
+	}
+	if f.cursor >= len(f.rows) {
+		f.cursor = len(f.rows) - 1
+	}
+	return true
+}
+
+func (f *fakeLauncher) Launch() ([]string, string, bool) {
+	picked := f.rows[f.cursor]
+	f.asked = append(f.asked, picked)
+	return []string{"/bin/echo", picked}, "opening " + picked, true
+}
+
+// plainPanel is a panel with no primary action of its own, so the keys that walk
+// a pane have nothing to walk here.
+type plainPanel struct{}
+
+func (plainPanel) Meta() dash.Meta {
+	return dash.Meta{ID: "plain", Title: "Plain", Role: tideui.RoleOptional, MinWidth: 10, MinHeight: 3, Hidden: true}
+}
+func (plainPanel) View(tideui.PanelContext) string { return "nothing to open" }
+
+// Space, arrows, Enter: space gives the pane the keyboard in the tiled layout,
+// the arrows pick a message, Enter opens the one under the cursor. Enter on its
+// own is the zoom, and opens nothing.
+func TestSpacePicksAMessageAndEnterOpensIt(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := newModel()
+	m.width, m.height = 150, 44
+	panel := &fakeLauncher{rows: []string{"one", "two", "three"}}
+	m.deck.Register(panel)
+	m.deck.AttachPanel(m.ws, panel)
+	m = showPanel(t, m, "fake")
+
+	// At pane level Enter is the zoom, and it is not a way to open anything.
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.ws.Zoomed() != "fake" {
+		t.Fatalf("zoomed = %q, want the focused pane", m.ws.Zoomed())
+	}
+	if len(panel.asked) != 0 {
+		t.Fatalf("Enter opened %v before anything was picked", panel.asked)
+	}
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.ws.Zoomed() != "" {
+		t.Fatalf("zoomed = %q, want the second Enter to restore the layout", m.ws.Zoomed())
+	}
+
+	// Space hands the pane the keyboard, without taking the layout away.
+	m = update(t, m, tea.KeyMsg{Type: tea.KeySpace})
+	if m.ws.EnteredPane() != "fake" {
+		t.Fatalf("entered = %q, want the focused pane", m.ws.EnteredPane())
+	}
+	if m.ws.Zoomed() != "" {
+		t.Fatalf("space zoomed the pane (zoomed = %q)", m.ws.Zoomed())
+	}
+
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
+	if panel.cursor != 1 {
+		t.Fatalf("cursor = %d after down, want 1", panel.cursor)
+	}
+
+	// And inside the pane, Enter is that pane's primary action.
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if len(panel.asked) != 1 || panel.asked[0] != "two" {
+		t.Fatalf("asked = %v, want the row the cursor sat on", panel.asked)
+	}
+	if !strings.Contains(m.state.status, "two") {
+		t.Errorf("status = %q, want it to name the row", m.state.status)
+	}
+
+	// esc hands the keys back, and the arrows are focus movement again.
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyEsc})
+	if m.ws.EnteredPane() != "" {
+		t.Fatalf("entered = %q after esc, want none", m.ws.EnteredPane())
+	}
+}
+
+// Space enters any pane, not only one with something to open: a pane with nothing
+// of its own to walk still takes the keyboard, and gives it back.
+func TestSpaceEntersAPaneWithNothingToOpen(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := newModel()
+	m.width, m.height = 150, 44
+	m.deck.Register(plainPanel{})
+	m.deck.AttachPanel(m.ws, plainPanel{})
+	m = showPanel(t, m, "plain")
+
+	m = update(t, m, tea.KeyMsg{Type: tea.KeySpace})
+	if m.ws.EnteredPane() != "plain" {
+		t.Fatalf("entered = %q, want the focused pane", m.ws.EnteredPane())
+	}
+	if m.ws.Zoomed() != "" {
+		t.Fatalf("space zoomed the pane (zoomed = %q)", m.ws.Zoomed())
+	}
+	// A pane with nothing to walk declines the arrow keys, so they stay the
+	// workspace's and the reader can move on with them.
+	if m.moveSelection(1) {
+		t.Fatal("a pane with nothing to walk took the arrow key")
+	}
+	// And leaving by moving focus works the same way as esc.
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyTab})
+	if m.ws.EnteredPane() != "" {
+		t.Fatalf("entered = %q after tab, want none", m.ws.EnteredPane())
+	}
+}
+
+// A zoomed panel with nothing to open still leaves the zoom to Enter, so the
+// dashboard is not stuck the way it would be if Enter only ever opened things.
+func TestEnterStillUnzoomsAPanelWithNoAction(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := newModel()
+	m.width, m.height = 150, 44
+	m.deck.Register(plainPanel{})
+	m.deck.AttachPanel(m.ws, plainPanel{})
+	m = showPanel(t, m, "plain")
+
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.ws.Zoomed() != "plain" {
+		t.Fatalf("zoomed = %q, want the focused pane", m.ws.Zoomed())
+	}
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if m.ws.Zoomed() != "" {
+		t.Fatalf("zoomed = %q, want the second Enter to leave the zoom", m.ws.Zoomed())
+	}
+}
+
+// The launched program is handed the terminal, and the dashboard takes it back
+// when the program exits.
+func TestLaunchCmdSuspendsForTheProgram(t *testing.T) {
+	if cmd := launchCmd("fake", []string{"/bin/echo", "hi"}); cmd == nil {
+		t.Fatal("launchCmd returned no command")
 	}
 }

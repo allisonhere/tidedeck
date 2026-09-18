@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -611,6 +612,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case pluginOpMsg:
 		m.applyPluginOp(msg)
 		return m, nil
+	case launchMsg:
+		if msg.err != nil {
+			m.state.status = "could not run " + msg.argv[0] + ": " + msg.err.Error()
+		} else {
+			m.state.status = "back from " + msg.argv[0]
+		}
+		// The program just changed the data this pane previews - TideMail marks
+		// the message it opened as read - so the panel is due again instead of
+		// stale until its next interval.
+		m.deck.RefreshNow(msg.panel)
+		return m, m.refreshFocusedCmd()
 	case panelRefreshedMsg:
 		// The panel's State changed off the UI goroutine; re-render it.
 		return m, nil
@@ -698,6 +710,24 @@ func pluginOpCmd(op pluginOp) tea.Cmd {
 			return pluginOpMsg{op: op, err: fmt.Errorf("unknown plugin operation %q", op.kind)}
 		}
 	}
+}
+
+// launchMsg reports that a program a pane's selection opened has exited.
+type launchMsg struct {
+	panel string
+	argv  []string
+	err   error
+}
+
+// launchCmd hands the terminal to a program and takes it back when the program
+// exits, so the dashboard suspends rather than opening a second terminal: the
+// tool the pane opens is then the one thing on screen, exactly as running it by
+// hand would be, and no window is left behind.
+func launchCmd(panel string, argv []string) tea.Cmd {
+	command := exec.Command(argv[0], argv[1:]...)
+	return tea.ExecProcess(command, func(err error) tea.Msg {
+		return launchMsg{panel: panel, argv: argv, err: err}
+	})
 }
 
 // applyPluginOp registers, replaces or removes the panel for a finished plugin
@@ -880,12 +910,12 @@ func (m *model) handlePanelInput(msg tea.KeyMsg) (tea.Cmd, bool) {
 	return m.refreshFocusedCmd(), true
 }
 
-// moveSelection hands a move to the focused panel's cursor only while that
-// panel owns the whole screen. In the tiled dashboard, directional keys are
-// reserved for moving between panes; otherwise a list panel such as News can
-// trap the user's focus in its first few rows.
+// moveSelection hands a move to the focused pane's cursor only while that pane
+// has the keyboard - entered with space, or owning the screen. In the tiled
+// dashboard, directional keys are reserved for moving between panes; otherwise a
+// list panel such as News can trap the user's focus in its first few rows.
 func (m *model) moveSelection(delta int) bool {
-	if m.ws.Zoomed() == "" {
+	if m.ws.EnteredPane() == "" && m.ws.Zoomed() == "" {
 		return false
 	}
 	panel, ok := m.deck.Lookup(m.ws.Focused())
@@ -901,7 +931,7 @@ func (m *model) moveSelection(delta int) bool {
 
 // activateFocused runs the focused panel's primary action - for the news list,
 // mark the selected story read and copy its link. It reports whether the panel
-// has such an action, so Enter still zooms everywhere else.
+// has such an action, so a key the panel does not use stays the workspace's.
 func (m *model) activateFocused() bool {
 	panel, ok := m.deck.Lookup(m.ws.Focused())
 	if !ok {
@@ -917,6 +947,55 @@ func (m *model) activateFocused() bool {
 	}
 	m.state.status = status
 	return true
+}
+
+// launchFocused hands the terminal to the program the focused pane's selection
+// opens. It reports whether the pane had such an action, so the caller can tell
+// "nothing to open" from "opened nothing".
+func (m *model) launchFocused() (tea.Cmd, bool) {
+	panel, ok := m.deck.Lookup(m.ws.Focused())
+	if !ok {
+		return nil, false
+	}
+	launcher, ok := panel.(dash.Launcher)
+	if !ok {
+		return nil, false
+	}
+	argv, status, declared := launcher.Launch()
+	if !declared {
+		return nil, false
+	}
+	m.state.status = status
+	if len(argv) == 0 {
+		// Nothing selected, and the strip now says so rather than the pane
+		// silently doing nothing.
+		return nil, true
+	}
+	return launchCmd(m.ws.Focused(), argv), true
+}
+
+// handleEnteredKey routes a key to the pane that has the keyboard. Only what
+// walking that pane needs is taken - esc to leave it, Enter for its primary
+// action, the arrows and j/k for its cursor - so the application's shortcuts and
+// the workspace's own keys still work while a pane is entered. A pane that wants
+// a key itself keeps it, because the panel input runs before this.
+func (m *model) handleEnteredKey(msg tea.KeyMsg) (tea.Cmd, bool) {
+	switch msg.String() {
+	case "esc":
+		return nil, m.ws.LeavePane()
+	case "enter":
+		if cmd, handled := m.launchFocused(); handled {
+			return cmd, true
+		}
+		// A pane whose primary action is not a program - the news list copies
+		// the selected story - runs here too.
+		return nil, m.activateFocused()
+	case "up", "k":
+		return nil, m.moveSelection(-1)
+	case "down", "j":
+		return nil, m.moveSelection(1)
+	}
+	return nil, false
 }
 
 // handlePanelClick routes a left click inside a panel's content to its Clicker,
@@ -1006,6 +1085,14 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if cmd, handled := m.handlePanelInput(msg); handled {
 			return m, cmd
 		}
+		// A pane that has the keyboard reads the keys first: walking a list is
+		// not a moment for the workspace's own keys to move focus out from under
+		// the reader.
+		if m.ws.EnteredPane() != "" {
+			if cmd, handled := m.handleEnteredKey(msg); handled {
+				return m, cmd
+			}
+		}
 		switch msg.String() {
 		case "q", "ctrl+c":
 			_ = m.ws.Persist()
@@ -1027,12 +1114,9 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.state.density = nextDensity(m.state.density)
 			return m, nil
 		case "enter":
-			// A panel with a primary action (the news list copying and marking
-			// the selected story) takes Enter; every other panel zooms into its
-			// detail rendering, with Esc returning.
-			if m.activateFocused() {
-				return m, nil
-			}
+			// Enter is the zoom, everywhere, whatever the panel is: one key, one
+			// meaning, and no panel makes it mean something else. A pane's own
+			// action runs inside the pane, where space has put the keyboard.
 			if m.ws.Zoomed() != "" {
 				m.ws.Unzoom()
 			} else {
@@ -1064,9 +1148,15 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "up":
+			if m.moveSelection(-1) {
+				return m, nil
+			}
 			m.ws.FocusDirection(tideui.DirUp)
 			return m, nil
 		case "down":
+			if m.moveSelection(1) {
+				return m, nil
+			}
 			m.ws.FocusDirection(tideui.DirDown)
 			return m, nil
 		case "j":
