@@ -59,9 +59,11 @@ const (
 )
 
 // radarTileBudget is the most tiles one refresh will fetch. The service is free
-// and somebody else pays for it, and a glance at a dashboard panel is not worth
-// nine requests; two by two covers a pane four times the size of a normal one.
-const radarTileBudget = 4
+// and somebody else pays for it, and a glance at a dashboard panel is not worth a
+// download - but panes are much wider than they are tall, and the picture that
+// fills one is a row of tiles rather than a single square, so the cap has room for
+// a row of six.
+const radarTileBudget = 6
 
 // defaultCellWidth is the cell width assumed when the terminal will not report
 // one, in pixels: the usual monospace cell at the usual size.
@@ -138,43 +140,85 @@ func (r *radar) rebuildLocked() {
 	})
 }
 
-// radarGrid is how many tiles a pane is worth: enough to cover its pixels, so a
-// zoomed panel is sharprather than a stretched 512, and never more than the
-// budget, so a glance at the dashboard is not a download.
+// radarFillEnough is how much of a pane a picture has to cover to read as filling
+// it. Five sixths is where the leftover reads as a margin rather than as a picture
+// sitting in a pane - and it is deliberately not one, because closing the last
+// sixth of a small pane costs as many requests as the whole picture did, and the
+// service is somebody else's to pay for.
+const radarFillEnough = 0.85
+
+// radarBlockScore ranks a candidate block of tiles, in the order the picture's
+// faults matter to a reader: a picture with fewer pixels than the pane is a soft
+// picture, a picture whose shape is not the pane's leaves part of the pane as
+// background, and among the blocks that are neither, the cheapest one is the
+// kindest to a service that is free.
+type radarBlockScore struct {
+	sharp  bool    // the block has at least the pane's pixels: nothing is upscaled
+	enough bool    // it covers enough of the pane to read as filling it
+	fill   float64 // how much of the pane it covers, for when nothing is enough
+	tiles  int
+}
+
+func (s radarBlockScore) betterThan(other radarBlockScore) bool {
+	switch {
+	case s.sharp != other.sharp:
+		return s.sharp
+	case s.enough != other.enough:
+		return s.enough
+	case s.enough:
+		if s.tiles != other.tiles {
+			return s.tiles < other.tiles
+		}
+		return s.fill > other.fill
+	default:
+		// Nothing inside the budget fills the pane: get as close as it can.
+		return s.fill > other.fill
+	}
+}
+
+// radarGrid is the block of tiles a pane is worth. Two things decide it and they
+// pull in different directions: a picture should fill its pane, which wants the
+// block's shape to match the pane's, and a picture should not be a stretched 512,
+// which wants a tile per 512 pixels. So every block the budget allows is scored -
+// pixels covered first, shape second, size last - and the best one wins.
 func radarGrid(renderer tideui.Renderer, width, height int) (cols, rows int) {
-	cellWidth := renderer.CellWidth
+	cellWidth, cellAspect := renderer.CellWidth, renderer.CellAspect
 	if cellWidth <= 0 {
 		cellWidth = defaultCellWidth
 	}
-	cellAspect := renderer.CellAspect
 	if cellAspect <= 0 {
 		cellAspect = 2 // a monospace cell of unknown shape: taller than wide
 	}
-	cols = clampTiles(int(math.Ceil(float64(width)*cellWidth/float64(provider.RadarTilePixels))), 3)
-	rows = clampTiles(int(math.Ceil(float64(height)*cellWidth*cellAspect/float64(provider.RadarTilePixels))), 3)
-	for cols*rows > radarTileBudget {
-		// Give up height before width: a panel is generally wider than it is tall,
-		// so a column of tiles is the part that matters.
-		if rows > 1 {
-			rows--
-		} else if cols > 1 {
-			cols--
-		} else {
-			break
+	pixelsWide := float64(width) * cellWidth
+	pixelsHigh := float64(height) * cellWidth * cellAspect
+	if pixelsWide <= 0 || pixelsHigh <= 0 {
+		return 1, 1
+	}
+	best, bestScore := [2]int{1, 1}, radarBlockScore{}
+	for candidateCols := 1; candidateCols <= radarTileBudget; candidateCols++ {
+		for candidateRows := 1; candidateRows <= radarTileBudget; candidateRows++ {
+			if candidateCols*candidateRows > radarTileBudget {
+				continue
+			}
+			pictureWide := float64(candidateCols * provider.RadarTilePixels)
+			pictureHigh := float64(candidateRows * provider.RadarTilePixels)
+			// How much of the pane the fitted picture covers: the ratio of the
+			// smaller scale factor to the larger, which is one when the picture's
+			// shape is the pane's own shape.
+			widthFit, heightFit := pixelsWide/pictureWide, pixelsHigh/pictureHigh
+			fill := math.Min(widthFit, heightFit) / math.Max(widthFit, heightFit)
+			score := radarBlockScore{
+				sharp:  pictureWide >= pixelsWide && pictureHigh >= pixelsHigh,
+				enough: fill >= radarFillEnough,
+				fill:   fill,
+				tiles:  candidateCols * candidateRows,
+			}
+			if score.betterThan(bestScore) {
+				best, bestScore = [2]int{candidateCols, candidateRows}, score
+			}
 		}
 	}
-	return max(1, cols), max(1, rows)
-}
-
-// clampTiles keeps an axis inside what the provider will fetch, three either way.
-func clampTiles(tiles, most int) int {
-	if tiles < 1 {
-		return 1
-	}
-	if tiles > most {
-		return most
-	}
-	return tiles
+	return best[0], best[1]
 }
 
 func (r *radar) Refresh(ctx context.Context) error {
@@ -233,14 +277,17 @@ func radarEcho(img image.Image) float64 {
 }
 
 func (r *radar) View(ctx tideui.PanelContext) string {
-	r.mu.Lock()
-	r.paneWidth, r.paneHeight, r.renderer = ctx.Width, ctx.Height, ctx.Renderer
-	location, quiet := r.location, r.quiet
-	r.mu.Unlock()
 	frame := r.Load()
 	if frame.Image == nil {
+		// The pane is recorded even with nothing to draw yet: the fetch that fills
+		// it is ordered for the pane the panel is in, and the caption plus its
+		// notice is the allowance the picture is drawn under.
+		r.notePane(ctx, max(1, ctx.Height-2))
 		return r.emptyView(ctx)
 	}
+	r.mu.Lock()
+	location, quiet := r.location, r.quiet
+	r.mu.Unlock()
 	if location == "" {
 		location = "local"
 	}
@@ -249,6 +296,9 @@ func (r *radar) View(ctx tideui.PanelContext) string {
 	// A picture of the weather with no time on it is a picture of a rumour, and
 	// the service is credited because it asks to be.
 	lines := []string{radarCaption(ctx.Width, frame.Time.Local().Format("15:04"), location, radarScale(frame))}
+	// The picture is drawn under the caption, so the space it has is the pane less
+	// what the caption and its notice take: a pane is not all picture.
+	r.notePane(ctx, max(1, ctx.Height-len(lines)))
 	if quiet {
 		// Nothing in the frame, and the panel says which kind of nothing: an
 		// empty sky and a failed fetch draw the same rectangle otherwise.
@@ -265,6 +315,16 @@ func (r *radar) View(ctx tideui.PanelContext) string {
 		lines = append(lines, strings.Split(picture, "\n")...)
 	}
 	return ctx.Renderer.RenderLines(lines, ctx.Width, bg)
+}
+
+// notePane records the space the picture is drawn into, and the renderer it was
+// measured with. A fetch is asked for without a pane, so the block of tiles comes
+// from the last pane drawn - and the space that matters is what is left under the
+// caption, not the whole pane.
+func (r *radar) notePane(ctx tideui.PanelContext, height int) {
+	r.mu.Lock()
+	r.paneWidth, r.paneHeight, r.renderer = ctx.Width, height, ctx.Renderer
+	r.mu.Unlock()
 }
 
 // radarDrawing is everything a composed frame depends on. Anything in here

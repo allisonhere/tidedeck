@@ -226,30 +226,33 @@ func TestRadarMarksWhereTheFrameSaysTheReaderIs(t *testing.T) {
 	}
 }
 
-// A pane bigger than one tile is asked for as more tiles rather than a stretched
-// 512: the service's own size is fixed, so sharpness is a question of how many of
-// them the panel orders.
+// The block of tiles is shaped like the space the picture is drawn into - a wide
+// pane gets a row of tiles, a square one a square block - and is never more tiles
+// than the budget.
 func TestRadarGridFollowsThePaneSize(t *testing.T) {
 	renderer := func(cellWidth, cellAspect float64) tideui.Renderer {
 		return tideui.NewRenderer(tideui.CatppuccinMocha, tideui.StyleOptions{CellWidth: cellWidth, CellAspect: cellAspect})
 	}
+	// Every size here is the space the picture gets, which is the pane less its
+	// caption - the panel passes that, not the whole pane.
 	cases := []struct {
 		name               string
 		renderer           tideui.Renderer
 		width, height      int
 		wantCols, wantRows int
 	}{
-		{"a normal pane is one tile", renderer(8, 2), 40, 12, 1, 1},
-		{"a wide pane is two tiles across", renderer(8, 2), 120, 30, 2, 1},
-		{"a zoomed pane is a block", renderer(8, 2), 120, 60, 2, 2},
-		{"the block stays inside the budget", renderer(8, 2), 200, 100, 3, 1},
-		{"an unknown cell size is assumed to be the usual one", renderer(0, 0), 40, 12, 1, 1},
+		{"a square space is a square block", renderer(8, 2), 120, 60, 2, 2},
+		{"a small space is two tiles across", renderer(8, 2), 40, 10, 2, 1},
+		{"a tall space is a column of tiles", renderer(8, 2), 40, 58, 1, 3},
+		{"a strip is a row of tiles, up to the budget", renderer(7, 2.43), 118, 6, 6, 1},
+		{"a space too big for the budget gets the best of it", renderer(8, 2), 150, 30, 3, 1},
+		{"an unknown cell size is assumed to be the usual one", renderer(0, 0), 40, 10, 2, 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			cols, rows := radarGrid(tc.renderer, tc.width, tc.height)
 			if cols != tc.wantCols || rows != tc.wantRows {
-				t.Fatalf("a %dx%d pane is worth %dx%d tiles, want %dx%d",
+				t.Fatalf("a %dx%d picture space is worth %dx%d tiles, want %dx%d",
 					tc.width, tc.height, cols, rows, tc.wantCols, tc.wantRows)
 			}
 			if cols*rows > radarTileBudget {
@@ -288,8 +291,8 @@ func TestRadarAsksForTheTilesItsPaneIsWorth(t *testing.T) {
 	if err := panel.Configure(radarValues(t, 30.2672, -97.7431)); err != nil {
 		t.Fatal(err)
 	}
-	if asked.Cols != 1 || asked.Rows != 1 {
-		t.Fatalf("a 40x12 pane asked for %dx%d tiles, want 1x1", asked.Cols, asked.Rows)
+	if asked.Cols != 2 || asked.Rows != 1 {
+		t.Fatalf("a 40x12 pane asked for %dx%d tiles, want 2x1", asked.Cols, asked.Rows)
 	}
 }
 
@@ -372,8 +375,8 @@ func TestRadarRefetchesWhenThePaneIsResized(t *testing.T) {
 	if err := panel.Configure(radarValues(t, 30.2672, -97.7431)); err != nil {
 		t.Fatal(err)
 	}
-	if len(asked) != 1 || asked[0].Cols != 1 {
-		t.Fatalf("the first fetch = %+v, want one tile", asked)
+	if len(asked) != 1 || asked[0].Cols != 2 || asked[0].Rows != 1 {
+		t.Fatalf("the first fetch = %+v, want the 2x1 block a 40x12 pane is worth", asked)
 	}
 	// Then the pane is zoomed to the whole window, and the next refresh notices.
 	panel.View(big)

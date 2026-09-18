@@ -768,7 +768,7 @@ so the last good value stays on screen.
 | Source | Constructor | Backed by |
 |---|---|---|
 | Weather | `provider.Weather(WeatherOptions)` | Open-Meteo (no key) |
-| Radar | `provider.Radar(RadarOptions)` | RainViewer (no key); the newest frame, zoom ≤ 7, as one 512 px tile - or a block of up to four when the pane is bigger than one |
+| Radar | `provider.Radar(RadarOptions)` | RainViewer (no key); the newest frame, zoom ≤ 7, as a block of tiles shaped like the pane (up to six, so a wide pane is filled by a row of them) |
 | Clock | `provider.Clock(location, zones...)` | local time + IANA zones |
 | Calendar | `provider.Calendar(sources...)` | local `.ics` files, `https`/`webcal` iCal URLs, and Google Calendar embed/share links (TZID, all-day, 90-day window) |
 | System | `provider.System()` | `/proc`, `/sys` (Linux) |
