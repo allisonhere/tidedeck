@@ -16,13 +16,13 @@ import (
 	"github.com/charmbracelet/x/ansi/kitty"
 )
 
-// RadarFrame is one radar frame: the picture and the moment it describes, plus
-// where in that picture the reader's own coordinate is and what one pixel of it is
-// worth on the ground. It lives here rather than in provider because it is a
-// rendering model, the same way WeatherData does, and because a panel needs it to
-// draw without knowing where it came from - but a panel can compute neither of the
-// last two from the picture alone, so they travel with it.
-type RadarFrame struct {
+// MapFrame is one picture of one place: the picture, the moment it describes,
+// where in it the reader's own coordinate is, and what a pixel of it is worth on
+// the ground. It lives here rather than in provider because it is a rendering
+// model, the same way WeatherData does, and because a panel needs it to draw
+// without knowing where it came from - but a panel can compute neither of the last
+// two from the picture alone, so they travel with it.
+type MapFrame struct {
 	Time  time.Time
 	Image image.Image
 	// Centre is the pixel the coordinate sits at. It is the middle of the picture
@@ -31,6 +31,10 @@ type RadarFrame struct {
 	// KilometresPerPixel is the ground distance one pixel covers.
 	KilometresPerPixel float64
 }
+
+// RadarFrame is a MapFrame: a radar picture is a map picture that changes every
+// few minutes. The basemap under it is the same model with a stiller picture.
+type RadarFrame = MapFrame
 
 // imageRamp is what a terminal with no colour gets: brightness, coarse enough to
 // read a shape in, because a panel that draws nothing at all looks broken.

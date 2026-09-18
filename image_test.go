@@ -347,3 +347,21 @@ func TestRadarFrameCarriesItsScale(t *testing.T) {
 		t.Fatalf("frame = %+v", frame)
 	}
 }
+
+// A radar frame is a map frame with a time on it: one type for the radar and the
+// basemap that goes under it, so the provider and the panel do not have to care
+// which source a picture came from.
+func TestRadarFrameIsAMapFrame(t *testing.T) {
+	var frame MapFrame = RadarFrame{Time: time.Now(), Image: solid(4, 4, color.RGBA{A: 255})}
+	if frame.Time.IsZero() || frame.Image == nil {
+		t.Fatal("a radar frame does not satisfy the map frame")
+	}
+	if frame.Image.Bounds().Dx() != 4 {
+		t.Fatalf("the picture did not survive the alias: %v", frame.Image.Bounds())
+	}
+	// And the other way round, which is what the basemap provider returns.
+	var radar RadarFrame = frame
+	if radar.KilometresPerPixel != frame.KilometresPerPixel {
+		t.Fatal("the alias is not the same type")
+	}
+}
