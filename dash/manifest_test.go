@@ -237,3 +237,47 @@ func TestManifestValidatesInput(t *testing.T) {
 		t.Fatalf("input naming an undeclared key = %v", problems)
 	}
 }
+
+// The command that opens a row lives in the manifest, and it has to say where
+// the row's id belongs: a template with no placeholder would open the same thing
+// whatever the reader picked, which is worse than refusing to run it.
+func TestManifestRejectsAnOpenCommandWithNoPlaceholder(t *testing.T) {
+	doc := validManifest()
+	doc["panel"] = map[string]any{"open": []string{"tidemail", "--open"}}
+	if _, err := LoadManifest(writeManifest(t, doc)); err == nil {
+		t.Fatal("a manifest whose open command names no {id} loaded")
+	}
+
+	// An empty first argument is refused too: there is nothing to run.
+	doc["panel"] = map[string]any{"open": []string{"", OpenIDPlaceholder}}
+	if _, err := LoadManifest(writeManifest(t, doc)); err == nil {
+		t.Fatal("a manifest whose open command is empty loaded")
+	}
+}
+
+// An open command resolves against the plugin directory the same way an entry
+// point does, so a plugin can ship "./open.sh" and be run from anywhere - and a
+// manifest that declares none is not an error, it is a panel with no primary
+// action.
+func TestOpenCommandResolvesAgainstThePluginDirectory(t *testing.T) {
+	doc := validManifest()
+	doc["panel"] = map[string]any{"open": []string{"./open.sh", "--open", OpenIDPlaceholder}}
+	manifest, err := LoadManifest(writeManifest(t, doc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	argv, ok := manifest.OpenArgv()
+	if !ok {
+		t.Fatal("the manifest declares an open command but reports none")
+	}
+	if !filepath.IsAbs(argv[0]) || filepath.Base(argv[0]) != "open.sh" {
+		t.Errorf("argv[0] = %q, want an absolute path to open.sh", argv[0])
+	}
+	if argv[2] != OpenIDPlaceholder {
+		t.Errorf("the placeholder was substituted too early: %v", argv)
+	}
+
+	if _, ok := (Manifest{}).OpenArgv(); ok {
+		t.Error("a manifest with no open command reports one")
+	}
+}

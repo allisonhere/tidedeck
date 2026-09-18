@@ -76,7 +76,17 @@ type PanelManifest struct {
 	// plugin can offer a copyable value (a token balance, a URL) without any
 	// code of its own.
 	Copy string `json:"copy"`
+
+	// Open is the argv that opens a row the reader selected: the program that
+	// owns the data this panel previews. OpenIDPlaceholder stands for that
+	// row's id, so one template serves every row, and the command is run with
+	// the terminal handed to it.
+	Open []string `json:"open"`
 }
+
+// OpenIDPlaceholder is the token a manifest's open command puts where the id of
+// the row the reader picked belongs.
+const OpenIDPlaceholder = "{id}"
 
 // SchemaField is one declared setting, in the shape shell plugin manifests
 // already use.
@@ -182,28 +192,60 @@ func (m Manifest) Validate() []string {
 			problems = append(problems, "panel.inputChars is required when panel.input is set")
 		}
 	}
+	// An open command has to say where the id goes. Without a placeholder it
+	// would run the same thing whatever the reader picked, which looks like it
+	// worked and opens the wrong thing.
+	if len(m.Panel.Open) > 0 {
+		if strings.TrimSpace(m.Panel.Open[0]) == "" {
+			problems = append(problems, "panel.open[0] is empty")
+		}
+		named := false
+		for _, arg := range m.Panel.Open {
+			if strings.Contains(arg, OpenIDPlaceholder) {
+				named = true
+			}
+		}
+		if !named {
+			problems = append(problems, fmt.Sprintf("panel.open names no %s placeholder", OpenIDPlaceholder))
+		}
+	}
 	return problems
 }
 
 // Command resolves a kind's entry point against the plugin directory, so a
 // manifest can name "./render.sh".
 func (m Manifest) Command(kind string) []string {
-	entry := m.EntryPoints[kind]
-	if len(entry) == 0 {
+	return m.resolve(m.EntryPoints[kind])
+}
+
+// OpenArgv is the manifest's open command, resolved against the plugin
+// directory. The placeholder stays in place: the panel substitutes the selected
+// row's id at launch, so one command is resolved once and used for every row.
+// The second result is false when the plugin declares no open command, which is
+// a panel with no primary action rather than an error.
+func (m Manifest) OpenArgv() ([]string, bool) {
+	if len(m.Panel.Open) == 0 {
+		return nil, false
+	}
+	return m.resolve(m.Panel.Open), true
+}
+
+// resolve makes a command's first element absolute against the plugin, so a
+// manifest can name "./render.sh" and the command does not also depend on the
+// working directory the dashboard was started in.
+func (m Manifest) resolve(argv []string) []string {
+	if len(argv) == 0 {
 		return nil
 	}
-	argv := append([]string(nil), entry...)
-	// A relative entry point is relative to the plugin, not to wherever the
-	// dashboard was started. Resolving it to an absolute path here means the
-	// command does not also depend on the working directory it is run in.
-	if strings.HasPrefix(argv[0], "./") || strings.HasPrefix(argv[0], "../") {
-		resolved := filepath.Join(m.dir, argv[0])
+	out := append([]string(nil), argv...)
+	if strings.HasPrefix(out[0], "./") || strings.HasPrefix(out[0], "../") {
+		resolved := filepath.Join(m.dir, out[0])
 		if absolute, err := filepath.Abs(resolved); err == nil {
 			resolved = absolute
 		}
-		argv[0] = resolved
+		out[0] = resolved
 	}
-	return argv
+	return out
 }
 
 // Interval is how often the panel should run, floored so a plugin cannot ask
