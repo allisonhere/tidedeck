@@ -205,7 +205,7 @@ func radarEcho(img image.Image) float64 {
 func (r *radar) View(ctx tideui.PanelContext) string {
 	r.mu.Lock()
 	r.paneWidth, r.paneHeight, r.renderer = ctx.Width, ctx.Height, ctx.Renderer
-	location, zoom, quiet := r.location, r.zoom, r.quiet
+	location, quiet := r.location, r.quiet
 	r.mu.Unlock()
 	frame := r.Load()
 	if frame.Image == nil {
@@ -218,7 +218,7 @@ func (r *radar) View(ctx tideui.PanelContext) string {
 	bg := ctx.Renderer.Styles.Workspace.Bg
 	// A picture of the weather with no time on it is a picture of a rumour, and
 	// the service is credited because it asks to be.
-	lines := []string{radarCaption(ctx.Width, frame.Time.Local().Format("15:04"), location, zoom)}
+	lines := []string{radarCaption(ctx.Width, frame.Time.Local().Format("15:04"), location, radarScale(frame))}
 	if quiet {
 		// Nothing in the frame, and the panel says which kind of nothing: an
 		// empty sky and a failed fetch draw the same rectangle otherwise.
@@ -228,6 +228,9 @@ func (r *radar) View(ctx tideui.PanelContext) string {
 	// the tile is where they are, and without it a lone echo is a smudge on dark
 	// glass: no telling weather one county over from weather two states away.
 	marked := markCentre(frame.Image, frame.Centre, tideui.RGBAOf(ctx.Renderer.Styles.Workspace.BodyFg))
+	// The ring goes on the copy the crosshair already made, in the quietest colour
+	// the theme has: a scale that competes with the weather is worse than none.
+	drawRing(marked, frame.Centre, frame.KilometresPerPixel, tideui.RGBAOf(ctx.Renderer.Styles.Workspace.BodyMutedFg))
 	picture := ctx.Renderer.RenderImage(marked, ctx.Width, max(1, ctx.Height-len(lines)))
 	// A frame that draws nothing is still a frame: the caption goes up either way,
 	// because "nothing is falling" and "nothing has loaded" are different things
@@ -238,11 +241,27 @@ func (r *radar) View(ctx tideui.PanelContext) string {
 	return ctx.Renderer.RenderLines(lines, ctx.Width, bg)
 }
 
+// radarScale is what the picture is worth on the ground: a tile is a fixed number
+// of pixels wide whatever the pane does, so this is the pane's scale, and a
+// distance on the picture means nothing without it.
+func radarScale(frame tideui.RadarFrame) string {
+	if frame.Image == nil || frame.KilometresPerPixel <= 0 {
+		return ""
+	}
+	kilometres := int(math.Round(frame.KilometresPerPixel * float64(frame.Image.Bounds().Dx())))
+	return fmt.Sprintf("%d km wide", kilometres)
+}
+
 // radarCaption is the panel's context line, dropped in order of stubbornness as
-// the pane narrows: the time and the source stay, the zoom level goes first and
-// the place before it. A credit the layout truncated away is not a credit.
-func radarCaption(width int, when, location string, zoom int) string {
-	parts := []string{when, location, fmt.Sprintf("zoom %d", zoom), "RainViewer"}
+// the pane narrows: the time and the source stay, the scale goes first and the
+// place before it. A credit the layout truncated away is not a credit.
+func radarCaption(width int, when, location, scale string) string {
+	parts := []string{when, location, "", "RainViewer"}
+	parts[2] = scale
+	// A frame with no scale is not a reason to print an empty part.
+	if scale == "" {
+		parts = append(parts[:2], parts[3])
+	}
 	for len(parts) > 2 && ansi.StringWidth(strings.Join(parts, " · ")) > width {
 		parts = append(parts[:len(parts)-2], parts[len(parts)-1])
 	}
@@ -276,6 +295,55 @@ func markCentre(img image.Image, centre image.Point, colour color.RGBA) image.Im
 		}
 	}
 	return marked
+}
+
+// maxRingKilometres is the ring the panel aims for: a round number a person can
+// hold in their head, and one that fits in a normal pane at a normal zoom.
+const maxRingKilometres = 100
+
+// ringKilometres is the largest round distance whose ring fits inside the picture
+// with a little room to spare, or nothing when none does. It steps down rather
+// than picking a distance the pane would clip: a half-drawn ring is a lie.
+func ringKilometres(kmPerPixel float64, centre image.Point, bounds image.Rectangle) int {
+	if kmPerPixel <= 0 || !centre.In(bounds) {
+		return 0
+	}
+	reach := min(
+		min(centre.X-bounds.Min.X, bounds.Max.X-centre.X),
+		min(centre.Y-bounds.Min.Y, bounds.Max.Y-centre.Y),
+	) - 2
+	for _, kilometres := range []int{maxRingKilometres, 50, 25} {
+		if radius := int(math.Round(float64(kilometres) / kmPerPixel)); radius > 2 && radius <= reach {
+			return kilometres
+		}
+	}
+	return 0
+}
+
+// drawRing draws the reader's distance ring into the picture it is given - the
+// copy markCentre already made, since a panel redraws this often and the frame in
+// state must stay clean. It is dotted rather than solid so it reads as a scale
+// rather than as weather.
+func drawRing(img image.Image, centre image.Point, kmPerPixel float64, colour color.RGBA) image.Image {
+	picture, ok := img.(*image.RGBA)
+	if !ok {
+		return img
+	}
+	kilometres := ringKilometres(kmPerPixel, centre, picture.Bounds())
+	if kilometres == 0 {
+		return img
+	}
+	radius := math.Round(float64(kilometres) / kmPerPixel)
+	for degrees := 0; degrees < 360; degrees += 8 {
+		radians := float64(degrees) * math.Pi / 180
+		x := centre.X + int(math.Round(radius*math.Cos(radians)))
+		y := centre.Y + int(math.Round(radius*math.Sin(radians)))
+		if !image.Pt(x, y).In(picture.Bounds()) {
+			continue
+		}
+		picture.Set(x, y, colour)
+	}
+	return picture
 }
 
 // emptyView says what is missing instead of drawing an empty box. A radar with

@@ -4,6 +4,7 @@ import (
 	"context"
 	"image"
 	"image/color"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -225,22 +226,6 @@ func TestRadarMarksWhereTheFrameSaysTheReaderIs(t *testing.T) {
 	}
 }
 
-// The caption drops its least useful part first: a credit the layout truncated
-// away is not a credit.
-func TestRadarCaptionDropsTheZoomBeforeTheSource(t *testing.T) {
-	wide := radarCaption(60, "17:50", "Kansas City", 7)
-	if !strings.Contains(wide, "zoom 7") || !strings.Contains(wide, "RainViewer") {
-		t.Fatalf("a wide caption = %q, want zoom and source", wide)
-	}
-	narrow := radarCaption(26, "17:50", "Kansas City", 7)
-	if !strings.Contains(narrow, "RainViewer") {
-		t.Fatalf("a narrow caption = %q, want the source kept", narrow)
-	}
-	if ansi.StringWidth(narrow) > 26 {
-		t.Fatalf("a narrow caption = %q, which is %d cells wide", narrow, ansi.StringWidth(narrow))
-	}
-}
-
 // A pane bigger than one tile is asked for as more tiles rather than a stretched
 // 512: the service's own size is fixed, so sharpness is a question of how many of
 // them the panel orders.
@@ -305,5 +290,67 @@ func TestRadarAsksForTheTilesItsPaneIsWorth(t *testing.T) {
 	}
 	if asked.Cols != 1 || asked.Rows != 1 {
 		t.Fatalf("a 40x12 pane asked for %dx%d tiles, want 1x1", asked.Cols, asked.Rows)
+	}
+}
+
+// A ring is a distance or it is decoration: it must be a round number of
+// kilometres and it must fit inside the picture.
+func TestRadarRingIsAroundNumberThatFits(t *testing.T) {
+	if got := ringKilometres(0.475, image.Pt(256, 256), image.Rect(0, 0, 512, 512)); got != 100 {
+		t.Fatalf("a ring around the middle of a 512px frame = %d km, want 100", got)
+	}
+	// A reader at the very corner: no round ring fits, and a ring drawn off the
+	// picture would be seen as nothing.
+	if got := ringKilometres(0.475, image.Pt(8, 8), image.Rect(0, 0, 512, 512)); got != 0 {
+		t.Fatalf("a ring around the corner = %d km, want none", got)
+	}
+}
+
+// The ring is drawn at the radius its distance means, which is the whole point of
+// carrying kilometres per pixel.
+func TestRadarDrawsTheRingAtItsDistance(t *testing.T) {
+	centre := image.Pt(256, 256)
+	kmPerPixel := 0.475
+	picture := image.NewRGBA(image.Rect(0, 0, 512, 512))
+	if drawRing(picture, centre, kmPerPixel, color.RGBA{R: 255, A: 255}) == nil {
+		t.Fatal("drawRing returned no image")
+	}
+	radius := int(math.Round(100 / kmPerPixel))
+	if _, _, _, alpha := picture.At(centre.X+radius, centre.Y).RGBA(); alpha == 0 {
+		t.Fatalf("nothing was drawn %d km east of the reader (%d px)", 100, radius)
+	}
+	if _, _, _, alpha := picture.At(centre.X+radius/2, centre.Y).RGBA(); alpha != 0 {
+		t.Fatal("the ring was filled in rather than drawn as a line")
+	}
+	// A ring with nowhere to go draws nothing at all.
+	corner := image.NewRGBA(image.Rect(0, 0, 512, 512))
+	drawRing(corner, image.Pt(8, 8), kmPerPixel, color.RGBA{R: 255, A: 255})
+	if _, _, _, alpha := corner.At(8+8, 8).RGBA(); alpha != 0 {
+		t.Fatal("a ring that does not fit was drawn anyway")
+	}
+}
+
+// The caption says what the picture is worth on the ground - the one number that
+// turns it from a pattern into a distance - and drops the scale before the place,
+// and the place before the source. A credit the layout truncated is not a credit.
+func TestRadarCaptionNamesTheScale(t *testing.T) {
+	wide := radarCaption(60, "17:50", "Kansas City", "243 km wide")
+	if !strings.Contains(wide, "243 km wide") || !strings.Contains(wide, "RainViewer") {
+		t.Fatalf("wide caption = %q, want the scale and the source", wide)
+	}
+	narrow := radarCaption(26, "17:50", "Kansas City", "243 km wide")
+	if strings.Contains(narrow, "243 km wide") {
+		t.Fatalf("narrow caption = %q, want it to have dropped the scale", narrow)
+	}
+	if !strings.Contains(narrow, "RainViewer") || !strings.Contains(narrow, "17:50") {
+		t.Fatalf("narrow caption = %q, want the time and the source kept", narrow)
+	}
+	if ansi.StringWidth(narrow) > 26 {
+		t.Fatalf("narrow caption = %q, which is %d cells wide", narrow, ansi.StringWidth(narrow))
+	}
+	// A frame with no scale on it (one the provider could not measure) does not
+	// leave an empty part behind.
+	if got := radarCaption(60, "17:50", "Kansas City", ""); strings.Contains(got, "··") || strings.Contains(got, " · · ") {
+		t.Fatalf("a caption with no scale = %q", got)
 	}
 }
