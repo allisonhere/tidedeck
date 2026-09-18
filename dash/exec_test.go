@@ -3,6 +3,7 @@ package dash
 import (
 	"context"
 	"encoding/json"
+	"image/color"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -466,5 +467,60 @@ func TestExecPanelOptionalGlyph(t *testing.T) {
 	manifest.Panel.Glyph = "too\nwide"
 	if got := Exec(manifest).Meta().Glyph; got != "" {
 		t.Fatalf("invalid plugin glyph = %q, want fallback", got)
+	}
+}
+
+// A plugin that produces a picture points its document at the file, and the panel
+// draws it. The path travels as a declared setting, the way every other value a
+// plugin needs does - see TestExecPanelPassesDeclaredSettings for the shape.
+func TestExecPanelDrawsAnImageRowFromAPlugin(t *testing.T) {
+	previous := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(previous) })
+
+	frame := filepath.Join(t.TempDir(), "frame.png")
+	writePNGAt(t, frame, 2, 2, color.RGBA{R: 255, A: 255})
+
+	manifest := plugin(t,
+		`printf '{"rows":[{"type":"image","src":"%s","rows":2}]}\n' "$TIDEDECK_PLUGIN_FRAME"`,
+		map[string]any{
+			"panel": map[string]any{
+				"schema": []map[string]any{
+					{"key": "frame", "type": "string", "label": "Frame"},
+				},
+			},
+		})
+
+	panel := Exec(manifest)
+	values := NewValues()
+	values.Set(manifest.SettingKey("frame"), frame)
+	if err := panel.(Configurable).Configure(values); err != nil {
+		t.Fatal(err)
+	}
+	if err := panel.(Fetcher).Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := tideui.PanelContext{ID: "test.plugin", Width: 8, Renderer: docRenderer()}
+	out := panel.View(ctx)
+	red := lipgloss.NewStyle().Foreground(lipgloss.Color("#ff0000")).Background(lipgloss.Color("#ff0000")).Render("▀")
+	if !strings.Contains(out, red) {
+		t.Fatalf("the plugin's picture was not drawn:\n%q", out)
+	}
+
+	// And the next frame arrives without anyone being told: the loader keys on
+	// the file's own state.
+	writePNGAt(t, frame, 2, 2, color.RGBA{B: 255, A: 255})
+	future := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(frame, future, future); err != nil {
+		t.Fatal(err)
+	}
+	if err := panel.(Fetcher).Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	out = panel.View(ctx)
+	blue := lipgloss.NewStyle().Foreground(lipgloss.Color("#0000ff")).Background(lipgloss.Color("#0000ff")).Render("▀")
+	if !strings.Contains(out, blue) {
+		t.Fatalf("a rewritten picture was not picked up:\n%q", out)
 	}
 }
