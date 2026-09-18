@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"github.com/allisonhere/tideui"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
 )
 
 // plugin writes a plugin directory whose entry point is the given shell
@@ -73,6 +75,120 @@ JSON`, nil)
 	text, tone := panel.(Badger).Badge()
 	if text != "3" || tone != tideui.ToneWarning {
 		t.Fatalf("badge = %q/%v", text, tone)
+	}
+}
+
+// openableFixture is a plugin whose document holds two openable blocks and the
+// non-rows a real one prints between them: a tally row above, spacers below.
+func openableFixture(t *testing.T) Panel {
+	t.Helper()
+	manifest := plugin(t, `cat <<'JSON'
+{"rows":[
+  {"type":"text","label":"mail","value":"3 unread","tone":"muted"},
+  {"type":"block","id":"7","label":"ana@example.com · 5m","body":["standup notes"]},
+  {"type":"spacer"},
+  {"type":"block","id":"9","label":"sam@example.com · 1h","body":["dinner?"]},
+  {"type":"spacer"}]}
+JSON`, map[string]any{"panel": map[string]any{"open": []string{"tidemail", "--open", "{id}"}}})
+	panel := Exec(manifest)
+	if err := panel.(Fetcher).Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	return panel
+}
+
+// view draws the panel once, which is what tells it which rows are on screen.
+// Entered is what has the keyboard: a pane entered with space, or one that owns
+// the screen. The colour profile is set before the renderer is built, because
+// without one there are no escapes for a test to assert on.
+func view(panel Panel, zoomed bool) string {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	return panel.View(tideui.PanelContext{
+		ID: "test.plugin", Width: 30, Zoomed: zoomed, Entered: true, Renderer: docRenderer(),
+	})
+}
+
+// cursorMark is the escape the panel draws the row the reader is on with, read
+// out of lipgloss rather than spelled out here, so the assertion is about the
+// colours the panel chose and not about this test's idea of them. TrueColor is
+// set for the same reason: without a colour profile there are no escapes to
+// assert on and every one of these tests would pass vacuously.
+func cursorMark() string {
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	ws := docRenderer().Styles.Workspace
+	style := lipgloss.NewStyle().Background(ws.SelectionBg).Foreground(ws.SelectionFg)
+	open := strings.SplitN(style.Render("x"), "x", 2)[0]
+	if !strings.HasPrefix(open, "\x1b[") {
+		panic("could not read the selection escape out of lipgloss")
+	}
+	return open
+}
+
+// The cursor walks the rows that carry an id, in order, clamped at both ends.
+func TestExecPanelCursorWalksTheOpenableRows(t *testing.T) {
+	panel := openableFixture(t)
+	cursor, ok := panel.(Cursor)
+	if !ok {
+		t.Fatal("a plugin with openable rows is not a cursor")
+	}
+
+	out := view(panel, false)
+	// The first openable row is where a fresh panel starts, and the text row
+	// above it - which carries no id - is not a destination.
+	if !strings.Contains(out, cursorMark()+"ana@example.com · 5m") {
+		t.Fatalf("the first openable row is not marked:\n%q", out)
+	}
+	if strings.Contains(out, cursorMark()+"3 unread") {
+		t.Fatalf("the cursor started on a row with no id:\n%q", out)
+	}
+
+	if !cursor.Move(1) {
+		t.Fatal("the cursor refused to move over two openable rows")
+	}
+	out = view(panel, false)
+	if !strings.Contains(out, cursorMark()+"sam@example.com · 1h") {
+		t.Fatalf("the cursor did not move to the second row:\n%q", out)
+	}
+	if strings.Contains(out, cursorMark()+"ana@example.com · 5m") {
+		t.Fatalf("the first row kept the cursor:\n%q", out)
+	}
+
+	// Clamped at both ends rather than wrapping or running off the list.
+	cursor.Move(1)
+	if out := view(panel, false); !strings.Contains(out, cursorMark()+"sam@example.com · 1h") {
+		t.Fatalf("moving past the last row lost the selection:\n%q", out)
+	}
+	cursor.Move(-5)
+	if out := view(panel, false); !strings.Contains(out, cursorMark()+"ana@example.com · 5m") {
+		t.Fatalf("moving above the first row lost the selection:\n%q", out)
+	}
+}
+
+// A document that draws its rows a second way when it fills the screen is still
+// the same list: the cursor counts the rows on screen, so zooming does not move
+// the selection onto a different message.
+func TestExecPanelCursorFollowsTheZoomedRows(t *testing.T) {
+	panel := openableFixture(t)
+	view(panel, true)
+	if !panel.(Cursor).Move(1) {
+		t.Fatal("the cursor refused to move on the zoomed rows")
+	}
+	if out := view(panel, true); !strings.Contains(out, cursorMark()+"sam@example.com · 1h") {
+		t.Fatalf("the zoomed detail did not mark the second row:\n%q", out)
+	}
+}
+
+// A document with nothing openable leaves the arrows to the workspace, so they
+// still move focus instead of being swallowed by a panel.
+func TestExecPanelWithoutOpenableRowsIsNotACursor(t *testing.T) {
+	manifest := plugin(t, `printf '{"rows":[{"type":"text","label":"mail","value":"empty"}]}\n'`, nil)
+	panel := Exec(manifest)
+	if err := panel.(Fetcher).Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	view(panel, false)
+	if cursor, ok := panel.(Cursor); ok && cursor.Move(1) {
+		t.Fatal("a document with nothing openable took the arrow key")
 	}
 }
 

@@ -44,6 +44,14 @@ type execPanel struct {
 	mu       sync.Mutex
 	settings map[string]string
 	input    string
+
+	// shown is the rows the last frame drew - the detail rows while the panel
+	// fills the screen, the compact ones otherwise - and cursor is the index
+	// into their openable rows. The document itself is never marked: a cursor is
+	// a rendering concern, so the document a refresh replaced stays exactly as
+	// the program printed it.
+	shown  []Row
+	cursor int
 }
 
 // Exec builds a panel that runs a program. The manifest supplies the entry
@@ -272,7 +280,73 @@ func (e *execPanel) Refresh(ctx context.Context) error {
 }
 
 func (e *execPanel) View(ctx tideui.PanelContext) string {
-	return RenderDoc(ctx.Renderer, e.Load(), ctx.Width, ctx.Zoomed)
+	doc := e.Load()
+	e.mu.Lock()
+	e.shown = shownRows(doc, ctx.Zoomed)
+	e.cursor = clampCursor(e.cursor, len(openable(e.shown)))
+	selected := ""
+	// A pane draws its cursor when it has the keyboard - entered with space, or
+	// owning the screen. Drawing one the arrows cannot move would be a lie.
+	if ctx.Entered || ctx.Zoomed {
+		if row, ok := openableAt(e.shown, e.cursor); ok {
+			selected = row.ID
+		}
+	}
+	e.mu.Unlock()
+	return RenderDocSelected(ctx.Renderer, doc, ctx.Width, ctx.Zoomed, selected)
+}
+
+// Move changes the selection by delta (-1 up, +1 down), clamped to the rows that
+// carry an id. It reports whether the panel took the key: a document with
+// nothing openable leaves the arrows to the workspace, which is how they still
+// move focus.
+func (e *execPanel) Move(delta int) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	count := len(openable(e.shown))
+	if count == 0 {
+		return false
+	}
+	e.cursor = clampCursor(e.cursor+delta, count)
+	return true
+}
+
+// openable is the rows of a document that carry an id, in the order they are
+// drawn. The cursor counts these and not every row: a spacer or a setup hint is
+// not a destination, and a plugin says which rows are by giving them an id.
+func openable(rows []Row) []Row {
+	var out []Row
+	for _, row := range rows {
+		if strings.TrimSpace(row.ID) != "" {
+			out = append(out, row)
+		}
+	}
+	return out
+}
+
+// openableAt is the row at an index of openable(rows).
+func openableAt(rows []Row, index int) (Row, bool) {
+	items := openable(rows)
+	if index < 0 || index >= len(items) {
+		return Row{}, false
+	}
+	return items[index], true
+}
+
+// clampCursor keeps a cursor inside a list of count items. A cursor with no list
+// to sit in is 0, so a panel whose document shrank cannot keep pointing at a row
+// that is gone.
+func clampCursor(cursor, count int) int {
+	switch {
+	case count <= 0:
+		return 0
+	case cursor < 0:
+		return 0
+	case cursor >= count:
+		return count - 1
+	default:
+		return cursor
+	}
 }
 
 // Badge reports whatever badge the document carried.
