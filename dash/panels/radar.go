@@ -34,6 +34,10 @@ type radar struct {
 	newFetcher func(provider.RadarOptions) func(context.Context) (tideui.RadarFrame, error)
 	location   string
 	zoom       int
+	// drawn is the frame with the reader's place and the distance ring composed
+	// into it, kept between draws: see drawnFrame.
+	drawn      image.Image
+	drawnKey   radarDrawing
 	latitude   float64
 	longitude  float64
 	enabled    bool
@@ -253,11 +257,7 @@ func (r *radar) View(ctx tideui.PanelContext) string {
 	// The picture is drawn with the reader's own position marked. The middle of
 	// the tile is where they are, and without it a lone echo is a smudge on dark
 	// glass: no telling weather one county over from weather two states away.
-	marked := markCentre(frame.Image, frame.Centre, tideui.RGBAOf(ctx.Renderer.Styles.Workspace.BodyFg))
-	// The ring goes on the copy the crosshair already made, in the quietest colour
-	// the theme has: a scale that competes with the weather is worse than none.
-	drawRing(marked, frame.Centre, frame.KilometresPerPixel, tideui.RGBAOf(ctx.Renderer.Styles.Workspace.BodyMutedFg))
-	picture := ctx.Renderer.RenderImage(marked, ctx.Width, max(1, ctx.Height-len(lines)))
+	picture := ctx.Renderer.RenderImage(r.drawnFrame(frame, ctx), ctx.Width, max(1, ctx.Height-len(lines)))
 	// A frame that draws nothing is still a frame: the caption goes up either way,
 	// because "nothing is falling" and "nothing has loaded" are different things
 	// and only the caption and the sentence above tell them apart.
@@ -265,6 +265,44 @@ func (r *radar) View(ctx tideui.PanelContext) string {
 		lines = append(lines, strings.Split(picture, "\n")...)
 	}
 	return ctx.Renderer.RenderLines(lines, ctx.Width, bg)
+}
+
+// radarDrawing is everything a composed frame depends on. Anything in here
+// changing means the picture has to be made again, and nothing else does.
+type radarDrawing struct {
+	fetchedAt  time.Time
+	bounds     image.Rectangle
+	centre     image.Point
+	kmPerPixel float64
+	mark, ring color.RGBA
+}
+
+// drawnFrame is the frame with the reader's own position and the distance ring on
+// it, composed the first time it is drawn and then handed out unchanged. It is
+// worth the bookkeeping: a terminal is told about a picture once and identifies it
+// afterwards by the id written into its cells, so a fresh copy per draw makes the
+// panel re-transmit the whole picture every second - and re-copy every pixel of it
+// before that.
+func (r *radar) drawnFrame(frame tideui.RadarFrame, ctx tideui.PanelContext) image.Image {
+	key := radarDrawing{
+		fetchedAt:  frame.Time,
+		bounds:     frame.Image.Bounds(),
+		centre:     frame.Centre,
+		kmPerPixel: frame.KilometresPerPixel,
+		mark:       tideui.RGBAOf(ctx.Renderer.Styles.Workspace.BodyFg),
+		ring:       tideui.RGBAOf(ctx.Renderer.Styles.Workspace.BodyMutedFg),
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.drawn != nil && r.drawnKey == key {
+		return r.drawn
+	}
+	// The crosshair first, then the ring on the same copy, in the quietest colour
+	// the theme has: a scale that competes with the weather is worse than none.
+	marked := markCentre(frame.Image, frame.Centre, key.mark)
+	drawRing(marked, frame.Centre, frame.KilometresPerPixel, key.ring)
+	r.drawn, r.drawnKey = marked, key
+	return r.drawn
 }
 
 // radarScale is what the picture is worth on the ground: a tile is a fixed number

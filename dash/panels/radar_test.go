@@ -394,3 +394,42 @@ func TestRadarRefetchesWhenThePaneIsResized(t *testing.T) {
 		t.Fatalf("an unchanged pane caused %d fetches, want no more than the two", len(asked))
 	}
 }
+
+// The picture the panel hands to the renderer is the same picture from one draw to
+// the next. A terminal is told about a picture once and identifies it afterwards
+// by the id carried in its cells, so a fresh copy per frame re-sends the whole
+// frame - a quarter of a megabyte a second for a mosaic - and re-copies it too.
+func TestRadarComposesTheFrameOnce(t *testing.T) {
+	noPlaceholderCellsForTests(t)
+	trueColor(t)
+	panel := &radar{}
+	ctx := tideui.PanelContext{Width: 40, Height: 12,
+		Renderer: tideui.NewRenderer(tideui.CatppuccinMocha, tideui.StyleOptions{})}
+	frame := tideui.RadarFrame{
+		Time:   time.Date(2026, 9, 18, 18, 5, 0, 0, time.Local),
+		Image:  image.NewRGBA(image.Rect(0, 0, 64, 64)),
+		Centre: image.Pt(30, 30), KilometresPerPixel: 0.475,
+	}
+	first := panel.drawnFrame(frame, ctx)
+	if first == nil {
+		t.Fatal("the frame was not composed")
+	}
+	if again := panel.drawnFrame(frame, ctx); again != first {
+		t.Fatal("the frame was composed again for a second draw of the same frame")
+	}
+	// A new frame is a new picture, and so is the same frame drawn in a pane that
+	// has moved the reader's place... which the frame itself carries, so the frame
+	// time is the thing that changes.
+	fresh := frame
+	fresh.Time = frame.Time.Add(5 * time.Minute)
+	if composed := panel.drawnFrame(fresh, ctx); composed == first {
+		t.Fatal("a new frame reused the picture composed for the old one")
+	}
+	// And the same frame drawn with another theme's colours is a different picture:
+	// the crosshair and the ring are drawn in the theme's own colours.
+	other := ctx
+	other.Renderer = tideui.NewRenderer(tideui.CatppuccinLatte, tideui.StyleOptions{})
+	if composed := panel.drawnFrame(frame, other); composed == first {
+		t.Fatal("a frame composed for one theme was reused for another")
+	}
+}
