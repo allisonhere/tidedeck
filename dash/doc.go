@@ -73,6 +73,13 @@ type Row struct {
 	// vocabulary other tools use. Tone wins when both are given.
 	Tone     string `json:"tone"`
 	Severity string `json:"severity"`
+
+	// BodyTone colours a block's body lines. Left empty they are drawn in the
+	// panel's normal text colour, the one an untoned text row uses, because a
+	// block's body is the row's content: the label is the head of the row, and
+	// the body is what the row has to say. A body that is only detail under its
+	// label asks for a tone.
+	BodyTone string `json:"bodyTone"`
 }
 
 // rowTone resolves a row's colour, preferring the explicit tone.
@@ -179,7 +186,7 @@ func renderRow(renderer tideui.Renderer, row Row, width, labelWidth int, bg lipg
 		if row.Label != "" {
 			lines = append(lines, docPair(renderer, row.Label, row.Value, labelWidth, row.rowTone(), bg))
 		}
-		body := lipgloss.NewStyle().Background(bg).Foreground(renderer.Styles.Workspace.SubtitleFg)
+		body := lipgloss.NewStyle().Background(bg).Foreground(bodyColour(renderer.Styles.Workspace, row))
 		for _, line := range row.Body {
 			lines = append(lines, body.Render("  "+line))
 		}
@@ -219,6 +226,16 @@ func renderMetric(renderer tideui.Renderer, row Row, width, labelWidth int, bg l
 		metric.Bar = true
 	}
 	return renderer.RenderMetricRow(metric, bg)
+}
+
+// bodyColour resolves a block's body colour. With no bodyTone it is the theme's
+// normal text colour, the same one an untoned text row or metric draws, so a
+// body reads as the row's content rather than as a footnote under its label.
+func bodyColour(ws tideui.WorkspaceStyles, row Row) lipgloss.Color {
+	if tone, ok := parseTone(row.BodyTone); ok {
+		return toneColour(ws, tone)
+	}
+	return ws.BodyFg
 }
 
 // docPair renders a label column and a value, the shape the built-in panels

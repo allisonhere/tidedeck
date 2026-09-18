@@ -239,7 +239,8 @@ printf '%s' "$ITEMS" | jq -c \
         [ { type: "text", label: "mail", value: "no accounts yet", tone: "muted" },
           { type: "spacer" },
           { type: "block", label: "Set one up in TideMail",
-            body: [ "then this panel fills itself in" ], tone: "muted" } ]
+            body: [ "then this panel fills itself in" ],
+            tone: "muted", bodyTone: "muted" } ]
       elif ($account | length) > 0
            and ($accounts | map(.name) | index($account) | not) then
         [ { type: "text", label: "account", value: "not found", tone: "warning" },

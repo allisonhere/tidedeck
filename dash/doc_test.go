@@ -5,7 +5,9 @@ import (
 	"testing"
 
 	"github.com/allisonhere/tideui"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
 )
 
 func docRenderer() tideui.Renderer {
@@ -142,5 +144,29 @@ func TestRenderDocMetricDerivesItsValue(t *testing.T) {
 		if got := ansi.StringWidth(ansi.Strip(out)); got != 20 {
 			t.Fatalf("percent %v produced a %d-cell line", percent, got)
 		}
+	}
+}
+
+// A block's body is the row's content, so it is drawn in the panel's normal
+// text colour; a body that is only detail under its label names a bodyTone.
+// When every body was drawn in the subtitle colour, a mail subject read as a
+// footnote under its sender rather than as the thing the row was showing.
+func TestBlockBodyIsContentUnlessItAsksForATone(t *testing.T) {
+	// Without a TTY there is no colour to assert on, and every SGR test passes
+	// vacuously.
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	renderer := docRenderer()
+	ws := renderer.Styles.Workspace
+
+	body := func(doc Doc) string {
+		return RenderDoc(renderer, doc, 40, false)
+	}
+	plain := body(Doc{Rows: []Row{{Type: "block", Label: "sam@example.com", Body: []string{"dinner?"}}}})
+	if want := lipgloss.NewStyle().Background(ws.Bg).Foreground(ws.BodyFg).Render("  dinner?"); !strings.Contains(plain, want) {
+		t.Errorf("a block's body is not the normal text colour:\n%q", plain)
+	}
+	detail := body(Doc{Rows: []Row{{Type: "block", Body: []string{"balance: 0"}, BodyTone: "muted"}}})
+	if want := lipgloss.NewStyle().Background(ws.Bg).Foreground(ws.HintFg).Render("  balance: 0"); !strings.Contains(detail, want) {
+		t.Errorf("bodyTone did not colour the body:\n%q", detail)
 	}
 }

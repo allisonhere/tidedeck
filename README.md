@@ -1150,7 +1150,7 @@ key or with another plugin's.
 | `gauge` | label, value, and a bar |
 | `spark` | label, value, and a sparkline from `history` (0..1 samples) |
 | `text` | a label/value pair |
-| `block` | a label plus indented `body` lines |
+| `block` | a label plus indented `body` lines; the body is drawn in the panel's normal text colour, or the colour `bodyTone` names |
 | `divider` | a section divider |
 | `spacer` | a blank line |
 
