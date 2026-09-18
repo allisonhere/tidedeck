@@ -34,6 +34,10 @@ type radar struct {
 	newFetcher func(provider.RadarOptions) func(context.Context) (tideui.RadarFrame, error)
 	location   string
 	zoom       int
+	latitude   float64
+	longitude  float64
+	enabled    bool
+	cols, rows int
 	// The pane the panel was last drawn into, and the renderer it was drawn with.
 	// A fetch is asked for without a pane, so the block of tiles is chosen from
 	// the last pane drawn - and the cell size, which only the renderer knows.
@@ -100,15 +104,30 @@ func (r *radar) Configure(values dash.Values) error {
 	if r.zoom == 0 {
 		r.zoom = provider.RadarDefaultZoom
 	}
-	if !boolOr(values, radarEnabledKey, true) || (latitude == 0 && longitude == 0) {
-		r.fetch = nil
-		return nil
+	r.latitude, r.longitude = latitude, longitude
+	r.enabled = boolOr(values, radarEnabledKey, true) && (latitude != 0 || longitude != 0)
+	r.rebuildLocked()
+	return nil
+}
+
+// rebuildLocked builds the fetch for the coordinates, the zoom and the pane last
+// drawn. The pane decides how many tiles: a panel is told where to look, never how
+// big it is, and a fetch is asked for without a pane - so the block is recomputed
+// whenever the pane it was chosen for has changed. Rebuilding an unchanged fetch
+// would be a request per refresh for nothing.
+func (r *radar) rebuildLocked() {
+	if !r.enabled {
+		r.fetch, r.cols, r.rows = nil, 0, 0
+		return
 	}
 	cols, rows := radarGrid(r.renderer, r.paneWidth, r.paneHeight)
+	if r.fetch != nil && cols == r.cols && rows == r.rows {
+		return
+	}
+	r.cols, r.rows = cols, rows
 	r.fetch = r.newFetcher(provider.RadarOptions{
-		Latitude: latitude, Longitude: longitude, Zoom: r.zoom, Cols: cols, Rows: rows,
+		Latitude: r.latitude, Longitude: r.longitude, Zoom: r.zoom, Cols: cols, Rows: rows,
 	})
-	return nil
 }
 
 // radarGrid is how many tiles a pane is worth: enough to cover its pixels, so a
@@ -152,6 +171,9 @@ func clampTiles(tiles, most int) int {
 
 func (r *radar) Refresh(ctx context.Context) error {
 	r.mu.Lock()
+	// The pane may have been resized since the fetch was built - zoomed, the
+	// window enlarged - and a fetch built for another pane is a stretched tile.
+	r.rebuildLocked()
 	fetch := r.fetch
 	r.mu.Unlock()
 	if fetch == nil {

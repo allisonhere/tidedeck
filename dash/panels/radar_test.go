@@ -354,3 +354,43 @@ func TestRadarCaptionNamesTheScale(t *testing.T) {
 		t.Fatalf("a caption with no scale = %q", got)
 	}
 }
+
+// A pane resized after the fetch was built is asked for the tiles it is worth now,
+// on the next refresh: the settings do not change when a pane does, and a panel
+// zoomed to the full screen should stop drawing a stretched tile.
+func TestRadarRefetchesWhenThePaneIsResized(t *testing.T) {
+	noPlaceholderCellsForTests(t)
+	var asked []provider.RadarOptions
+	panel := &radar{newFetcher: func(opts provider.RadarOptions) func(context.Context) (tideui.RadarFrame, error) {
+		asked = append(asked, opts)
+		return func(context.Context) (tideui.RadarFrame, error) { return tideui.RadarFrame{}, nil }
+	}}
+	small := tideui.PanelContext{Width: 40, Height: 12, Renderer: tideui.NewRenderer(tideui.CatppuccinMocha, tideui.StyleOptions{CellWidth: 8, CellAspect: 2})}
+	big := tideui.PanelContext{Width: 120, Height: 60, Renderer: small.Renderer}
+	// Drawn small, then configured: one tile.
+	panel.View(small)
+	if err := panel.Configure(radarValues(t, 30.2672, -97.7431)); err != nil {
+		t.Fatal(err)
+	}
+	if len(asked) != 1 || asked[0].Cols != 1 {
+		t.Fatalf("the first fetch = %+v, want one tile", asked)
+	}
+	// Then the pane is zoomed to the whole window, and the next refresh notices.
+	panel.View(big)
+	if err := panel.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(asked) != 2 {
+		t.Fatalf("a resized pane caused %d fetches, want a second one", len(asked))
+	}
+	if asked[1].Cols != 2 || asked[1].Rows != 2 {
+		t.Fatalf("the fetch after the resize = %dx%d tiles, want 2x2", asked[1].Cols, asked[1].Rows)
+	}
+	// And a refresh with no resize does not rebuild the fetch again.
+	if err := panel.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(asked) != 2 {
+		t.Fatalf("an unchanged pane caused %d fetches, want no more than the two", len(asked))
+	}
+}
