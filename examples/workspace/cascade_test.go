@@ -55,6 +55,53 @@ func fieldNamed(form *settingsForm, label string) *formField {
 	return nil
 }
 
+// The mail plugin marks every message row with the message's own id and declares
+// the command that opens one, so the panel can open the message the reader picked
+// - and the id it hands over is the message's, not the panel's idea of it.
+func TestMailMessageRowsOpenTheSelectedMessage(t *testing.T) {
+	mailFixtureHome(t)
+	manifest, err := dash.LoadManifest("../../contrib/mail")
+	if err != nil {
+		t.Skip("no mail plugin:", err)
+	}
+	panel := dash.Exec(manifest)
+	if err := panel.(dash.Fetcher).Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	screen := panel.View(tideui.PanelContext{
+		ID: manifest.ID, Width: 44, Entered: true,
+		Renderer: tideui.NewRenderer(tideui.CatppuccinMocha, tideui.StyleOptions{}),
+	})
+	if !strings.Contains(screen, "standup notes") {
+		t.Fatalf("the fixture's inbox is not on screen:\n%s", screen)
+	}
+
+	launched := func() []string {
+		t.Helper()
+		argv, status, declared := panel.(dash.Launcher).Launch()
+		if !declared {
+			t.Fatal("the mail panel declares no open command")
+		}
+		if len(argv) == 0 {
+			t.Fatalf("nothing to run: %s", status)
+		}
+		return argv
+	}
+
+	// The newest inbox message in the fixture is id 4 ("dinner?"), then id 1.
+	argv := launched()
+	if len(argv) != 3 || argv[0] != "tidemail" || argv[1] != "--open" || argv[2] != "4" {
+		t.Fatalf("argv = %v, want tidemail --open 4", argv)
+	}
+	if !panel.(dash.Cursor).Move(1) {
+		t.Fatal("the mail panel does not walk its messages")
+	}
+	if argv := launched(); argv[2] != "1" {
+		t.Fatalf("argv = %v, want the second message's id", argv)
+	}
+}
+
 // A setting whose useful values the program discovered is a list, not an empty
 // box: a manifest is static JSON and cannot know what accounts exist here.
 func TestMailSettingsAreLists(t *testing.T) {

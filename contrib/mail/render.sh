@@ -121,10 +121,10 @@ SELECT (
   WHERE $WHERE AND m.read = 0
 );
 SELECT COALESCE((SELECT json_group_array(json_object(
-  'from', f, 'subject', s, 'read', r, 'starred', st, 'attach', at,
+  'id', mid, 'from', f, 'subject', s, 'read', r, 'starred', st, 'attach', at,
   'age', ag, 'account', acct))
 FROM (
-  SELECT m.from_addr AS f, m.subject AS s, m.read AS r, m.starred AS st,
+  SELECT m.id AS mid, m.from_addr AS f, m.subject AS s, m.read AS r, m.starred AS st,
          m.has_attachment AS at, a.name AS acct,
          (strftime('%s','now') - m.date) AS ag
   FROM messages m
@@ -211,6 +211,10 @@ printf '%s' "$ITEMS" | jq -c \
     else                    "muted"
     end;
 
+  # Each row carries the id of the message it shows, which is what opening a row
+  # needs: the panel shows the message and the program opens it, and that id is
+  # the only thing the two of them can agree on without asking each other.
+  #
   # The subject sits under its sender rather than beside it, so a long subject
   # wraps into the panel width instead of being cut at a label column.
   #
@@ -221,6 +225,7 @@ printf '%s' "$ITEMS" | jq -c \
   def rows:
     [ .[]
       | { type: "block",
+          id: (.id | tostring),
           label: ((.from | sender)
                   + (if .attach == 1 then " @" else "" end)
                   + " · " + (.age | age)),
