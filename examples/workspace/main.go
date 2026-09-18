@@ -1283,7 +1283,10 @@ func (m model) View() string {
 	renderer := tideui.NewRenderer(m.state.theme, tideui.StyleOptions{
 		Density: m.state.density, PaneCorners: tideui.RoundCorners,
 		Gauge: m.state.gauge, Sparkline: m.state.spark, ClockFont: m.state.clockFont,
-		IconStyle:   m.state.icons,
+		IconStyle: m.state.icons,
+		// Pictures are sized in cells, so the renderer needs the shape of a cell:
+		// the terminal reports its window in pixels, and this is the ratio.
+		CellAspect:  tideui.CellAspectOf(os.Stdout),
 		ModalShadow: true,
 	})
 	if m.settings.Opened() {

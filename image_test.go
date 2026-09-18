@@ -309,3 +309,27 @@ func (kittyViewModel) View() string {
 	cells := strings.Repeat(string(kitty.Placeholder)+string(kitty.Diacritic(0))+string(kitty.Diacritic(0)), 2)
 	return "\x1b_Ga=t,f=100,i=1,U=1,q=2;AAAA\x1b\\radar" + cells + "\n"
 }
+
+// A picture is sized by the shape of a cell, which is not 2:1 on every font: at
+// 2.4 a square source in a 40-wide box is 17 rows, not 20, and a panel that
+// assumed 2 stretched it. The app measures this from the terminal; a nonsense
+// measurement is refused rather than obeyed.
+func TestRenderImageSizesToTheCellAspectItIsGiven(t *testing.T) {
+	noPlaceholders(t)
+	withProfile(t, termenv.TrueColor)
+
+	square := solid(64, 64, color.RGBA{R: 255, A: 255})
+	measured := NewRenderer(CatppuccinMocha, StyleOptions{CellAspect: 2.4})
+	if got := measured.CellAspect; got != 2.4 {
+		t.Fatalf("CellAspect = %v, want 2.4", got)
+	}
+	if lines := strings.Split(ansi.Strip(measured.RenderImage(square, 40, 24)), "\n"); len(lines) != 17 {
+		t.Fatalf("a 2.4 cell drew %d rows, want 17", len(lines))
+	}
+	if lines := strings.Split(ansi.Strip(NewRenderer(CatppuccinMocha, StyleOptions{}).RenderImage(square, 40, 24)), "\n"); len(lines) != 20 {
+		t.Fatalf("an unmeasured cell drew %d rows, want the 2:1 default of 20", len(lines))
+	}
+	if got := NewRenderer(CatppuccinMocha, StyleOptions{CellAspect: 0.01}).CellAspect; got != defaultCellAspect {
+		t.Fatalf("a nonsense measurement became %v, want the default %v", got, defaultCellAspect)
+	}
+}

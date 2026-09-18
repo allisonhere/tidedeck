@@ -2073,6 +2073,15 @@ here so nobody re-introduces them:
   caption also stopped being conditional on the picture having pixels, because "nothing
   is falling" and "nothing has loaded" must not render the same.
 
+- **`a=t,U=1` is not enough: send `a=T,U=1`.** kitty creates the virtual placement for a
+  bare transmit; Ghostty 1.3.1 does not - its `graphics_exec.zig` routes both actions to the
+  same `transmit()`, and the placement logic that honours `virtual_placement` lives in
+  `display()`, which only runs for transmit-and-display. So the panel drew a caption over an
+  empty rectangle in the terminal the user actually runs, with every byte-level test green.
+  `a=T,U=1` is what kitty's own tools send and both terminals place it (`6f980f3`). The
+  general lesson, in the skill: when a compatible terminal draws nothing, read *its* source
+  for the command form it implements.
+
 ### End-to-end check that was actually run
 
 Real binary, real RainViewer, real terminal, driven through a pty (`w` picker,

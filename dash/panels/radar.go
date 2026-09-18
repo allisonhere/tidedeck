@@ -4,10 +4,14 @@ import (
 	"context"
 	"fmt"
 	"image"
+	"image/color"
+	"image/draw"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/allisonhere/tideui"
 	"github.com/allisonhere/tideui/dash"
@@ -154,18 +158,19 @@ func (r *radar) View(ctx tideui.PanelContext) string {
 	}
 
 	bg := ctx.Renderer.Styles.Workspace.Bg
-	height := max(1, ctx.Height-2)
-	picture := ctx.Renderer.RenderImage(frame.Image, ctx.Width, height)
 	// A picture of the weather with no time on it is a picture of a rumour, and
 	// the service is credited because it asks to be.
-	caption := fmt.Sprintf("%s · %s · zoom %d · RainViewer",
-		frame.Time.Local().Format("15:04"), location, zoom)
-	lines := []string{caption}
+	lines := []string{radarCaption(ctx.Width, frame.Time.Local().Format("15:04"), location, zoom)}
 	if quiet {
 		// Nothing in the frame, and the panel says which kind of nothing: an
 		// empty sky and a failed fetch draw the same rectangle otherwise.
 		lines = append(lines, "no precipitation in range")
 	}
+	// The picture is drawn with the reader's own position marked. The middle of
+	// the tile is where they are, and without it a lone echo is a smudge on dark
+	// glass: no telling weather one county over from weather two states away.
+	marked := markCentre(frame.Image, tideui.RGBAOf(ctx.Renderer.Styles.Workspace.BodyFg))
+	picture := ctx.Renderer.RenderImage(marked, ctx.Width, max(1, ctx.Height-len(lines)))
 	// A frame that draws nothing is still a frame: the caption goes up either way,
 	// because "nothing is falling" and "nothing has loaded" are different things
 	// and only the caption and the sentence above tell them apart.
@@ -173,6 +178,44 @@ func (r *radar) View(ctx tideui.PanelContext) string {
 		lines = append(lines, strings.Split(picture, "\n")...)
 	}
 	return ctx.Renderer.RenderLines(lines, ctx.Width, bg)
+}
+
+// radarCaption is the panel's context line, dropped in order of stubbornness as
+// the pane narrows: the time and the source stay, the zoom level goes first and
+// the place before it. A credit the layout truncated away is not a credit.
+func radarCaption(width int, when, location string, zoom int) string {
+	parts := []string{when, location, fmt.Sprintf("zoom %d", zoom), "RainViewer"}
+	for len(parts) > 2 && ansi.StringWidth(strings.Join(parts, " · ")) > width {
+		parts = append(parts[:len(parts)-2], parts[len(parts)-1])
+	}
+	return strings.Join(parts, " · ")
+}
+
+// markCentre draws the reader into the picture, on a copy: the frame in state is
+// the one the next draw reuses.
+func markCentre(img image.Image, colour color.RGBA) image.Image {
+	if img == nil {
+		return nil
+	}
+	bounds := img.Bounds()
+	if bounds.Dx() <= 0 || bounds.Dy() <= 0 {
+		return img
+	}
+	marked := image.NewRGBA(bounds)
+	draw.Draw(marked, bounds, img, bounds.Min, draw.Src)
+
+	centreX, centreY := bounds.Min.X+bounds.Dx()/2, bounds.Min.Y+bounds.Dy()/2
+	// Sized from the frame, so the mark survives being scaled into the pane and
+	// stays a crosshair rather than becoming a blob or a single invisible pixel.
+	arm := max(2, bounds.Dx()/48)
+	thickness := max(1, bounds.Dx()/256)
+	for offset := -arm; offset <= arm; offset++ {
+		for row := 0; row < thickness; row++ {
+			marked.Set(centreX+offset, centreY+row, colour)
+			marked.Set(centreX+row, centreY+offset, colour)
+		}
+	}
+	return marked
 }
 
 // emptyView says what is missing instead of drawing an empty box. A radar with

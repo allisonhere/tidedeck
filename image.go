@@ -36,8 +36,9 @@ const imageRamp = " .:-=+*#%@"
 // one sample across and two down per cell - enough for a radar blob, a heat map
 // or a chart; and a terminal with no colour at all gets a brightness ramp.
 //
-// The picture keeps its aspect and is centred in width, because a cell is roughly
-// twice as tall as it is wide and a stretched picture lies. Samples that are
+// The picture keeps its aspect and is centred in width, sized by the cell's own
+// shape (Renderer.CellAspect) because a stretched picture lies about distance.
+// Samples that are
 // transparent show the panel background through them, and a picture that cannot
 // be drawn is never a hole.
 func (r Renderer) RenderImage(img image.Image, width, maxHeight int) string {
@@ -45,7 +46,7 @@ func (r Renderer) RenderImage(img image.Image, width, maxHeight int) string {
 		return ""
 	}
 	source := img.Bounds()
-	cells, rows := fitCells(source, width, maxHeight)
+	cells, rows := fitCells(source, width, maxHeight, r.CellAspect)
 	if cells <= 0 || rows <= 0 {
 		return ""
 	}
@@ -64,7 +65,7 @@ func (r Renderer) RenderImage(img image.Image, width, maxHeight int) string {
 // vertical resolution per cell, in colour.
 func (r Renderer) renderImageHalfBlocks(img image.Image, cells, rows, width int, bg lipgloss.Color) string {
 	source := img.Bounds()
-	bgColour := rgbaOf(bg)
+	bgColour := RGBAOf(bg)
 	left := (width - cells) / 2
 	pad := lipgloss.NewStyle().Background(bg).Render(strings.Repeat(" ", max(0, left)))
 	lines := make([]string, 0, rows)
@@ -85,22 +86,26 @@ func (r Renderer) renderImageHalfBlocks(img image.Image, cells, rows, width int,
 }
 
 // fitCells is the size in cells an image takes inside a box: as large as fits
-// while keeping its aspect. A cell holds one sample across and two down, so an
-// image of aspect sw:sh needs width*sh/(2*sw) rows at that width.
-func fitCells(source image.Rectangle, width, maxHeight int) (int, int) {
+// while keeping its shape. A cell is cellAspect times taller than it is wide, so
+// a picture of aspect sw:sh needs width*sh/(cellAspect*sw) rows at that width.
+func fitCells(source image.Rectangle, width, maxHeight int, cellAspect float64) (int, int) {
 	sw, sh := source.Dx(), source.Dy()
+	aspect := normalisedCellAspect(cellAspect)
 	if sw <= 0 || sh <= 0 || width <= 0 || maxHeight <= 0 {
 		return 0, 0
 	}
-	cells, rows := width, (width*sh+2*sw-1)/(2*sw) // ceil: no half row is dropped
+	// Rounded rather than ceiled: half a row of the picture is less wrong than a
+	// row of distortion, and a square picture is the common case.
+	rows := int(math.Round(float64(width) * float64(sh) / (aspect * float64(sw))))
+	if rows < 1 {
+		rows = 1
+	}
 	if rows > maxHeight {
 		rows = maxHeight
-		cells = (2 * rows * sw) / sh // floor: what that height allows
+		cells := int(math.Round(aspect * float64(rows) * float64(sw) / float64(sh)))
+		width = min(width, max(1, cells))
 	}
-	if cells > width {
-		cells = width
-	}
-	return max(1, cells), max(1, rows)
+	return max(1, width), max(1, rows)
 }
 
 // halfCell is the source rectangle one half of a cell covers: the top half of
@@ -193,10 +198,10 @@ func hexColour(c color.RGBA) string {
 	})
 }
 
-// rgbaOf reads a theme colour back as RGBA, so a panel background can be
+// RGBAOf reads a theme colour back as RGBA, so a panel background can be
 // composited onto. hexToRGB is the helper the contrast code already uses
 // (color.go:45) and it returns 0..1 channels, or ok false for a named colour.
-func rgbaOf(c lipgloss.Color) color.RGBA {
+func RGBAOf(c lipgloss.Color) color.RGBA {
 	red, green, blue, ok := hexToRGB(c)
 	if !ok {
 		return color.RGBA{A: 255}

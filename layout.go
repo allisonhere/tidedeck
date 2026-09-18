@@ -76,11 +76,34 @@ type Layout struct {
 // Renderer renders Layout and Row values using one resolved set of styles.
 type Renderer struct {
 	Styles Styles
+	// CellAspect is the cell's height divided by its width, already clamped to
+	// something a terminal could plausibly have (see StyleOptions.CellAspect).
+	// Only image sizing reads it.
+	CellAspect float64
 }
 
 // NewRenderer creates a renderer for a theme and style options.
 func NewRenderer(theme Theme, options StyleOptions) Renderer {
-	return Renderer{Styles: BuildStyles(theme, options)}
+	return Renderer{
+		Styles:     BuildStyles(theme, options),
+		CellAspect: normalisedCellAspect(options.CellAspect),
+	}
+}
+
+// defaultCellAspect is what a picture is sized by when nobody measured the
+// terminal: cells are near enough twice as tall as they are wide.
+const defaultCellAspect = 2.0
+
+// normalisedCellAspect keeps a measurement a terminal could plausibly have - fonts
+// put a cell between half as tall as it is wide and eight times - and treats
+// anything else as no measurement at all: a broken ioctl must not distort a
+// picture four-fold, and a caller passing 0.1 would ask for one twenty times wider
+// than the pane.
+func normalisedCellAspect(aspect float64) float64 {
+	if aspect < 0.5 || aspect > 8 {
+		return defaultCellAspect
+	}
+	return aspect
 }
 
 // Render produces a terminal-sized themed view for layout.

@@ -189,3 +189,45 @@ func TestRadarEchoIsTheFractionOfTheFrameWithWeather(t *testing.T) {
 		t.Fatalf("radarEcho(nil) = %v, want 0", got)
 	}
 }
+
+// The reader's own position is drawn into the picture, because the middle of a
+// radar tile is where they are: without it a lone echo gives no sense of distance.
+func TestRadarMarksWhereTheReaderIs(t *testing.T) {
+	blank := image.NewRGBA(image.Rect(0, 0, 64, 64))
+	marked, ok := markCentre(blank, color.RGBA{R: 255, G: 255, B: 255, A: 255}).(*image.RGBA)
+	if !ok {
+		t.Fatal("markCentre did not return a drawable image")
+	}
+	_, _, _, centreAlpha := marked.At(32, 32).RGBA()
+	_, _, _, cornerAlpha := marked.At(2, 2).RGBA()
+	_, _, _, tipAlpha := marked.At(32, 32-64/48).RGBA()
+	if centreAlpha == 0 {
+		t.Fatal("the centre of the picture was left unmarked")
+	}
+	if tipAlpha == 0 {
+		t.Fatal("the mark is a single pixel, which a scaled-down picture loses")
+	}
+	if cornerAlpha != 0 {
+		t.Fatal("the mark was drawn across the whole frame")
+	}
+	// The frame in state is the one the next draw reuses, so the original is untouched.
+	if _, _, _, alpha := blank.At(32, 32).RGBA(); alpha != 0 {
+		t.Fatal("markCentre marked the picture it was given")
+	}
+}
+
+// The caption drops its least useful part first: a credit the layout truncated
+// away is not a credit.
+func TestRadarCaptionDropsTheZoomBeforeTheSource(t *testing.T) {
+	wide := radarCaption(60, "17:50", "Kansas City", 7)
+	if !strings.Contains(wide, "zoom 7") || !strings.Contains(wide, "RainViewer") {
+		t.Fatalf("a wide caption = %q, want zoom and source", wide)
+	}
+	narrow := radarCaption(26, "17:50", "Kansas City", 7)
+	if !strings.Contains(narrow, "RainViewer") {
+		t.Fatalf("a narrow caption = %q, want the source kept", narrow)
+	}
+	if ansi.StringWidth(narrow) > 26 {
+		t.Fatalf("a narrow caption = %q, which is %d cells wide", narrow, ansi.StringWidth(narrow))
+	}
+}
