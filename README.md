@@ -679,7 +679,7 @@ Renderers on `Renderer`:
 | Widget | Renderer | Detail renderer |
 |---|---|---|
 | Weather | `RenderWeather` | `RenderWeatherDetail` |
-| Radar | `RenderImage` (the frame, composed with a caption line, a crosshair on your position and a distance ring) | — |
+| Radar | `RenderImage` (the frame composited over a NASA GIBS basemap, with a caption line, a crosshair on your position and a distance ring) | — |
 | Agenda | `RenderAgenda` (all-day events labelled, not `00:00`) | `RenderAgendaDetail` |
 | Calendar | `RenderCalendar` (month grid beside the day's agenda) | `RenderCalendarDetail` |
 | Clock | `RenderClock` (sun/moon glyph, day-period, world clocks) | `RenderClockDetail` (big digital time, day-progress gauge, analog face, `RenderMiniCalendar`) |
@@ -769,6 +769,7 @@ so the last good value stays on screen.
 |---|---|---|
 | Weather | `provider.Weather(WeatherOptions)` | Open-Meteo (no key) |
 | Radar | `provider.Radar(RadarOptions)` | RainViewer (no key); the newest frame, zoom ≤ 7, as a block of tiles shaped like the pane (up to six, so a wide pane is filled by a row of them) |
+| Basemap | `provider.Basemap(BasemapOptions)` | NASA GIBS (no key, public domain); a still satellite map of the same ground, drawn under the radar - one zoom in, where a 256 px tile is a quarter of a radar tile, so the two line up pixel for pixel and the map is fetched once per location rather than once a frame. `night lights` (default), `relief` |
 | Clock | `provider.Clock(location, zones...)` | local time + IANA zones |
 | Calendar | `provider.Calendar(sources...)` | local `.ics` files, `https`/`webcal` iCal URLs, and Google Calendar embed/share links (TZID, all-day, 90-day window) |
 | System | `provider.System()` | `/proc`, `/sys` (Linux) |
