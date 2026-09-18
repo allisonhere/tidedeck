@@ -150,7 +150,7 @@ func TestRadarFrameCarriesItsTime(t *testing.T) {
 
 // The transport is detected, never assumed: tofu in every other terminal would be
 // worse than a smaller picture.
-func TestKittyPlaceholdersNeedsKittyItself(t *testing.T) {
+func TestPlaceholderCellsNeedsATerminalThatHasThem(t *testing.T) {
 	env := func(kv map[string]string) func(string) string {
 		return func(key string) string { return kv[key] }
 	}
@@ -165,11 +165,15 @@ func TestKittyPlaceholdersNeedsKittyItself(t *testing.T) {
 		{"kitty inside tmux", map[string]string{"TERM": "xterm-kitty", "TMUX": "/tmp/tmux-1000/default,1,0"}, colorprofile.TrueColor, false},
 		{"another terminal", map[string]string{"TERM": "xterm-256color"}, colorprofile.TrueColor, false},
 		{"kitty without truecolor", map[string]string{"TERM": "xterm-kitty"}, colorprofile.ANSI256, false},
+		{"ghostty", map[string]string{"TERM": "xterm-ghostty", "TERM_PROGRAM": "ghostty"}, colorprofile.TrueColor, true},
+		{"ghostty by program name", map[string]string{"TERM_PROGRAM": "ghostty"}, colorprofile.TrueColor, true},
+		{"ghostty inside tmux", map[string]string{"TERM": "xterm-ghostty", "TERM_PROGRAM": "ghostty", "TMUX": "/tmp/tmux-1000/default,1,0"}, colorprofile.TrueColor, false},
+		{"ghostty without truecolor", map[string]string{"TERM": "xterm-ghostty"}, colorprofile.ANSI256, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := kittyPlaceholders(env(tc.env), tc.profile); got != tc.want {
-				t.Fatalf("kittyPlaceholders = %v, want %v", got, tc.want)
+			if got := placeholderCells(env(tc.env), tc.profile); got != tc.want {
+				t.Fatalf("placeholderCells = %v, want %v", got, tc.want)
 			}
 		})
 	}
@@ -188,6 +192,7 @@ func TestKittyTransmitsAPictureOnceAndPlacesItWithCells(t *testing.T) {
 	t.Setenv("TERM", "xterm-kitty")
 	t.Setenv("TMUX", "")
 	t.Setenv("KITTY_WINDOW_ID", "")
+	t.Setenv("TERM_PROGRAM", "")
 	resetTransmissions()
 
 	r := NewRenderer(CatppuccinMocha, StyleOptions{})

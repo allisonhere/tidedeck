@@ -51,7 +51,7 @@ func (r Renderer) RenderImage(img image.Image, width, maxHeight int) string {
 	}
 	bg := r.Styles.Workspace.Bg
 	switch {
-	case kittyPlaceholders(os.Getenv, activeColorProfile()):
+	case placeholderCells(os.Getenv, activeColorProfile()):
 		return r.renderImagePlaceholders(img, cells, rows, width, bg)
 	case activeColorProfile() == colorprofile.ASCII:
 		return r.renderImageRamp(img, source, cells, rows, width, bg)
@@ -209,19 +209,30 @@ func rgbaOf(c lipgloss.Color) color.RGBA {
 	}
 }
 
-// kittyPlaceholders reports whether this terminal can be drawn with kitty's
-// Unicode placeholder cells. It has to be kitty itself and not something relaying
-// kitty - placeholders are cell-level and a multiplexer knows nothing about them,
-// so tmux would show a screenful of tofu - and it has to be somewhere a 24-bit
-// foreground colour survives, because that colour is where the image id travels.
-func kittyPlaceholders(getenv func(string) string, profile colorprofile.Profile) bool {
+// placeholderCells reports whether this terminal can be drawn with Unicode
+// placeholder cells: a picture transmitted once and then positioned by ordinary
+// cells. Two terminals are known to implement it here - kitty and Ghostty - and
+// each is recognised by the environment it sets, because a placeholder in a
+// terminal that does not understand one is a screenful of tofu.
+//
+// A multiplexer is refused even when the terminal underneath supports the
+// protocol: the cells mean nothing to tmux, so it would pass the codepoints
+// through instead of the picture. A 24-bit foreground is required too, because
+// that colour is where the image id travels.
+func placeholderCells(getenv func(string) string, profile colorprofile.Profile) bool {
 	if profile != colorprofile.TrueColor {
 		return false
 	}
 	if getenv("TMUX") != "" {
 		return false
 	}
-	return getenv("TERM") == "xterm-kitty" || getenv("KITTY_WINDOW_ID") != ""
+	switch {
+	case getenv("KITTY_WINDOW_ID") != "", getenv("TERM") == "xterm-kitty":
+		return true
+	case getenv("TERM_PROGRAM") == "ghostty", getenv("TERM") == "xterm-ghostty":
+		return true
+	}
+	return false
 }
 
 // transmitted is the bookkeeping behind "transmit once": kitty is told about a
