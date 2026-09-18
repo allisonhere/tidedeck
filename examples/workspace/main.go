@@ -96,6 +96,10 @@ type model struct {
 	settings *settingsForm
 	// deck holds the panels that own their own data, rendering and settings.
 	deck *dash.Deck
+	// paneSizes is the size each pane was last drawn at, by panel id: a panel
+	// that sizes its fetches from its pane is due a fetch when the pane changes,
+	// and this is how the app notices - the panel cannot, it is only drawn.
+	paneSizes map[string][2]int
 
 	// pickerTarget is "" when the picker is editing the workspace theme, or a
 	// panel id when it is editing that panel's theme. pickerPrev/pickerHad
@@ -198,6 +202,7 @@ func newModel() model {
 	m := model{
 		state:        state,
 		deck:         deck,
+		paneSizes:    map[string][2]int{},
 		ws:           ws,
 		picker:       tideui.NewThemePicker(tideui.ThemePickerOptions{InitialTheme: state.theme.Name}),
 		cfg:          cfg,
@@ -603,7 +608,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.refreshBadges()
 		m.ws.Animation().Tick()
-		return m, tickCmd(time.Second)
+		// A pane-sized panel that has just been resized is due a fetch now: the
+		// pane it was drawn in is the pane it asked for, and the layout changes
+		// when a pane is zoomed or removed rather than on any schedule.
+		return m, tea.Batch(tickCmd(time.Second), m.refreshResizedPanes())
 	case lookupMsg:
 		if m.settings.Opened() {
 			m.settings.ApplyLookup(msg.place, msg.err)
@@ -790,6 +798,52 @@ func (m model) refreshFocusedCmd() tea.Cmd {
 	}
 	return func() tea.Msg {
 		_ = fetcher.Refresh(context.Background())
+		return panelRefreshedMsg{}
+	}
+}
+
+// refreshResizedPanes returns a command that fetches every pane-sized panel whose
+// pane has changed shape since the last frame. The panel was drawn into the old
+// pane and asked its source for that many pixels, so a zoom, a closed pane or a
+// wider window leaves it holding a picture for a pane that is no longer there.
+// Only a panel that says its fetches depend on the pane is asked: for everything
+// else a resize is a redraw, not a request.
+func (m *model) refreshResizedPanes() tea.Cmd {
+	rects := m.ws.Solved().Rects
+	if len(rects) == 0 {
+		return nil
+	}
+	if m.paneSizes == nil {
+		m.paneSizes = map[string][2]int{}
+	}
+	var due []string
+	for id, rect := range rects {
+		size := [2]int{rect.Width, rect.Height}
+		if last, seen := m.paneSizes[id]; seen && last == size {
+			continue
+		}
+		m.paneSizes[id] = size
+		panel, ok := m.deck.Lookup(id)
+		if !ok {
+			continue
+		}
+		if sized, ok := panel.(dash.PaneSized); ok && sized.PaneSized() {
+			due = append(due, id)
+		}
+	}
+	if len(due) == 0 {
+		return nil
+	}
+	return func() tea.Msg {
+		for _, id := range due {
+			panel, ok := m.deck.Lookup(id)
+			if !ok {
+				continue
+			}
+			if fetcher, ok := panel.(dash.Fetcher); ok {
+				_ = fetcher.Refresh(context.Background())
+			}
+		}
 		return panelRefreshedMsg{}
 	}
 }

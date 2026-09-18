@@ -78,6 +78,10 @@ func (r *radar) Meta() dash.Meta {
 // make - a real source, whatever mode the dashboard is in.
 func (r *radar) AlwaysLive() bool { return true }
 
+// PaneSized: the frame it fetches is as big as the pane it is drawn in, so a pane
+// that changes shape is due a fetch rather than a stretched picture.
+func (r *radar) PaneSized() bool { return true }
+
 // Schema declares only what is the radar's own. The coordinates are the weather
 // panel's: one location, not two copies that drift apart.
 func (r *radar) Schema() []dash.Field {
