@@ -224,7 +224,9 @@ func TestKittyTransmitsAPictureOnceAndPlacesItWithCells(t *testing.T) {
 	if got := strings.Count(second, "\x1b_G"); got != 0 {
 		t.Fatalf("second frame transmitted %d times, want 0", got)
 	}
-	if !strings.Contains(first, "U=1") || !strings.Contains(first, "f=100") {
+	// a=T with U=1, not a bare transmit: see the comment in renderImagePlaceholders
+	// for the terminal that made that load-bearing.
+	if !strings.Contains(first, "a=T") || !strings.Contains(first, "U=1") || !strings.Contains(first, "f=100") {
 		t.Fatalf("transmit options are wrong: %q", first)
 	}
 	// The transmit names an id, and the cells that place it name the same one in

@@ -302,7 +302,14 @@ func (r Renderer) renderImagePlaceholders(img image.Image, cells, rows, width in
 	var out strings.Builder
 	if send {
 		options := &kitty.Options{
-			Action:           kitty.Transmit,
+			// Transmit *and display*, with U=1 so the display is a virtual
+			// placement rather than anything drawn at the cursor. That looks
+			// redundant next to a bare transmit, and it is not: kitty creates the
+			// virtual placement for either action, but Ghostty only does it in the
+			// display path - so a=t,U=1 leaves an image stored and unplaceable,
+			// and every placeholder cell draws nothing. a=T,U=1 is what kitty's
+			// own tools send, and both terminals place it.
+			Action:           kitty.TransmitAndPut,
 			Quite:            2, // no OK or error replies on the wire
 			ID:               int(id),
 			Format:           kitty.PNG,

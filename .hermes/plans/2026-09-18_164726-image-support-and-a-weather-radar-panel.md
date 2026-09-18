@@ -2063,6 +2063,15 @@ here so nobody re-introduces them:
 - **Ask for the biggest tile the service serves.** Size 256 and 512 are both offered;
   a placeholder-capable terminal draws the tile at the panel's own pixel size, so 512
   is four times the pixels for about a kilobyte more per frame (`e5b4205`).
+- **A blank radar panel and a broken one look identical, and the panel is the only
+  thing that can tell them apart.** The first real run looked wrong - caption, then
+  nothing - and it was right: the frame over Austin had 0.15% of its pixels with any
+  echo, while the same service returned 5.8% and 31.9% elsewhere. The panel now
+  measures the frame (`radarEcho`, sampled every 4th pixel) and adds "no precipitation
+  in range" under the caption when it is under `radarQuietEcho`; the picture is still
+  drawn either way, so weather is never hidden behind a sentence (`475e729`). The
+  caption also stopped being conditional on the picture having pixels, because "nothing
+  is falling" and "nothing has loaded" must not render the same.
 
 ### End-to-end check that was actually run
 
