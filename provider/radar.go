@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"image"
+	"image/draw"
 	"image/png"
 	"math"
 	"net/http"
@@ -27,6 +28,11 @@ const radarFallbackHost = "https://tilecache.rainviewer.com"
 // while 256 would be stretched across a wide pane.
 const radarTileSize = 512
 
+// RadarTilePixels is radarTileSize as something a panel can reason with: how many
+// pixels one tile of this provider's picture is, which is the unit in which "is
+// this pane bigger than one tile" is asked.
+const RadarTilePixels = radarTileSize
+
 // radarUserAgent names this dashboard. A free public service deserves to know who
 // is calling it, and a user agent is the only courtesy it gets.
 const radarUserAgent = "tideui-radar/1 (+https://github.com/allisonhere/tideui)"
@@ -41,6 +47,11 @@ type RadarOptions struct {
 	// coordinates. So the clamp is not politeness, it is the difference between
 	// a picture of the weather and a picture of nothing.
 	Zoom int
+	// Cols and Rows are how many tiles the picture is worth, one each way by
+	// default. More tiles do not show more weather, they show the same weather
+	// with more pixels - which is what a pane wider than one tile needs, and what
+	// costs the service more requests, so the caller decides.
+	Cols, Rows int
 }
 
 // radarIndex is what the index endpoint answers with.
@@ -72,18 +83,105 @@ func Radar(opts RadarOptions) func(context.Context) (tideui.RadarFrame, error) {
 			host = radarFallbackHost
 		}
 		zoom := clampZoom(opts.Zoom)
-		x, y := radarTileFor(opts.Latitude, opts.Longitude, zoom)
-		// Colormap 4 (the familiar green-to-red radar), smooth 1, snow 1. The
-		// shape is the service's own and is exact:
-		// {path}/{size}/{z}/{x}/{y}/{color}/{smooth}_{snow}.png - an extra
-		// segment is not rejected, it silently shifts what the numbers mean.
-		url := fmt.Sprintf("%s%s/%d/%d/%d/%d/4/1_1.png", host, newest.Path, radarTileSize, zoom, x, y)
-		img, err := fetchRadarTile(ctx, url)
-		if err != nil {
-			return tideui.RadarFrame{}, err
+		grid := radarGridFor(opts.Latitude, opts.Longitude, zoom, opts.Cols, opts.Rows)
+		picture := image.NewRGBA(image.Rect(0, 0, grid.Cols*radarTileSize, grid.Rows*radarTileSize))
+		for row := 0; row < grid.Rows; row++ {
+			for col := 0; col < grid.Cols; col++ {
+				tile, err := fetchRadarTile(ctx, grid.tileURL(host, newest.Path, col, row))
+				if err != nil {
+					return tideui.RadarFrame{}, err
+				}
+				draw.Draw(picture, grid.rect(col, row), tile, tile.Bounds().Min, draw.Src)
+			}
 		}
-		return tideui.RadarFrame{Time: time.Unix(newest.Time, 0), Image: img}, nil
+		return tideui.RadarFrame{
+			Time:               time.Unix(newest.Time, 0),
+			Image:              picture,
+			Centre:             grid.Centre,
+			KilometresPerPixel: kilometresPerPixel(opts.Latitude, zoom),
+		}, nil
 	}
+}
+
+// radarTileFraction is where a coordinate sits inside its own tile, 0..1 in each
+// direction.
+func radarTileFraction(lat, lon float64, zoom int) (fx, fy float64) {
+	scale := math.Exp2(float64(clampZoom(zoom)))
+	x := (lon + 180) / 360 * scale
+	radians := lat * math.Pi / 180
+	y := (1 - math.Log(math.Tan(radians)+1/math.Cos(radians))/math.Pi) / 2 * scale
+	return x - math.Floor(x), y - math.Floor(y)
+}
+
+// radarGrid is the block of tiles to fetch around the one that contains a
+// coordinate, and where in the stitched picture that coordinate falls.
+type radarGrid struct {
+	X, Y       int // the top-left tile of the block
+	Cols, Rows int
+	Zoom       int
+	Centre     image.Point
+}
+
+// radarGridFor centres a cols by rows block on the coordinate's own tile. The
+// coordinate is the subject, so the block grows the same distance in every
+// direction from it, and an even-sided block is off-centre by half a tile - which
+// is exactly why Centre is computed rather than assumed.
+func radarGridFor(lat, lon float64, zoom, cols, rows int) radarGrid {
+	zoom = clampZoom(zoom)
+	cols, rows = normaliseGrid(cols), normaliseGrid(rows)
+	x, y := radarTileFor(lat, lon, zoom)
+	fx, fy := radarTileFraction(lat, lon, zoom)
+	offsetX, offsetY := blockOffset(cols, fx), blockOffset(rows, fy)
+	return radarGrid{
+		X: x - offsetX, Y: y - offsetY, Cols: cols, Rows: rows, Zoom: zoom,
+		Centre: image.Pt(
+			offsetX*radarTileSize+int(fx*radarTileSize),
+			offsetY*radarTileSize+int(fy*radarTileSize),
+		),
+	}
+}
+
+// rect is where the tile at col/row of the block goes in the stitched picture.
+func (g radarGrid) rect(col, row int) image.Rectangle {
+	return image.Rect(col*radarTileSize, row*radarTileSize,
+		(col+1)*radarTileSize, (row+1)*radarTileSize)
+}
+
+// tileURL is the service's own shape, with the numbers in the order it documents:
+// {path}/{size}/{z}/{x}/{y}/{color}/{smooth}_{snow}.png. An extra segment is not
+// rejected, it silently shifts what the numbers mean. A block that runs off the
+// world repeats the edge tile: a duplicated edge is honest, a hole is not.
+func (g radarGrid) tileURL(host, path string, col, row int) string {
+	scale := 1 << g.Zoom
+	x := clampTile(g.X+col, scale)
+	y := clampTile(g.Y+row, scale)
+	return fmt.Sprintf("%s%s/%d/%d/%d/%d/4/1_1.png", host, path, radarTileSize, g.Zoom, x, y)
+}
+
+// blockOffset is how many tiles of a block come before the coordinate's own tile.
+// An odd block puts the coordinate in its middle; an even one cannot, so it grows
+// towards whichever side leaves the coordinate nearest the middle of the picture -
+// half a tile out at worst, rather than a whole one.
+func blockOffset(tiles int, fraction float64) int {
+	offset := (tiles - 1) / 2
+	if tiles%2 == 0 && fraction < 0.5 {
+		offset++
+	}
+	return offset
+}
+
+// normaliseGrid keeps a block inside what one refresh may ask for: one to three
+// tiles each way. What the pane is actually worth is the caller's decision.
+func normaliseGrid(n int) int { return min(max(n, 1), 3) }
+
+// kilometresPerPixel is the ground distance one pixel of the picture covers, which
+// is what turns a distance ring from decoration into a measurement: at zoom 7 a
+// tile spans 40075*cos(lat)/128 km and is radarTileSize pixels wide.
+func kilometresPerPixel(lat float64, zoom int) float64 {
+	const earthCircumference = 40075.0
+	tilesAcross := math.Exp2(float64(clampZoom(zoom)))
+	kmPerTile := earthCircumference * math.Cos(lat*math.Pi/180) / tilesAcross
+	return kmPerTile / float64(radarTileSize)
 }
 
 // fetchRadarIndex reads the frame list.

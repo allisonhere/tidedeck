@@ -333,3 +333,17 @@ func TestRenderImageSizesToTheCellAspectItIsGiven(t *testing.T) {
 		t.Fatalf("a nonsense measurement became %v, want the default %v", got, defaultCellAspect)
 	}
 }
+
+// A frame carries where the reader is in the picture and what a pixel is worth on
+// the ground, because a panel needs both and can compute neither from the picture.
+func TestRadarFrameCarriesItsScale(t *testing.T) {
+	frame := RadarFrame{Time: time.Now(), Image: solid(4, 4, color.RGBA{A: 255})}
+	if frame.Centre != (image.Point{}) || frame.KilometresPerPixel != 0 {
+		t.Fatal("a frame with no scale should have the zero value")
+	}
+	frame.Centre = image.Pt(3, 4)
+	frame.KilometresPerPixel = 0.475
+	if frame.Centre.X != 3 || frame.Centre.Y != 4 || frame.KilometresPerPixel != 0.475 {
+		t.Fatalf("frame = %+v", frame)
+	}
+}
