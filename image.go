@@ -1,14 +1,19 @@
 package tideui
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"math"
+	"os"
+	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi/kitty"
 )
 
 // RadarFrame is one radar frame: the picture and the moment it describes. It
@@ -24,16 +29,17 @@ type RadarFrame struct {
 // read a shape in, because a panel that draws nothing at all looks broken.
 const imageRamp = " .:-=+*#%@"
 
-// RenderImage draws an image inside a box of cells, as coloured half-blocks:
-// each cell is "▀" with the top sample as its foreground and the bottom as its
-// background, which is one sample across and two down per cell - everything a
-// terminal has without a graphics protocol, and enough for a radar blob, a heat
-// map or a chart.
+// RenderImage draws an image inside a box of cells. Which way depends on the
+// terminal: kitty gets the picture itself, drawn by the terminal at its own pixel
+// resolution through placeholder cells; anything else gets coloured half-blocks
+// ("▀" with the top sample as foreground and the bottom as background), which is
+// one sample across and two down per cell - enough for a radar blob, a heat map
+// or a chart; and a terminal with no colour at all gets a brightness ramp.
 //
 // The picture keeps its aspect and is centred in width, because a cell is roughly
 // twice as tall as it is wide and a stretched picture lies. Samples that are
-// transparent show the panel background through them, and a terminal with no
-// colour gets the brightness ramp instead of the picture.
+// transparent show the panel background through them, and a picture that cannot
+// be drawn is never a hole.
 func (r Renderer) RenderImage(img image.Image, width, maxHeight int) string {
 	if img == nil || width <= 0 || maxHeight <= 0 {
 		return ""
@@ -44,10 +50,20 @@ func (r Renderer) RenderImage(img image.Image, width, maxHeight int) string {
 		return ""
 	}
 	bg := r.Styles.Workspace.Bg
-	if activeColorProfile() == colorprofile.ASCII {
+	switch {
+	case kittyPlaceholders(os.Getenv, activeColorProfile()):
+		return r.renderImagePlaceholders(img, cells, rows, width, bg)
+	case activeColorProfile() == colorprofile.ASCII:
 		return r.renderImageRamp(img, source, cells, rows, width, bg)
+	default:
+		return r.renderImageHalfBlocks(img, cells, rows, width, bg)
 	}
+}
 
+// renderImageHalfBlocks is the baseline every terminal gets: two samples of
+// vertical resolution per cell, in colour.
+func (r Renderer) renderImageHalfBlocks(img image.Image, cells, rows, width int, bg lipgloss.Color) string {
+	source := img.Bounds()
 	bgColour := rgbaOf(bg)
 	left := (width - cells) / 2
 	pad := lipgloss.NewStyle().Background(bg).Render(strings.Repeat(" ", max(0, left)))
@@ -192,3 +208,126 @@ func rgbaOf(c lipgloss.Color) color.RGBA {
 		A: 255,
 	}
 }
+
+// kittyPlaceholders reports whether this terminal can be drawn with kitty's
+// Unicode placeholder cells. It has to be kitty itself and not something relaying
+// kitty - placeholders are cell-level and a multiplexer knows nothing about them,
+// so tmux would show a screenful of tofu - and it has to be somewhere a 24-bit
+// foreground colour survives, because that colour is where the image id travels.
+func kittyPlaceholders(getenv func(string) string, profile colorprofile.Profile) bool {
+	if profile != colorprofile.TrueColor {
+		return false
+	}
+	if getenv("TMUX") != "" {
+		return false
+	}
+	return getenv("TERM") == "xterm-kitty" || getenv("KITTY_WINDOW_ID") != ""
+}
+
+// transmitted is the bookkeeping behind "transmit once": kitty is told about a
+// picture the first time a frame draws it, and every frame after that sends only
+// the cells that place it. An entry holds the image itself, so its address cannot
+// be handed to a different picture while a placement for it may still be on
+// screen; the oldest go once no terminal could still be showing them.
+var transmitted = struct {
+	sync.Mutex
+	next    uint32
+	byImage map[uintptr]*transmission
+	order   []uintptr
+}{byImage: map[uintptr]*transmission{}}
+
+type transmission struct {
+	id   uint32
+	sent bool
+	// image is held so its address is not reused by another picture.
+	image image.Image
+}
+
+// maxTransmissions bounds the registry. A panel drawing a fresh picture every
+// five minutes stays far below it, and everything past it is off screen already.
+const maxTransmissions = 32
+
+// transmissionFor is the id a picture is transmitted under, and whether this call
+// is the one that has to send it.
+func transmissionFor(img image.Image) (id uint32, send bool) {
+	if reflect.ValueOf(img).Kind() != reflect.Pointer {
+		// A value type has no identity to key on, so it is sent every time rather
+		// than sharing an id with a picture it is not.
+		transmitted.Lock()
+		defer transmitted.Unlock()
+		transmitted.next++
+		return transmitted.next, true
+	}
+	key := reflect.ValueOf(img).Pointer()
+
+	transmitted.Lock()
+	defer transmitted.Unlock()
+	entry, ok := transmitted.byImage[key]
+	if !ok {
+		transmitted.next++
+		entry = &transmission{id: transmitted.next, image: img}
+		transmitted.byImage[key] = entry
+		transmitted.order = append(transmitted.order, key)
+		for len(transmitted.order) > maxTransmissions {
+			oldest := transmitted.order[0]
+			transmitted.order = transmitted.order[1:]
+			delete(transmitted.byImage, oldest)
+		}
+	}
+	if entry.sent {
+		return entry.id, false
+	}
+	entry.sent = true
+	return entry.id, true
+}
+
+// renderImagePlaceholders transmits the picture once and then draws it as
+// placeholder cells: U+10EEEE with the diacritics that name a row and a column
+// inside the image, and the image id in the cell's foreground colour. Those cells
+// are ordinary characters, so everything the dashboard does to text - panes,
+// zoom, padding, the background blend - moves the picture with them.
+func (r Renderer) renderImagePlaceholders(img image.Image, cells, rows, width int, bg lipgloss.Color) string {
+	id, send := transmissionFor(img)
+	var out strings.Builder
+	if send {
+		options := &kitty.Options{
+			Action:           kitty.Transmit,
+			Quite:            2, // no OK or error replies on the wire
+			ID:               int(id),
+			Format:           kitty.PNG,
+			Transmission:     kitty.Direct,
+			Columns:          cells,
+			Rows:             rows,
+			VirtualPlacement: true, // placed by the cells below, not by the cursor
+		}
+		if err := kitty.EncodeGraphics(&out, img, options); err != nil {
+			// A picture that cannot be transmitted is drawn the way every other
+			// terminal gets it, never left as a hole.
+			return r.renderImageHalfBlocks(img, cells, rows, width, bg)
+		}
+	}
+
+	// The id travels as a 24-bit foreground colour: that is how kitty knows which
+	// picture a placeholder cell belongs to.
+	cell := lipgloss.NewStyle().Foreground(lipgloss.Color(imageIDColour(id)))
+	left := (width - cells) / 2
+	pad := lipgloss.NewStyle().Background(bg).Render(strings.Repeat(" ", max(0, left)))
+	lines := make([]string, 0, rows)
+	for row := 0; row < rows; row++ {
+		var line strings.Builder
+		line.WriteString(pad)
+		for col := 0; col < cells; col++ {
+			line.WriteString(cell.Render(string(kitty.Placeholder) +
+				string(kitty.Diacritic(row)) + string(kitty.Diacritic(col))))
+		}
+		lines = append(lines, line.String())
+	}
+	// The transmit goes in front of the cells in the same string. It is an APC
+	// sequence, so it is zero cells wide: the terminal reads it and everything
+	// that measures or moves text - the blend, the pane padding, the renderer -
+	// carries it along with the row it belongs to.
+	return out.String() + r.RenderLines(lines, width, bg)
+}
+
+// imageIDColour is an image id as the colour a placeholder cell carries.
+func imageIDColour(id uint32) string { return fmt.Sprintf("#%06x", id&0xFFFFFF) }

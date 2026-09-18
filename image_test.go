@@ -1,16 +1,29 @@
 package tideui
 
 import (
+	"bytes"
 	"image"
 	"image/color"
 	"strings"
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/charmbracelet/x/ansi/kitty"
 	"github.com/muesli/termenv"
 )
+
+// The colour profile is a package-level global in lipgloss and every test in this
+// package renders through it, so a test that changes it puts the old one back.
+func withProfile(t *testing.T, profile termenv.Profile) {
+	t.Helper()
+	previous := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(profile)
+	t.Cleanup(func() { lipgloss.SetColorProfile(previous) })
+}
 
 // solid is a picture of one colour, so a test can say exactly which colour a cell
 // should be.
@@ -27,7 +40,7 @@ func solid(w, h int, c color.RGBA) *image.RGBA {
 // A cell carries two samples: the top half is the glyph's foreground, the bottom
 // its background. One column, one row, red over blue.
 func TestRenderImagePutsTheTopSampleInTheForeground(t *testing.T) {
-	lipgloss.SetColorProfile(termenv.TrueColor)
+	withProfile(t, termenv.TrueColor)
 	r := NewRenderer(CatppuccinMocha, StyleOptions{})
 	img := image.NewRGBA(image.Rect(0, 0, 1, 2))
 	img.Set(0, 0, color.RGBA{R: 255, A: 255})
@@ -44,7 +57,7 @@ func TestRenderImagePutsTheTopSampleInTheForeground(t *testing.T) {
 // wide, so a square source at 40 cells is 20 rows, and a tall one is narrower
 // than the box rather than stretched into it.
 func TestRenderImageFitsInsideTheBoxAndCentres(t *testing.T) {
-	lipgloss.SetColorProfile(termenv.TrueColor)
+	withProfile(t, termenv.TrueColor)
 	r := NewRenderer(CatppuccinMocha, StyleOptions{})
 
 	square := solid(64, 64, color.RGBA{R: 255, A: 255})
@@ -80,7 +93,7 @@ func TestRenderImageFitsInsideTheBoxAndCentres(t *testing.T) {
 // A transparent sample shows the panel through it: a radar tile is transparent
 // where it does not rain, and black there would be a lie about the weather.
 func TestRenderImageCompositesTransparencyOntoTheBackground(t *testing.T) {
-	lipgloss.SetColorProfile(termenv.TrueColor)
+	withProfile(t, termenv.TrueColor)
 	r := NewRenderer(CatppuccinMocha, StyleOptions{})
 	bg := r.Styles.Workspace.Bg
 
@@ -95,8 +108,10 @@ func TestRenderImageCompositesTransparencyOntoTheBackground(t *testing.T) {
 // A terminal with no colour at all still gets the shape: the brightness as a
 // ramp, because a panel that draws nothing looks broken.
 func TestRenderImageFallsBackToARampWithoutColour(t *testing.T) {
-	lipgloss.SetColorProfile(termenv.Ascii)
-	defer lipgloss.SetColorProfile(termenv.TrueColor)
+	// Ascii is what a test binary actually detects, but say so out loud rather
+	// than depending on it - and put back whatever the other tests were using,
+	// because the profile is one global for the whole package.
+	withProfile(t, termenv.Ascii)
 	r := NewRenderer(CatppuccinMocha, StyleOptions{})
 
 	got := r.RenderImage(solid(4, 4, color.RGBA{R: 255, A: 255}), 4, 4)
@@ -131,4 +146,146 @@ func TestRadarFrameCarriesItsTime(t *testing.T) {
 	if frame.Image == nil {
 		t.Fatal("frame has no image")
 	}
+}
+
+// The transport is detected, never assumed: tofu in every other terminal would be
+// worse than a smaller picture.
+func TestKittyPlaceholdersNeedsKittyItself(t *testing.T) {
+	env := func(kv map[string]string) func(string) string {
+		return func(key string) string { return kv[key] }
+	}
+	cases := []struct {
+		name    string
+		env     map[string]string
+		profile colorprofile.Profile
+		want    bool
+	}{
+		{"kitty", map[string]string{"TERM": "xterm-kitty"}, colorprofile.TrueColor, true},
+		{"kitty by window id", map[string]string{"KITTY_WINDOW_ID": "1"}, colorprofile.TrueColor, true},
+		{"kitty inside tmux", map[string]string{"TERM": "xterm-kitty", "TMUX": "/tmp/tmux-1000/default,1,0"}, colorprofile.TrueColor, false},
+		{"another terminal", map[string]string{"TERM": "xterm-256color"}, colorprofile.TrueColor, false},
+		{"kitty without truecolor", map[string]string{"TERM": "xterm-kitty"}, colorprofile.ANSI256, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := kittyPlaceholders(env(tc.env), tc.profile); got != tc.want {
+				t.Fatalf("kittyPlaceholders = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func resetTransmissions() {
+	transmitted.Lock()
+	defer transmitted.Unlock()
+	transmitted.next, transmitted.byImage, transmitted.order = 0, map[uintptr]*transmission{}, nil
+}
+
+// A picture is transmitted the first time it is drawn and never again: a panel
+// that repaints every second must not put a picture on the wire every second.
+func TestKittyTransmitsAPictureOnceAndPlacesItWithCells(t *testing.T) {
+	withProfile(t, termenv.TrueColor)
+	t.Setenv("TERM", "xterm-kitty")
+	t.Setenv("TMUX", "")
+	t.Setenv("KITTY_WINDOW_ID", "")
+	resetTransmissions()
+
+	r := NewRenderer(CatppuccinMocha, StyleOptions{})
+	// Twice as tall as it is wide, so the box is 4 cells by 4 rows.
+	picture := solid(8, 16, color.RGBA{R: 255, A: 255})
+
+	first := r.RenderImage(picture, 4, 4)
+	second := r.RenderImage(picture, 4, 4)
+
+	if got := strings.Count(first, "\x1b_G"); got != 1 {
+		t.Fatalf("first frame transmitted %d times, want 1", got)
+	}
+	if got := strings.Count(second, "\x1b_G"); got != 0 {
+		t.Fatalf("second frame transmitted %d times, want 0", got)
+	}
+	if !strings.Contains(first, "U=1") || !strings.Contains(first, "f=100") {
+		t.Fatalf("transmit options are wrong: %q", first)
+	}
+	// The transmit names an id, and the cells that place it name the same one in
+	// their foreground colour: that pairing is the whole protocol.
+	if !strings.Contains(first, "i=1") {
+		t.Fatalf("the transmit has no id: %q", first)
+	}
+	if !strings.Contains(second, "38;2;0;0;1") {
+		t.Fatalf("cells do not carry image 1 as their colour: %q", second)
+	}
+	lines := strings.Split(ansi.Strip(second), "\n")
+	if len(lines) != 4 {
+		t.Fatalf("drew %d rows, want 4", len(lines))
+	}
+	for _, line := range lines {
+		if got := strings.Count(line, string(kitty.Placeholder)); got != 4 {
+			t.Fatalf("row %q has %d placeholders, want 4", line, got)
+		}
+	}
+
+	// A different picture is transmitted under its own id.
+	other := r.RenderImage(solid(8, 16, color.RGBA{B: 255, A: 255}), 4, 4)
+	if !strings.Contains(other, "\x1b_G") {
+		t.Fatalf("a new picture was not transmitted: %q", other)
+	}
+	if !strings.Contains(other, "38;2;0;0;2") {
+		t.Fatalf("the second picture did not get its own id: %q", other)
+	}
+}
+
+// The fallback is the one everybody else runs, so it gets its own test: no
+// graphics sequence at all, and half-blocks instead.
+func TestRenderImageStaysOnHalfBlocksWithoutKitty(t *testing.T) {
+	withProfile(t, termenv.TrueColor)
+	t.Setenv("TERM", "xterm-256color")
+	// Clear the kitty marker too: tests are run from inside kitty often enough
+	// that inheriting it would make this pass or fail for the wrong reason.
+	t.Setenv("KITTY_WINDOW_ID", "")
+
+	r := NewRenderer(CatppuccinMocha, StyleOptions{})
+	got := r.RenderImage(solid(2, 2, color.RGBA{R: 255, A: 255}), 1, 1)
+	if strings.Contains(got, "\x1b_G") {
+		t.Fatalf("a terminal without kitty graphics was transmitted an image: %q", got)
+	}
+	if !strings.Contains(got, "▀") {
+		t.Fatalf("no half-block cell was drawn: %q", got)
+	}
+}
+
+// The transport only works if the sequence survives the renderer that puts the
+// frame on the screen - cellbuf is the blend, not the writer. This is the check
+// that found bubbles versus cellbuf disagreeing, kept so a future renderer that
+// sanitises escape sequences fails here instead of on someone's desk.
+func TestKittySequenceSurvivesTheRenderer(t *testing.T) {
+	var out bytes.Buffer
+	program := tea.NewProgram(kittyViewModel{}, tea.WithOutput(&out), tea.WithInput(strings.NewReader("")))
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		program.Quit()
+	}()
+	if _, err := program.Run(); err != nil {
+		t.Fatal(err)
+	}
+	frame := out.String()
+	if !strings.Contains(frame, "\x1b_G") {
+		t.Fatalf("the transmit sequence did not survive the renderer: %q", frame)
+	}
+	if !strings.Contains(frame, string(kitty.Placeholder)) {
+		t.Fatalf("the placeholder cells did not survive the renderer: %q", frame)
+	}
+	if !strings.Contains(frame, string(kitty.Diacritic(0))) {
+		t.Fatalf("the diacritics did not survive the renderer: %q", frame)
+	}
+}
+
+type kittyViewModel struct{}
+
+func (kittyViewModel) Init() tea.Cmd { return nil }
+
+func (kittyViewModel) Update(tea.Msg) (tea.Model, tea.Cmd) { return kittyViewModel{}, nil }
+
+func (kittyViewModel) View() string {
+	cells := strings.Repeat(string(kitty.Placeholder)+string(kitty.Diacritic(0))+string(kitty.Diacritic(0)), 2)
+	return "\x1b_Ga=t,f=100,i=1,U=1,q=2;AAAA\x1b\\radar" + cells + "\n"
 }
