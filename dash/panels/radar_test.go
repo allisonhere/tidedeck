@@ -337,11 +337,11 @@ func TestRadarDrawsTheRingAtItsDistance(t *testing.T) {
 // turns it from a pattern into a distance - and drops the scale before the place,
 // and the place before the source. A credit the layout truncated is not a credit.
 func TestRadarCaptionNamesTheScale(t *testing.T) {
-	wide := radarCaption(60, "17:50", "Kansas City", "243 km wide")
+	wide := radarCaption(60, "17:50", "Kansas City", "243 km wide", false)
 	if !strings.Contains(wide, "243 km wide") || !strings.Contains(wide, "RainViewer") {
 		t.Fatalf("wide caption = %q, want the scale and the source", wide)
 	}
-	narrow := radarCaption(26, "17:50", "Kansas City", "243 km wide")
+	narrow := radarCaption(26, "17:50", "Kansas City", "243 km wide", false)
 	if strings.Contains(narrow, "243 km wide") {
 		t.Fatalf("narrow caption = %q, want it to have dropped the scale", narrow)
 	}
@@ -353,7 +353,7 @@ func TestRadarCaptionNamesTheScale(t *testing.T) {
 	}
 	// A frame with no scale on it (one the provider could not measure) does not
 	// leave an empty part behind.
-	if got := radarCaption(60, "17:50", "Kansas City", ""); strings.Contains(got, "··") || strings.Contains(got, " · · ") {
+	if got := radarCaption(60, "17:50", "Kansas City", "", false); strings.Contains(got, "··") || strings.Contains(got, " · · ") {
 		t.Fatalf("a caption with no scale = %q", got)
 	}
 }
@@ -434,5 +434,143 @@ func TestRadarComposesTheFrameOnce(t *testing.T) {
 	other.Renderer = tideui.NewRenderer(tideui.CatppuccinLatte, tideui.StyleOptions{})
 	if composed := panel.drawnFrame(frame, other); composed == first {
 		t.Fatal("a frame composed for one theme was reused for another")
+	}
+}
+
+// basemapFetcher stands in for the basemap service: a picture of one solid colour
+// with the radar's own geometry, and a count of how many times it was asked.
+func basemapFetcher(calls *int) func(provider.BasemapOptions) func(context.Context) (tideui.MapFrame, error) {
+	return func(provider.BasemapOptions) func(context.Context) (tideui.MapFrame, error) {
+		return func(context.Context) (tideui.MapFrame, error) {
+			*calls++
+			img := image.NewRGBA(image.Rect(0, 0, 64, 64))
+			for y := 0; y < 64; y++ {
+				for x := 0; x < 64; x++ {
+					img.Set(x, y, color.RGBA{R: 255, B: 255, A: 255}) // magenta
+				}
+			}
+			return tideui.MapFrame{Image: img, Centre: image.Pt(32, 32)}, nil
+		}
+	}
+}
+
+// linedFrame is a radar frame with nothing in it but one red line: everything else
+// is the transparent sky a basemap is there to fill.
+func linedFrame() tideui.RadarFrame {
+	img := image.NewRGBA(image.Rect(0, 0, 64, 64))
+	for y := 0; y < 64; y++ {
+		img.Set(32, y, color.RGBA{R: 255, A: 255})
+	}
+	return tideui.RadarFrame{
+		Time:   time.Date(2026, 9, 18, 18, 5, 0, 0, time.Local),
+		Image:  img,
+		Centre: image.Pt(40, 40), KilometresPerPixel: 0.475,
+	}
+}
+
+// The map is drawn under the frame, so the sky the radar cannot speak for shows the
+// ground instead of the panel's background - which is the entire point of fetching
+// one.
+func TestRadarDrawsTheMapUnderTheFrame(t *testing.T) {
+	noPlaceholderCellsForTests(t)
+	trueColor(t)
+	calls := 0
+	panel := &radar{newFetcher: frameFetcher(linedFrame()), newBasemap: basemapFetcher(&calls)}
+	if err := panel.Configure(radarValues(t, 30.2672, -97.7431)); err != nil {
+		t.Fatal(err)
+	}
+	if err := panel.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("the basemap was fetched %d times, want once", calls)
+	}
+	picture := panel.drawnFrame(linedFrame(), tideui.PanelContext{Width: 40, Height: 12,
+		Renderer: tideui.NewRenderer(tideui.CatppuccinMocha, tideui.StyleOptions{})})
+	if _, _, _, alpha := picture.At(0, 0).RGBA(); alpha == 0 {
+		t.Fatal("the sky is still transparent: the map is not under the frame")
+	}
+	r, g, b, _ := picture.At(0, 0).RGBA()
+	if r>>8 != 255 || g>>8 != 0 || b>>8 != 255 {
+		t.Fatalf("what shows through the radar = %d,%d,%d, want the map's own colour", r>>8, g>>8, b>>8)
+	}
+	// And where the radar does speak, the radar wins.
+	r, g, b, _ = picture.At(32, 20).RGBA()
+	if r>>8 != 255 || g>>8 != 0 || b>>8 != 0 {
+		t.Fatalf("the echo = %d,%d,%d, want the radar's own colour over the map", r>>8, g>>8, b>>8)
+	}
+}
+
+// The map is still imagery: it is fetched once for a place and kept, however often
+// the panel refreshes. Moving the radar, or a pane big enough to want a different
+// block, is what makes it due again.
+func TestRadarFetchesTheMapOnceForAPlace(t *testing.T) {
+	noPlaceholderCellsForTests(t)
+	calls := 0
+	panel := &radar{newFetcher: frameFetcher(linedFrame()), newBasemap: basemapFetcher(&calls)}
+	if err := panel.Configure(radarValues(t, 30.2672, -97.7431)); err != nil {
+		t.Fatal(err)
+	}
+	small := tideui.PanelContext{Width: 40, Height: 12, Renderer: tideui.NewRenderer(tideui.CatppuccinMocha, tideui.StyleOptions{CellWidth: 8, CellAspect: 2})}
+	panel.View(small)
+	for i := 0; i < 3; i++ {
+		if err := panel.Refresh(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("three refreshes fetched the map %d times, want once", calls)
+	}
+	// A bigger pane is a different block of ground, so it is worth another fetch.
+	big := tideui.PanelContext{Width: 120, Height: 60, Renderer: small.Renderer}
+	panel.View(big)
+	if err := panel.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Fatalf("after a resize the map was fetched %d times, want twice", calls)
+	}
+}
+
+// Turned off, the panel draws exactly what it drew before there was a map: the
+// radar, and the panel's own background behind it.
+func TestRadarWithNoMapDrawsOnlyTheFrame(t *testing.T) {
+	noPlaceholderCellsForTests(t)
+	trueColor(t)
+	calls := 0
+	panel := &radar{newFetcher: frameFetcher(linedFrame()), newBasemap: basemapFetcher(&calls)}
+	values := radarValues(t, 30.2672, -97.7431)
+	values.Set(radarBasemapKey, radarBasemapOff)
+	if err := panel.Configure(values); err != nil {
+		t.Fatal(err)
+	}
+	if err := panel.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 0 {
+		t.Fatalf("the map was fetched %d times with it turned off", calls)
+	}
+	picture := panel.drawnFrame(linedFrame(), tideui.PanelContext{Width: 40, Height: 12,
+		Renderer: tideui.NewRenderer(tideui.CatppuccinMocha, tideui.StyleOptions{})})
+	if _, _, _, alpha := picture.At(0, 0).RGBA(); alpha != 0 {
+		t.Fatal("a map was drawn with the setting off")
+	}
+}
+
+// Both sources are credited, and as one part, so the caption's own dropping never
+// keeps one and throws the other away.
+func TestRadarCaptionCreditsTheMapService(t *testing.T) {
+	withMap := radarCaption(90, "17:50", "Kansas City", "243 km wide", true)
+	if !strings.Contains(withMap, "RainViewer") || !strings.Contains(withMap, "NASA GIBS") {
+		t.Fatalf("caption = %q, want both sources credited", withMap)
+	}
+	withoutMap := radarCaption(90, "17:50", "Kansas City", "243 km wide", false)
+	if strings.Contains(withoutMap, "GIBS") {
+		t.Fatalf("caption = %q, want no map credit when there is no map", withoutMap)
+	}
+	if narrow := radarCaption(26, "17:50", "Kansas City", "243 km wide", true); strings.Contains(narrow, "GIBS") {
+		if !strings.Contains(narrow, "RainViewer") {
+			t.Fatalf("narrow caption = %q, want the radar's source kept at least", narrow)
+		}
 	}
 }

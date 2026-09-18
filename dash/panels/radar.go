@@ -23,7 +23,7 @@ import (
 // until it is told where - and where is the weather panel's own location, so the
 // place search fills both panels at once.
 func Radar() dash.Panel {
-	return &radar{newFetcher: provider.Radar}
+	return &radar{newFetcher: provider.Radar, newBasemap: provider.Basemap}
 }
 
 type radar struct {
@@ -32,6 +32,13 @@ type radar struct {
 	mu         sync.Mutex
 	fetch      func(context.Context) (tideui.RadarFrame, error)
 	newFetcher func(provider.RadarOptions) func(context.Context) (tideui.RadarFrame, error)
+	// The map under the frame: which layer a setting asked for, how to fetch one, and
+	// the still picture itself with the place it is of. Imagery does not change
+	// between refreshes, so it is fetched once per place rather than once per frame.
+	newBasemap func(provider.BasemapOptions) func(context.Context) (tideui.MapFrame, error)
+	basemapFor string
+	basemap    image.Image
+	basemapOf  basemapRequest
 	location   string
 	zoom       int
 	// drawn is the frame with the reader's place and the distance ring composed
@@ -56,7 +63,22 @@ type radar struct {
 const (
 	radarEnabledKey = "radar.enabled"
 	radarZoomKey    = "radar.zoom"
+	radarBasemapKey = "radar.basemap"
 )
+
+// radarBasemapOff is the setting's "no map" value. It is a value and not a missing
+// key, so that turning the map off is a choice the file records rather than an
+// absence it has to infer.
+const radarBasemapOff = "off"
+
+// basemapRequest is the place a fetched map is of: everything the picture under the
+// radar depends on. It is comparable on purpose - the panel keeps one and asks for a
+// new map when it changes, which is what "once per place" means in practice.
+type basemapRequest struct {
+	layer               string
+	latitude, longitude float64
+	zoom, cols, rows    int
+}
 
 // radarTileBudget is the most tiles one refresh will fetch. The service is free
 // and somebody else pays for it, and a glance at a dashboard panel is not worth a
@@ -94,6 +116,10 @@ func (r *radar) Schema() []dash.Field {
 	return []dash.Field{
 		{Key: radarEnabledKey, Label: "live radar", Kind: dash.FieldBool, Default: "true",
 			Description: "Uses the Weather panel's location."},
+		{Key: radarBasemapKey, Label: "map under it", Kind: dash.FieldChoice,
+			Options:     []string{radarBasemapOff, "night lights", "relief"},
+			Default:     provider.BasemapDefaultLayer,
+			Description: "A still satellite map of the same ground, drawn under the radar. Fetched once per location, not once a frame."},
 		{Key: radarZoomKey, Label: "detail", Kind: dash.FieldFloat, Default: strconv.Itoa(provider.RadarDefaultZoom),
 			Description: "Zoom 4 is a state, 7 is a metro area and its surroundings. 7 is as deep as the service's data goes.",
 			Min:         3, Max: float64(provider.RadarMaxZoom), Step: 1},
@@ -116,8 +142,36 @@ func (r *radar) Configure(values dash.Values) error {
 	}
 	r.latitude, r.longitude = latitude, longitude
 	r.enabled = boolOr(values, radarEnabledKey, true) && (latitude != 0 || longitude != 0)
+	r.basemapFor = basemapLayerFor(values)
+	if r.basemapFor == "" {
+		// Turned off, and nothing kept: the picture and the place it was of go
+		// together, and a stale one showing the wrong ground later would be worse
+		// than none.
+		r.basemap, r.basemapOf = nil, basemapRequest{}
+	}
 	r.rebuildLocked()
 	return nil
+}
+
+// basemapLayerFor is the map layer a setting asked for, or nothing when it asked
+// for none. An unknown name is the default rather than nothing: the settings screen
+// only offers real layers, so an unknown one is a hand-edited file, and a file that
+// asks for a map should get one.
+func basemapLayerFor(values dash.Values) string {
+	switch name := strings.ToLower(strings.TrimSpace(values.String(radarBasemapKey))); name {
+	case radarBasemapOff:
+		return ""
+	case "", "night lights", "relief":
+		// An absent key is the setting's own default, which is a map: the schema
+		// offers it as the default, and a fresh install that disagreed with the
+		// settings screen would be a bug nobody could see.
+		if name == "" {
+			return provider.BasemapDefaultLayer
+		}
+		return name
+	default:
+		return provider.BasemapDefaultLayer
+	}
 }
 
 // rebuildLocked builds the fetch for the coordinates, the zoom and the pane last
@@ -239,7 +293,38 @@ func (r *radar) Refresh(ctx context.Context) error {
 	r.quiet = radarEcho(frame.Image) < radarQuietEcho
 	r.mu.Unlock()
 	r.Store(frame)
+	r.ensureBasemap(ctx)
 	return nil
+}
+
+// ensureBasemap fetches the ground under the frame, once per place. Stills do not
+// change between refreshes, so asking again would be a request for a picture that
+// cannot be different - the radar's own five-minute interval is the live one.
+func (r *radar) ensureBasemap(ctx context.Context) {
+	r.mu.Lock()
+	layer, newBasemap := r.basemapFor, r.newBasemap
+	wanted := basemapRequest{
+		layer: layer, latitude: r.latitude, longitude: r.longitude,
+		zoom: r.zoom, cols: r.cols, rows: r.rows,
+	}
+	have, havePicture := r.basemapOf, r.basemap != nil
+	r.mu.Unlock()
+	if layer == "" || newBasemap == nil || (havePicture && have == wanted) || wanted.cols == 0 {
+		return
+	}
+	ground, err := newBasemap(provider.BasemapOptions{
+		Latitude: wanted.latitude, Longitude: wanted.longitude,
+		Zoom: wanted.zoom, Cols: wanted.cols, Rows: wanted.rows, Layer: layer,
+	})(ctx)
+	if err != nil || ground.Image == nil {
+		// A map the panel could not fetch is not news: the radar is the panel's
+		// purpose, and a backdrop that is not there draws as the background it
+		// replaced.
+		return
+	}
+	r.mu.Lock()
+	r.basemap, r.basemapOf = ground.Image, wanted
+	r.mu.Unlock()
 }
 
 // radarQuietEcho is the echo below which the panel says the sky is empty. It is
@@ -295,7 +380,7 @@ func (r *radar) View(ctx tideui.PanelContext) string {
 	bg := ctx.Renderer.Styles.Workspace.Bg
 	// A picture of the weather with no time on it is a picture of a rumour, and
 	// the service is credited because it asks to be.
-	lines := []string{radarCaption(ctx.Width, frame.Time.Local().Format("15:04"), location, radarScale(frame))}
+	lines := []string{radarCaption(ctx.Width, frame.Time.Local().Format("15:04"), location, radarScale(frame), r.hasBasemap())}
 	// The picture is drawn under the caption, so the space it has is the pane less
 	// what the caption and its notice take: a pane is not all picture.
 	r.notePane(ctx, max(1, ctx.Height-len(lines)))
@@ -335,6 +420,9 @@ type radarDrawing struct {
 	centre     image.Point
 	kmPerPixel float64
 	mark, ring color.RGBA
+	// The map under it, by identity: the panel keeps one picture per place, so the
+	// same pointer means the same ground and the composed frame can be reused.
+	basemap image.Image
 }
 
 // drawnFrame is the frame with the reader's own position and the distance ring on
@@ -344,6 +432,8 @@ type radarDrawing struct {
 // panel re-transmit the whole picture every second - and re-copy every pixel of it
 // before that.
 func (r *radar) drawnFrame(frame tideui.RadarFrame, ctx tideui.PanelContext) image.Image {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	key := radarDrawing{
 		fetchedAt:  frame.Time,
 		bounds:     frame.Image.Bounds(),
@@ -351,9 +441,8 @@ func (r *radar) drawnFrame(frame tideui.RadarFrame, ctx tideui.PanelContext) ima
 		kmPerPixel: frame.KilometresPerPixel,
 		mark:       tideui.RGBAOf(ctx.Renderer.Styles.Workspace.BodyFg),
 		ring:       tideui.RGBAOf(ctx.Renderer.Styles.Workspace.BodyMutedFg),
+		basemap:    r.basemap,
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
 	if r.drawn != nil && r.drawnKey == key {
 		return r.drawn
 	}
@@ -361,8 +450,19 @@ func (r *radar) drawnFrame(frame tideui.RadarFrame, ctx tideui.PanelContext) ima
 	// the theme has: a scale that competes with the weather is worse than none.
 	marked := markCentre(frame.Image, frame.Centre, key.mark)
 	drawRing(marked, frame.Centre, frame.KilometresPerPixel, key.ring)
-	r.drawn, r.drawnKey = marked, key
+	// Then the map under all of it, where the radar's transparency lets it through.
+	// The composed picture is what gets transmitted, so it is the composed picture
+	// that has to be the same one from draw to draw.
+	r.drawn, r.drawnKey = tideui.Composite(key.basemap, marked), key
 	return r.drawn
+}
+
+// hasBasemap reports whether there is a map under the frame, which is what the
+// caption's credit is about.
+func (r *radar) hasBasemap() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.basemap != nil
 }
 
 // radarScale is what the picture is worth on the ground: a tile is a fixed number
@@ -379,8 +479,14 @@ func radarScale(frame tideui.RadarFrame) string {
 // radarCaption is the panel's context line, dropped in order of stubbornness as
 // the pane narrows: the time and the source stay, the scale goes first and the
 // place before it. A credit the layout truncated away is not a credit.
-func radarCaption(width int, when, location, scale string) string {
-	parts := []string{when, location, "", "RainViewer"}
+func radarCaption(width int, when, location, scale string, withMap bool) string {
+	credit := "RainViewer"
+	if withMap {
+		// One part, not two: the caption drops its least important part first, and
+		// two credits would turn into one credit and a lost source.
+		credit = "RainViewer · NASA GIBS"
+	}
+	parts := []string{when, location, "", credit}
 	parts[2] = scale
 	// A frame with no scale is not a reason to print an empty part.
 	if scale == "" {
