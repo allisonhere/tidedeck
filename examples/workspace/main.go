@@ -168,7 +168,7 @@ func newModel() model {
 	// Panels are registered in the order the hand-written registrations used to
 	// sit, so the deck attaches them — and the settings list orders them — the
 	// way the dashboard always did.
-	deck.Register(panels.Agenda(), panels.System(), panels.Weather(), panels.GPU(), panels.Updates(), panels.Clock(), panels.Git(), panels.News(), panels.Network(), panels.Storage(), panels.Services(), panels.Tasks(), panels.Notes(), panels.Markets(), panels.Calculator())
+	deck.Register(panels.Agenda(), panels.System(), panels.Weather(), panels.Radar(), panels.GPU(), panels.Updates(), panels.Clock(), panels.Git(), panels.News(), panels.Network(), panels.Storage(), panels.Services(), panels.Tasks(), panels.Notes(), panels.Markets(), panels.Calculator())
 
 	// Plugins are discovered once, at startup: drop a directory into
 	// <config>/tidedeck/plugins to add one, delete it to remove one. A
@@ -371,7 +371,7 @@ func overviewLayout() tideui.LayoutNode {
 
 func registerPresets(ws *tideui.Workspace) {
 	ws.AddPreset("Overview", overviewLayout(),
-		"notes", "git", "markets", "updates")
+		"notes", "git", "markets", "updates", "radar")
 	ws.AddPreset("System", tideui.VStack(
 		tideui.Weighted(tideui.HStack(
 			tideui.Weighted(tideui.Leaf("system"), 2), tideui.Leaf("gpu"), tideui.Leaf("network"),
@@ -379,18 +379,18 @@ func registerPresets(ws *tideui.Workspace) {
 		tideui.Weighted(tideui.HStack(
 			tideui.Leaf("storage"), tideui.Leaf("services"), tideui.Leaf("updates"),
 		), 4),
-	), "weather", "agenda", "news", "tasks", "notes", "git", "markets", "clock")
+	), "weather", "agenda", "news", "tasks", "notes", "git", "markets", "clock", "radar")
 	ws.AddPreset("Productivity", tideui.HStack(
 		tideui.Weighted(tideui.VStack(tideui.Weighted(tideui.Leaf("agenda"), 2), tideui.Leaf("tasks")), 2),
 		tideui.VStack(tideui.Leaf("notes"), tideui.Leaf("clock")),
-	), "weather", "system", "gpu", "network", "storage", "services", "news", "git", "markets", "updates")
+	), "weather", "system", "gpu", "network", "storage", "services", "news", "git", "markets", "updates", "radar")
 	ws.AddPreset("Developer", tideui.VStack(
 		tideui.HStack(tideui.Leaf("git"), tideui.Leaf("system")),
 		tideui.HStack(tideui.Weighted(tideui.Leaf("services"), 2), tideui.Leaf("news")),
-	), "weather", "agenda", "clock", "gpu", "network", "storage", "tasks", "notes", "markets", "updates")
+	), "weather", "agenda", "clock", "gpu", "network", "storage", "tasks", "notes", "markets", "updates", "radar")
 	ws.AddPreset("Minimal", tideui.HStack(
 		tideui.Leaf("clock"), tideui.Weighted(tideui.Leaf("agenda"), 2), tideui.Leaf("weather"),
-	), "system", "gpu", "network", "storage", "services", "news", "tasks", "notes", "git", "markets", "updates")
+	), "system", "gpu", "network", "storage", "services", "news", "tasks", "notes", "git", "markets", "updates", "radar")
 }
 
 // --- Layout slots ---------------------------------------------------------

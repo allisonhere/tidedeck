@@ -35,11 +35,11 @@ func TestNewPanelsArePlacedOrHiddenInEveryPreset(t *testing.T) {
 	m.width, m.height = 200, 60
 
 	expected := map[string]map[string]bool{ // preset -> panel -> should be visible
-		"Overview":     {"gpu": true, "updates": false},
-		"System":       {"gpu": true, "updates": true},
-		"Productivity": {"gpu": false, "updates": false},
-		"Developer":    {"gpu": false, "updates": false},
-		"Minimal":      {"gpu": false, "updates": false},
+		"Overview":     {"gpu": true, "updates": false, "radar": false},
+		"System":       {"gpu": true, "updates": true, "radar": false},
+		"Productivity": {"gpu": false, "updates": false, "radar": false},
+		"Developer":    {"gpu": false, "updates": false, "radar": false},
+		"Minimal":      {"gpu": false, "updates": false, "radar": false},
 	}
 	for preset, panels := range expected {
 		m.ws.ApplyPreset(preset)
