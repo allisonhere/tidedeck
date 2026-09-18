@@ -473,10 +473,17 @@ func (r *radar) drawnFrame(frame tideui.RadarFrame, ctx tideui.PanelContext) ima
 	// the theme has: a scale that competes with the weather is worse than none.
 	marked := markCentre(frame.Image, frame.Centre, key.mark)
 	drawRing(marked, frame.Centre, frame.KilometresPerPixel, key.ring)
-	// Then the map under all of it, where the radar's transparency lets it through.
-	// The composed picture is what gets transmitted, so it is the composed picture
-	// that has to be the same one from draw to draw.
-	r.drawn, r.drawnKey = tideui.Composite(key.basemap, marked), key
+	// Then the map under all of it, where the radar's transparency lets it through -
+	// but only a map of this exact ground: a pane that has just been resized holds a
+	// backdrop of the old size for a moment, and drawing that instead of the radar
+	// would be showing a map of the wrong place. The composed picture is what gets
+	// transmitted, so it is the composed picture that has to be the same one from draw
+	// to draw.
+	backdrop := key.basemap
+	if backdrop != nil && backdrop.Bounds() != frame.Image.Bounds() {
+		backdrop = nil
+	}
+	r.drawn, r.drawnKey = tideui.Composite(backdrop, marked), key
 	return r.drawn
 }
 

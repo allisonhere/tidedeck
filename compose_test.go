@@ -84,12 +84,13 @@ func TestCompositeWithoutABasemapIsTheTopPicture(t *testing.T) {
 	}
 }
 
-// Two pictures of different sizes are a caller's bug, and the safe way to be wrong
-// is to draw the one that is there rather than half of each.
+// Two pictures of different sizes are a caller's bug, and the safe way to be wrong is
+// to draw the data rather than the backdrop: a panel that briefly shows its picture
+// without a map is right, one that briefly shows a map without its picture is not.
 func TestCompositeRefusesAMismatchedPair(t *testing.T) {
 	base := filled(image.Rect(0, 0, 4, 4), color.RGBA{R: 10, A: 255})
 	over := filled(image.Rect(0, 0, 8, 8), color.RGBA{G: 255, A: 255})
-	if got := Composite(base, over); got != image.Image(base) {
+	if got := Composite(base, over); got != image.Image(over) {
 		t.Fatal("a mismatched pair was composed instead of refused")
 	}
 }

@@ -11,9 +11,10 @@ import (
 // over a map, and it is the whole reason fetching a basemap is worth anything.
 //
 // The result is the base's size. A nil base is the picture on top, which is the
-// everyday case when there is no basemap; a top picture that is not the base's size
-// is a caller's bug, and the base is returned unchanged, because half an overlay is
-// a worse way to be wrong than none.
+// everyday case when there is no backdrop. A top picture that is not the base's size
+// is a caller's bug, and the *top* picture is returned: it is the one carrying the
+// data, and a panel that briefly draws yesterday's backdrop on its own is worse than
+// one that briefly draws its data without one.
 func Composite(base, over image.Image) image.Image {
 	switch {
 	case base == nil:
@@ -23,7 +24,7 @@ func Composite(base, over image.Image) image.Image {
 	}
 	baseBounds, overBounds := base.Bounds(), over.Bounds()
 	if baseBounds.Dx() != overBounds.Dx() || baseBounds.Dy() != overBounds.Dy() {
-		return base
+		return over
 	}
 	result := image.NewRGBA(baseBounds)
 	draw.Draw(result, baseBounds, base, baseBounds.Min, draw.Src)
