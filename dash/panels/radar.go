@@ -497,9 +497,13 @@ func (r *radar) drawnFrame(frame tideui.RadarFrame, ctx tideui.PanelContext) ima
 		// Ink on paper, on dark glass: the paper becomes the panel's own background and
 		// the ink becomes a quiet line colour, so the map belongs to the theme rather than
 		// sitting in the pane as a lit sheet.
+		// The line colour is derived from the theme rather than picked: the background
+		// lifted half way towards the text, which is loud enough to read as a map and
+		// quiet enough that the radar and the reader's own mark stay on top of it.
 		backdrop = tideui.Duotone(backdrop,
 			tideui.RGBAOf(ctx.Renderer.Styles.Workspace.Bg),
-			tideui.RGBAOf(ctx.Renderer.Styles.Workspace.BodyMutedFg))
+			tideui.Mix(tideui.RGBAOf(ctx.Renderer.Styles.Workspace.Bg),
+				tideui.RGBAOf(ctx.Renderer.Styles.Workspace.BodyFg), 0.5))
 	}
 	r.drawn, r.drawnKey = tideui.Composite(backdrop, marked), key
 	return r.drawn

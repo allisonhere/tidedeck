@@ -204,10 +204,20 @@ func (v radarView) bounds() (west, south, east, north float64) {
 	return west, south, east, north
 }
 
+// maxSlippyZoom is the deepest zoom a slippy map has tiles for. Positions are still
+// computable past it, but no service serves tiles there.
+const maxSlippyZoom = 22
+
+// slippyZoom is a zoom clamped to the range a slippy map is defined over. It is not the
+// radar's own limit: a basemap is asked for a deeper zoom than the radar can use, and
+// clamping it to the radar's ceiling put every map tile one zoom out - a valid tile of
+// the wrong place, which looks exactly like a map of somewhere else.
+func slippyZoom(zoom int) int { return min(max(zoom, 0), maxSlippyZoom) }
+
 // tilePosition is a coordinate in tile units at a zoom: the whole part is the tile,
 // the fraction is where in it, which is the whole of a slippy map's geography.
 func tilePosition(lat, lon float64, zoom int) (x, y float64) {
-	scale := math.Exp2(float64(clampZoom(zoom)))
+	scale := math.Exp2(float64(slippyZoom(zoom)))
 	x = (lon + 180) / 360 * scale
 	radians := lat * math.Pi / 180
 	y = (1 - math.Log(math.Tan(radians)+1/math.Cos(radians))/math.Pi) / 2 * scale
@@ -217,7 +227,7 @@ func tilePosition(lat, lon float64, zoom int) (x, y float64) {
 // coordinateAt is the other direction: a position in tile units back to a latitude
 // and longitude.
 func coordinateAt(x, y float64, zoom int) (lat, lon float64) {
-	scale := math.Exp2(float64(clampZoom(zoom)))
+	scale := math.Exp2(float64(slippyZoom(zoom)))
 	lon = x/scale*360 - 180
 	lat = math.Atan(math.Sinh(math.Pi*(1-2*y/scale))) * 180 / math.Pi
 	return lat, lon

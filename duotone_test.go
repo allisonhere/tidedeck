@@ -6,6 +6,30 @@ import (
 	"testing"
 )
 
+// A theme's own colours, derived rather than written down: half of the background mixed
+// into the text colour is a line colour that belongs to the theme.
+func TestMixDerivesAColourBetweenTwo(t *testing.T) {
+	bg := color.RGBA{R: 30, G: 30, B: 46, A: 255}
+	fg := color.RGBA{R: 205, G: 214, B: 244, A: 255}
+	if got := Mix(bg, fg, 0); got != bg {
+		t.Fatalf("nothing of the second colour = %v, want the first", got)
+	}
+	if got := Mix(bg, fg, 1); got != fg {
+		t.Fatalf("all of the second colour = %v, want the second", got)
+	}
+	half := Mix(bg, fg, 0.5)
+	if half.R != 118 || half.G != 122 || half.B != 145 {
+		t.Fatalf("half way = %v, want 118,122,145", half)
+	}
+	// Out of range is clamped rather than wrapping a colour.
+	if got := Mix(bg, fg, 4); got != fg {
+		t.Fatalf("more than all of it = %v, want the second colour", got)
+	}
+	if got := Mix(bg, fg, -1); got != bg {
+		t.Fatalf("less than none of it = %v, want the first colour", got)
+	}
+}
+
 // A paper map drawn on dark glass: white paper becomes the background colour, dark ink
 // becomes the light one. This is the whole point - the map ends up in the theme's own
 // colours instead of in a lit sheet of white.

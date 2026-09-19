@@ -2,9 +2,11 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -154,6 +156,31 @@ func TestBasemapPyramidZoomFitsTheBudget(t *testing.T) {
 				t.Fatalf("chose zoom %d, which is %d tiles for this view", zoom, tiles)
 			}
 		})
+	}
+}
+
+// The block of tiles has to cover the place the pane is looking at, at the zoom the
+// tiles are served at. Getting that wrong fetches valid tiles of somewhere else - a map,
+// just not of here - which is the failure this asserts against: the grid at zoom 8 must
+// contain the reader's own zoom-8 tile, and not the zoom-7 one.
+func TestBasemapTilesCoverThePlaceTheViewIsOf(t *testing.T) {
+	const lat, lon = 36.66, -84.4
+	view := radarView{latitude: lat, longitude: lon, zoom: 7, width: 1000, height: 560}
+	zoom := basemapPyramidZoom(view)
+	west, south, east, north := view.bounds()
+	grid := basemapGridFor(west, south, east, north, zoom)
+
+	ownX, ownY := tilePosition(lat, lon, zoom)
+	tileX, tileY := int(math.Floor(ownX)), int(math.Floor(ownY))
+	if tileX < grid.x || tileX >= grid.x+grid.cols || tileY < grid.y || tileY >= grid.y+grid.rows {
+		t.Fatalf("the block x=%d y=%d %dx%d does not contain the reader's own tile %d/%d at zoom %d",
+			grid.x, grid.y, grid.cols, grid.rows, tileX, tileY, zoom)
+	}
+	// And the tiles are asked for at the zoom the position was computed at: the URL for
+	// the reader's tile names that zoom.
+	asked := BasemapLayers["topographic"].tileURL(zoom, tileX, tileY)
+	if !strings.Contains(asked, fmt.Sprintf("/tile/%d/%d/%d", zoom, tileY, tileX)) {
+		t.Fatalf("asked for %q, want zoom %d row %d column %d", asked, zoom, tileY, tileX)
 	}
 }
 

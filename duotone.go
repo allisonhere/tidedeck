@@ -3,7 +3,24 @@ package tideui
 import (
 	"image"
 	"image/color"
+	"math"
 )
+
+// Mix blends one colour into another: t of 0 is all of a, t of 1 is all of b. It is how
+// a colour is derived from the theme rather than written into the code - a map's line
+// colour is the theme's background lifted towards its text, not a grey somebody picked.
+func Mix(a, b color.RGBA, t float64) color.RGBA {
+	t = math.Min(1, math.Max(0, t))
+	mix := func(from, to uint8) uint8 {
+		return uint8(math.Round(float64(from)*(1-t) + float64(to)*t))
+	}
+	return color.RGBA{
+		R: mix(a.R, b.R),
+		G: mix(a.G, b.G),
+		B: mix(a.B, b.B),
+		A: mix(a.A, b.A),
+	}
+}
 
 // Duotone re-inks a picture in two colours by luminance, which is how a paper map is
 // drawn on dark glass: the paper becomes the background, the ink becomes the light, and
