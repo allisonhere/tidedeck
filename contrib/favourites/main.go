@@ -90,7 +90,9 @@ func edit(store Store, id string) error {
 	if err != nil {
 		return err
 	}
-	_, err = tea.NewProgram(&screen{editor: form, renderer: themeRenderer()}).Run()
+	// The alternate screen, because a form is a place the reader goes and comes
+	// back from: the dashboard they left is still there underneath it.
+	_, err = tea.NewProgram(&screen{editor: form, renderer: themeRenderer()}, tea.WithAltScreen()).Run()
 	return err
 }
 
