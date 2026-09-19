@@ -597,11 +597,11 @@ func TestSaveLayoutChooserOverwritesTheChosenSlot(t *testing.T) {
 	}
 }
 
-// Enter inside a news pane copies the selected story's link and marks it read.
-// Enter at pane level is the zoom, so the pane is entered with space first - the
-// same two steps the mail panel uses, because Enter means one thing at pane
-// level, whatever the panel.
-func TestNewsEnterCopiesLink(t *testing.T) {
+// Enter inside a news pane opens the selected story in the browser. Enter at pane
+// level is the zoom, so the pane is entered with space first - the same two steps
+// the mail panel uses, because Enter means one thing at pane level, whatever the
+// panel. Opening is not copying: the copy key is what copies, and it still does.
+func TestNewsEnterOpensTheLink(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	m := newModel()
 	m.width, m.height = 150, 44
@@ -622,22 +622,31 @@ func TestNewsEnterCopiesLink(t *testing.T) {
 		t.Fatalf("zoomed = %q, want news", m.ws.Zoomed())
 	}
 
-	// Inside the pane the arrows walk the stories and Enter acts on one.
+	// Inside the pane the arrows walk the stories and Enter opens one.
 	m = update(t, m, tea.KeyMsg{Type: tea.KeySpace})
 	if m.ws.EnteredPane() != "news" {
 		t.Fatalf("entered = %q, want news", m.ws.EnteredPane())
 	}
 	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})
 
-	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = next.(model)
+	if cmd == nil {
+		t.Fatal("Enter inside the pane did not hand the terminal to the opener")
+	}
+	if !strings.Contains(m.state.status, "opening") {
+		t.Fatalf("status = %q, want it to say it is opening the story", m.state.status)
+	}
+	if m.state.clipboard != "" {
+		t.Fatalf("opening a story put %q on the clipboard", m.state.clipboard)
+	}
+
+	// And the copy key still copies, riding in the frame rather than a separate
+	// write.
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
 	if m.state.clipboard == "" {
-		t.Fatal("enter inside the pane copied nothing")
+		t.Fatal("the copy key copied nothing")
 	}
-	if !strings.Contains(m.state.status, "copied") {
-		t.Fatalf("status = %q", m.state.status)
-	}
-	// The copy rides in the frame rather than a separate write.
 	if frame := m.View(); !strings.Contains(frame, "\x1b]52;c;") {
 		t.Fatal("the frame did not carry the copy sequence")
 	}

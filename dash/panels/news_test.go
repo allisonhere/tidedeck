@@ -298,3 +298,66 @@ func TestNewsThroughTheDeck(t *testing.T) {
 		t.Fatalf("news badge after mark read = %#v, want 1", badge)
 	}
 }
+
+// A story's primary action opens it: a headline wants a browser, not the
+// clipboard. The pane hands the caller the program to run, with the link as a
+// single argument, and says what it is about to do.
+func TestNewsLaunchOpensTheSelectedStory(t *testing.T) {
+	panel := &news{}
+	panel.Store([]tideui.Headline{
+		{Title: "First story", Source: "BBC", Link: "https://bbc/1"},
+		{Title: "Second story", Source: "BBC", Link: "https://bbc/2"},
+	})
+	if _, ok := any(panel).(dash.Launcher); !ok {
+		t.Fatal("the news pane is not a launcher, so Enter cannot open a story")
+	}
+	panel.Move(1)
+
+	argv, status, declared := panel.Launch()
+	if !declared {
+		t.Fatal("the pane declared no primary action")
+	}
+	if len(argv) != 2 || argv[0] != "xdg-open" || argv[1] != "https://bbc/2" {
+		t.Fatalf("argv = %v, want xdg-open https://bbc/2", argv)
+	}
+	if !strings.Contains(status, "Second story") {
+		t.Fatalf("status = %q, want it to name the story", status)
+	}
+
+	// With nothing stored it says so rather than running the opener against an
+	// empty string.
+	if argv, status, declared := (&news{}).Launch(); !declared || len(argv) != 0 || !strings.Contains(status, "select") {
+		t.Fatalf("empty list = %v %q %v, want a status telling the reader to pick one", argv, status, declared)
+	}
+}
+
+// A feed can carry links that are not web links, and those never reach a browser.
+func TestNewsLaunchRefusesALinkABrowserShouldNotOpen(t *testing.T) {
+	panel := &news{}
+	panel.Store([]tideui.Headline{{Title: "Bookmarklet", Source: "somewhere", Link: "javascript:alert(1)"}})
+	argv, status, declared := panel.Launch()
+	if !declared {
+		t.Fatal("the pane should still declare the action it is refusing to run")
+	}
+	if len(argv) != 0 {
+		t.Fatalf("a javascript: link reached the opener: %v", argv)
+	}
+	if !strings.Contains(status, "no web link") {
+		t.Fatalf("status = %q, want it to say why", status)
+	}
+}
+
+// What the pane advertises is what its keys now do: Enter opens, the copy key
+// copies.
+func TestNewsAdvertisesOpeningAndCopying(t *testing.T) {
+	labels := map[string]string{}
+	for _, action := range (&news{}).Actions() {
+		labels[action.Key] = action.Label
+	}
+	if labels["enter"] != "open in browser" {
+		t.Fatalf("Enter is advertised as %q", labels["enter"])
+	}
+	if labels["c"] != "copy link" {
+		t.Fatalf("the copy key is advertised as %q", labels["c"])
+	}
+}

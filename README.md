@@ -726,8 +726,9 @@ still the shortcut it always was.
 Panels with something to walk take `Space` first: it gives the focused pane the
 keyboard, so a list's cursor moves with `↑`/`↓` (or `j`/`k`) while the rest of the
 dashboard stays on screen. Inside that pane `Enter` is the pane's own primary
-action — the news list copies the selected story and marks it read, the mail panel
-opens the picked message in TideMail — and `Esc` hands the keys back. So `Enter`
+action — the news list opens the selected story in your browser, the mail panel
+opens the picked message in TideMail — and `Esc` hands the keys back. The copy key
+still copies, wherever the pane offers something worth copying. So `Enter`
 means zoom at pane level and "act on this" inside a pane, and never both at once.
 
 ### Presets and the demo

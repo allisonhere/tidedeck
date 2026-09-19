@@ -3,6 +3,7 @@ package panels
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -125,10 +126,35 @@ func (n *news) Copy() (string, bool) {
 	return link, link != ""
 }
 
-// Activate is the selected story's primary action - copy its link - the same
-// thing a click does.
+// Activate is what runs when a pane has no program to open: it copies the link,
+// which is also what a click does. Enter goes to Launch instead - the reader
+// expects a headline to open in a browser, not to land on the clipboard.
 func (n *news) Activate() (string, string) {
 	return n.copySelected()
+}
+
+// Launch is the selected story's primary action: open it in a browser. The pane
+// says what to run and the caller owns the terminal, and the link travels as a
+// single argument so nothing a feed contains can become part of a command line.
+func (n *news) Launch() ([]string, string, bool) {
+	headlines := n.Load()
+	n.mu.Lock()
+	index := n.cursor
+	n.mu.Unlock()
+	if index < 0 || index >= len(headlines) {
+		return nil, "select a story first", true
+	}
+	story := headlines[index]
+	if !isWebLink(story.Link) {
+		// A feed can carry anything. Only the web schemes go to a browser.
+		return nil, "no web link for " + story.Source, true
+	}
+	return []string{"xdg-open", story.Link}, "opening " + story.Title, true
+}
+
+// isWebLink reports whether a link is one to hand a browser.
+func isWebLink(link string) bool {
+	return strings.HasPrefix(link, "http://") || strings.HasPrefix(link, "https://")
 }
 
 // copySelected returns the selected story's link and a status message.
@@ -205,15 +231,16 @@ func (n *news) Badge() (string, tideui.Tone) {
 	return fmt.Sprintf("%d", unread), tideui.ToneMuted
 }
 
-// Actions advertises the refresh key, the primary action Enter and a click
-// both run, and an explicit mark-read. The copy key is a hint only: the
-// application owns Enter and the clipboard, so its handler does nothing.
+// Actions advertises the keys that work on this pane: the refresh key, Enter
+// opening a story, the copy key (a hint only - the application owns the
+// clipboard, so the handler here does nothing) and an explicit mark-read.
 func (n *news) Actions() []dash.Action {
 	return []dash.Action{
 		{ID: "move", Key: "up/down", Label: "move"},
 		{ID: "refresh", Key: "r", Label: "refresh", Refresh: true,
 			Run: func() string { return "feeds refreshed" }},
-		{ID: "copy", Key: "enter", Label: "copy link"},
+		{ID: "open", Key: "enter", Label: "open in browser"},
+		{ID: "copy", Key: "c", Label: "copy link"},
 		{ID: "read", Key: "x", Label: "mark read", Run: n.markReadSelected},
 	}
 }
