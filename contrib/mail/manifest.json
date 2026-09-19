@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "tidedeck.mail",
   "name": "Mail",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "author": "tidedeck",
   "license": "MIT",
   "description": "A preview of recent mail, read from TideMail's local cache.",
@@ -11,7 +11,7 @@
   "panel": {
     "open": ["tidemail", "--open", "{id}"],
     "displayName": "Mail",
-    "glyph": "\u2709",
+    "glyph": "\ud83d\udce7",
     "category": "Mail",
     "refreshSeconds": 60,
     "minWidth": 26,

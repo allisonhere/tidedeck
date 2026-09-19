@@ -76,11 +76,53 @@ type Layout struct {
 // Renderer renders Layout and Row values using one resolved set of styles.
 type Renderer struct {
 	Styles Styles
+	// CellAspect is the cell's height divided by its width, already clamped to
+	// something a terminal could plausibly have (see StyleOptions.CellAspect).
+	// Only image sizing reads it.
+	CellAspect float64
+	// CellWidth is one cell's width in pixels, already checked (see
+	// StyleOptions.CellWidth). Only things that reason in pixels read it.
+	CellWidth float64
 }
 
 // NewRenderer creates a renderer for a theme and style options.
 func NewRenderer(theme Theme, options StyleOptions) Renderer {
-	return Renderer{Styles: BuildStyles(theme, options)}
+	return Renderer{
+		Styles:     BuildStyles(theme, options),
+		CellAspect: normalisedCellAspect(options.CellAspect),
+		CellWidth:  normalisedCellWidth(options.CellWidth),
+	}
+}
+
+// defaultCellWidth is what a pane is measured with when nobody measured the
+// terminal: about the width of a monospace cell at a sane font size.
+const defaultCellWidth = 8.0
+
+// normalisedCellWidth keeps a measurement a terminal could plausibly have - one
+// pixel per cell to forty - and treats anything else as no measurement at all: a
+// pane sized from a broken ioctl would otherwise ask for a mosaic it does not
+// need, which costs somebody else's bandwidth.
+func normalisedCellWidth(width float64) float64 {
+	if width < 1 || width > 40 {
+		return defaultCellWidth
+	}
+	return width
+}
+
+// defaultCellAspect is what a picture is sized by when nobody measured the
+// terminal: cells are near enough twice as tall as they are wide.
+const defaultCellAspect = 2.0
+
+// normalisedCellAspect keeps a measurement a terminal could plausibly have - fonts
+// put a cell between half as tall as it is wide and eight times - and treats
+// anything else as no measurement at all: a broken ioctl must not distort a
+// picture four-fold, and a caller passing 0.1 would ask for one twenty times wider
+// than the pane.
+func normalisedCellAspect(aspect float64) float64 {
+	if aspect < 0.5 || aspect > 8 {
+		return defaultCellAspect
+	}
+	return aspect
 }
 
 // Render produces a terminal-sized themed view for layout.

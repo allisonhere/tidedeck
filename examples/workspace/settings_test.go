@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -1409,5 +1410,48 @@ func TestSettingsEscStillReverts(t *testing.T) {
 	}
 	if form.state.place != "" {
 		t.Errorf("place = %q, want esc to discard the edit", form.state.place)
+	}
+}
+
+// Every glyph the host supplies for its own panes is a colour emoji, which a terminal
+// draws two cells wide. A one-cell glyph is a monochrome symbol from a text font: the
+// mail pane declared ✉ and read as a grey mark beside the calendar and the weather.
+// The check is the width, because that is what tells the two apart.
+func TestPanelGlyphsAreColourEmoji(t *testing.T) {
+	ids := []string{
+		"agenda", "weather", "system", "gpu", "updates", "clock", "git", "news",
+		"network", "storage", "services", "tasks", "notes", "markets", "calculator",
+		"mail", "tidedeck.mail",
+	}
+	for _, id := range ids {
+		glyph := panelGlyph(id)
+		if glyph == "" {
+			t.Fatalf("panel %q has no glyph at all", id)
+		}
+		if width := ansi.StringWidth(glyph); width != 2 {
+			t.Errorf("panel %q glyph %q is %d cells: a colour glyph is two cells wide, one cell is a monochrome symbol",
+				id, glyph, width)
+		}
+	}
+}
+
+// The mail plugin declares the glyph its pane header draws, and it has to be the colour
+// one for the same reason: it sits in a row of colour emoji.
+func TestMailPluginDeclaresAColourGlyph(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "contrib", "mail", "manifest.json"))
+	if err != nil {
+		t.Fatalf("reading the mail plugin's manifest: %v", err)
+	}
+	var manifest struct {
+		Panel struct {
+			Glyph string `json:"glyph"`
+		} `json:"panel"`
+	}
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatalf("parsing the mail plugin's manifest: %v", err)
+	}
+	if width := ansi.StringWidth(manifest.Panel.Glyph); width != 2 {
+		t.Fatalf("the mail plugin declares glyph %q, %d cells wide; a colour emoji is two",
+			manifest.Panel.Glyph, width)
 	}
 }

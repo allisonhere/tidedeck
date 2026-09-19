@@ -3,17 +3,17 @@ package dash
 import (
 	"context"
 	"encoding/json"
+	"github.com/allisonhere/tideui"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
+	"image/color"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/allisonhere/tideui"
-	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/x/ansi"
-	"github.com/muesli/termenv"
 )
 
 // plugin writes a plugin directory whose entry point is the given shell
@@ -555,5 +555,86 @@ func TestManifestChecksADeclaredEditCommand(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("an edit command naming no id was accepted: %v", problems)
+	}
+}
+
+func TestExecPanelDrawsAnImageRowFromAPlugin(t *testing.T) {
+	noPlaceholdersForTests(t)
+	previous := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(previous) })
+
+	frame := filepath.Join(t.TempDir(), "frame.png")
+	writePNGAt(t, frame, 2, 2, color.RGBA{R: 255, A: 255})
+
+	manifest := plugin(t,
+		`printf '{"rows":[{"type":"image","src":"%s","rows":2}]}\n' "$TIDEDECK_PLUGIN_FRAME"`,
+		map[string]any{
+			"panel": map[string]any{
+				"schema": []map[string]any{
+					{"key": "frame", "type": "string", "label": "Frame"},
+				},
+			},
+		})
+
+	panel := Exec(manifest)
+	values := NewValues()
+	values.Set(manifest.SettingKey("frame"), frame)
+	if err := panel.(Configurable).Configure(values); err != nil {
+		t.Fatal(err)
+	}
+	if err := panel.(Fetcher).Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := tideui.PanelContext{ID: "test.plugin", Width: 8, Renderer: docRenderer()}
+	out := panel.View(ctx)
+	red := lipgloss.NewStyle().Foreground(lipgloss.Color("#ff0000")).Background(lipgloss.Color("#ff0000")).Render("▀")
+	if !strings.Contains(out, red) {
+		t.Fatalf("the plugin's picture was not drawn:\n%q", out)
+	}
+
+	// And the next frame arrives without anyone being told: the loader keys on
+	// the file's own state.
+	writePNGAt(t, frame, 2, 2, color.RGBA{B: 255, A: 255})
+	future := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(frame, future, future); err != nil {
+		t.Fatal(err)
+	}
+	if err := panel.(Fetcher).Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	out = panel.View(ctx)
+	blue := lipgloss.NewStyle().Foreground(lipgloss.Color("#0000ff")).Background(lipgloss.Color("#0000ff")).Render("▀")
+	if !strings.Contains(out, blue) {
+		t.Fatalf("a rewritten picture was not picked up:\n%q", out)
+	}
+}
+
+// A pane's own colour glyph arrives from a plugin manifest, and the host has to keep it:
+// an emoji like the mail pane's envelope is two cells wide and several runes long, which
+// is exactly what a naive "one rune, one cell" rule would throw away. Rubbish still gets
+// dropped, because a multi-line or three-cell glyph damages the pane's border.
+func TestNormalizeGlyphKeepsAColourGlyph(t *testing.T) {
+	cases := []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{"colour emoji", "📧", "📧"},
+		{"emoji with a variation selector", "🌤️", "🌤️"},
+		{"a plain symbol", "✉", "✉"},
+		{"padded", " 📧 ", "📧"},
+		{"three cells", "🇺🇸🇺🇸", ""},
+		{"a newline inside it", "📧\nM", ""},
+		{"trailing whitespace", "📧\n", "📧"},
+		{"empty", "", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := normalizeGlyph(c.value); got != c.want {
+				t.Fatalf("normalizeGlyph(%q) = %q, want %q", c.value, got, c.want)
+			}
+		})
 	}
 }

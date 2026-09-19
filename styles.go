@@ -263,6 +263,15 @@ type StyleOptions struct {
 	// RepoIcons overrides individual git widget icons. Empty fields keep the
 	// resolved default.
 	RepoIcons RepoIcons
+	// CellAspect is how many times taller a terminal cell is than it is wide -
+	// the number an image has to be sized by to keep its shape. Most fonts land
+	// near 2 (a 7x15 cell, an 8x17 cell); measure it with CellAspectOf when the
+	// terminal reports its pixels, and leave it zero to assume 2.
+	CellAspect float64
+	// CellWidth is one cell's width in pixels, measured with CellSizeOf. Zero
+	// means nobody measured it, and anything that needs a pane's size in pixels
+	// assumes 8 - the width a monospace cell has at a sane font size.
+	CellWidth float64
 	// SparkBands sets where a banded style changes glyph and colour, as
 	// ascending fractions of full scale ending at 1, one per glyph in that
 	// style's ramp. A missing or malformed entry falls back to the default.

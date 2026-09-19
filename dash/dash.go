@@ -82,6 +82,16 @@ type AlwaysLive interface {
 	AlwaysLive() bool
 }
 
+// PaneSized is implemented by a panel whose fetches depend on how big its pane
+// is - a picture panel orders as many pixels as the pane has room for. A panel
+// learns its pane only by being drawn, so a pane-sized panel is refreshed when
+// the pane it was drawn in changes shape: without that, a picture fetched for a
+// small pane is stretched across a zoomed one until its next interval, which for
+// a radar is five minutes of the wrong picture.
+type PaneSized interface {
+	PaneSized() bool
+}
+
 // Input is implemented by a panel that takes typing while it has focus, so a
 // panel can offer a small live input - a calculator. Only the keys the panel
 // wants are consumed (Type reports whether it took the rune); every other key,

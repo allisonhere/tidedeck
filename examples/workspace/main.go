@@ -96,6 +96,10 @@ type model struct {
 	settings *settingsForm
 	// deck holds the panels that own their own data, rendering and settings.
 	deck *dash.Deck
+	// paneSizes is the size each pane was last drawn at, by panel id: a panel
+	// that sizes its fetches from its pane is due a fetch when the pane changes,
+	// and this is how the app notices - the panel cannot, it is only drawn.
+	paneSizes map[string][2]int
 
 	// pickerTarget is "" when the picker is editing the workspace theme, or a
 	// panel id when it is editing that panel's theme. pickerPrev/pickerHad
@@ -168,7 +172,7 @@ func newModel() model {
 	// Panels are registered in the order the hand-written registrations used to
 	// sit, so the deck attaches them — and the settings list orders them — the
 	// way the dashboard always did.
-	deck.Register(panels.Agenda(), panels.System(), panels.Weather(), panels.GPU(), panels.Updates(), panels.Clock(), panels.Git(), panels.News(), panels.Network(), panels.Storage(), panels.Services(), panels.Tasks(), panels.Notes(), panels.Markets(), panels.Calculator())
+	deck.Register(panels.Agenda(), panels.System(), panels.Weather(), panels.Radar(), panels.GPU(), panels.Updates(), panels.Clock(), panels.Git(), panels.News(), panels.Network(), panels.Storage(), panels.Services(), panels.Tasks(), panels.Notes(), panels.Markets(), panels.Calculator())
 
 	// Plugins are discovered once, at startup: drop a directory into
 	// <config>/tidedeck/plugins to add one, delete it to remove one. A
@@ -198,6 +202,7 @@ func newModel() model {
 	m := model{
 		state:        state,
 		deck:         deck,
+		paneSizes:    map[string][2]int{},
 		ws:           ws,
 		picker:       tideui.NewThemePicker(tideui.ThemePickerOptions{InitialTheme: state.theme.Name}),
 		cfg:          cfg,
@@ -371,7 +376,7 @@ func overviewLayout() tideui.LayoutNode {
 
 func registerPresets(ws *tideui.Workspace) {
 	ws.AddPreset("Overview", overviewLayout(),
-		"notes", "git", "markets", "updates")
+		"notes", "git", "markets", "updates", "radar")
 	ws.AddPreset("System", tideui.VStack(
 		tideui.Weighted(tideui.HStack(
 			tideui.Weighted(tideui.Leaf("system"), 2), tideui.Leaf("gpu"), tideui.Leaf("network"),
@@ -379,18 +384,18 @@ func registerPresets(ws *tideui.Workspace) {
 		tideui.Weighted(tideui.HStack(
 			tideui.Leaf("storage"), tideui.Leaf("services"), tideui.Leaf("updates"),
 		), 4),
-	), "weather", "agenda", "news", "tasks", "notes", "git", "markets", "clock")
+	), "weather", "agenda", "news", "tasks", "notes", "git", "markets", "clock", "radar")
 	ws.AddPreset("Productivity", tideui.HStack(
 		tideui.Weighted(tideui.VStack(tideui.Weighted(tideui.Leaf("agenda"), 2), tideui.Leaf("tasks")), 2),
 		tideui.VStack(tideui.Leaf("notes"), tideui.Leaf("clock")),
-	), "weather", "system", "gpu", "network", "storage", "services", "news", "git", "markets", "updates")
+	), "weather", "system", "gpu", "network", "storage", "services", "news", "git", "markets", "updates", "radar")
 	ws.AddPreset("Developer", tideui.VStack(
 		tideui.HStack(tideui.Leaf("git"), tideui.Leaf("system")),
 		tideui.HStack(tideui.Weighted(tideui.Leaf("services"), 2), tideui.Leaf("news")),
-	), "weather", "agenda", "clock", "gpu", "network", "storage", "tasks", "notes", "markets", "updates")
+	), "weather", "agenda", "clock", "gpu", "network", "storage", "tasks", "notes", "markets", "updates", "radar")
 	ws.AddPreset("Minimal", tideui.HStack(
 		tideui.Leaf("clock"), tideui.Weighted(tideui.Leaf("agenda"), 2), tideui.Leaf("weather"),
-	), "system", "gpu", "network", "storage", "services", "news", "tasks", "notes", "git", "markets", "updates")
+	), "system", "gpu", "network", "storage", "services", "news", "tasks", "notes", "git", "markets", "updates", "radar")
 }
 
 // --- Layout slots ---------------------------------------------------------
@@ -603,7 +608,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.refreshBadges()
 		m.ws.Animation().Tick()
-		return m, tickCmd(time.Second)
+		// A pane-sized panel that has just been resized is due a fetch now: the
+		// pane it was drawn in is the pane it asked for, and the layout changes
+		// when a pane is zoomed or removed rather than on any schedule.
+		return m, tea.Batch(tickCmd(time.Second), m.refreshResizedPanes())
 	case lookupMsg:
 		if m.settings.Opened() {
 			m.settings.ApplyLookup(msg.place, msg.err)
@@ -790,6 +798,52 @@ func (m model) refreshFocusedCmd() tea.Cmd {
 	}
 	return func() tea.Msg {
 		_ = fetcher.Refresh(context.Background())
+		return panelRefreshedMsg{}
+	}
+}
+
+// refreshResizedPanes returns a command that fetches every pane-sized panel whose
+// pane has changed shape since the last frame. The panel was drawn into the old
+// pane and asked its source for that many pixels, so a zoom, a closed pane or a
+// wider window leaves it holding a picture for a pane that is no longer there.
+// Only a panel that says its fetches depend on the pane is asked: for everything
+// else a resize is a redraw, not a request.
+func (m *model) refreshResizedPanes() tea.Cmd {
+	rects := m.ws.Solved().Rects
+	if len(rects) == 0 {
+		return nil
+	}
+	if m.paneSizes == nil {
+		m.paneSizes = map[string][2]int{}
+	}
+	var due []string
+	for id, rect := range rects {
+		size := [2]int{rect.Width, rect.Height}
+		if last, seen := m.paneSizes[id]; seen && last == size {
+			continue
+		}
+		m.paneSizes[id] = size
+		panel, ok := m.deck.Lookup(id)
+		if !ok {
+			continue
+		}
+		if sized, ok := panel.(dash.PaneSized); ok && sized.PaneSized() {
+			due = append(due, id)
+		}
+	}
+	if len(due) == 0 {
+		return nil
+	}
+	return func() tea.Msg {
+		for _, id := range due {
+			panel, ok := m.deck.Lookup(id)
+			if !ok {
+				continue
+			}
+			if fetcher, ok := panel.(dash.Fetcher); ok {
+				_ = fetcher.Refresh(context.Background())
+			}
+		}
 		return panelRefreshedMsg{}
 	}
 }
@@ -1309,12 +1363,20 @@ func (m model) View() string {
 	// Presets can also be selected by the workspace command palette. Reconcile
 	// its new theme scope before rendering the next frame.
 	m.syncLayoutTheme()
-	renderer := tideui.NewRenderer(m.state.theme, tideui.StyleOptions{
+	// The terminal reports its window in pixels alongside its size in cells, so
+	// one measurement gives both the shape of a cell (which sizes a picture) and
+	// its width (which says whether a pane is bigger than the picture's source).
+	cellWidth, cellHeight := tideui.CellSizeOf(os.Stdout)
+	options := tideui.StyleOptions{
 		Density: m.state.density, PaneCorners: tideui.RoundCorners,
 		Gauge: m.state.gauge, Sparkline: m.state.spark, ClockFont: m.state.clockFont,
-		IconStyle:   m.state.icons,
-		ModalShadow: true,
-	})
+		IconStyle: m.state.icons, ModalShadow: true,
+	}
+	if cellWidth > 0 && cellHeight > 0 {
+		options.CellWidth = cellWidth
+		options.CellAspect = cellHeight / cellWidth
+	}
+	renderer := tideui.NewRenderer(m.state.theme, options)
 	if m.settings.Opened() {
 		return m.settings.RenderWorkspace(renderer, m.width, m.height)
 	}

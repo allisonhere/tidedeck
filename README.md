@@ -679,6 +679,7 @@ Renderers on `Renderer`:
 | Widget | Renderer | Detail renderer |
 |---|---|---|
 | Weather | `RenderWeather` | `RenderWeatherDetail` |
+| Radar | `RenderImage` (the frame composited over a NASA GIBS basemap, with a caption line, a crosshair on your position and a distance ring) | — |
 | Agenda | `RenderAgenda` (all-day events labelled, not `00:00`) | `RenderAgendaDetail` |
 | Calendar | `RenderCalendar` (month grid beside the day's agenda) | `RenderCalendarDetail` |
 | Clock | `RenderClock` (sun/moon glyph, day-period, world clocks) | `RenderClockDetail` (big digital time, day-progress gauge, analog face, `RenderMiniCalendar`) |
@@ -767,6 +768,8 @@ so the last good value stays on screen.
 | Source | Constructor | Backed by |
 |---|---|---|
 | Weather | `provider.Weather(WeatherOptions)` | Open-Meteo (no key) |
+| Radar | `provider.Radar(RadarOptions)` | RainViewer (no key); the newest frame, zoom ≤ 7, as a block of tiles shaped like the pane (up to six, so a wide pane is filled by a row of them) |
+| Basemap | `provider.Basemap(BasemapOptions)` | NASA GIBS (no key, public domain); a still satellite map of the same ground, drawn under the radar - one zoom in, where a 256 px tile is a quarter of a radar tile, so the two line up pixel for pixel and the map is fetched once per location rather than once a frame. `night lights` (default), `relief` |
 | Clock | `provider.Clock(location, zones...)` | local time + IANA zones |
 | Calendar | `provider.Calendar(sources...)` | local `.ics` files, `https`/`webcal` iCal URLs, and Google Calendar embed/share links (TZID, all-day, 90-day window) |
 | System | `provider.System()` | `/proc`, `/sys` (Linux) |
@@ -1160,6 +1163,7 @@ key or with another plugin's.
 | `block` | a label plus indented `body` lines; the body is drawn in the panel's normal text colour, or the colour `bodyTone` names |
 | `divider` | a section divider |
 | `spacer` | a blank line |
+| `image` | a picture from `src` (an absolute path), drawn in cells; `alt` replaces it when it cannot be read, `rows` caps the height |
 
 A plugin's settings are edited in the settings screen and reach the program as
 environment variables on the next run. A plugin can also **answer back about its own settings**. `options` maps a
@@ -1249,6 +1253,24 @@ skipped rather than failing the document, so a plugin written against a later
 schema loses a line instead of disappearing. Every row is drawn with the same
 primitives the built-in panels use and bounded by `Renderer.RenderLines`, so a
 plugin cannot overflow its pane whatever it prints.
+
+A row can also **point at a picture**. `src` is an absolute path — a document
+carries a reference, never pixels, because a document is capped at 1 MB and the
+reference is what the plugin that produced the file already has:
+
+    { "type": "image", "src": "/run/user/1000/radar.png", "rows": 20, "alt": "radar unavailable" }
+
+It is drawn as coloured half-blocks: one sample across and two down per cell, so
+it works over ssh and inside tmux with no graphics protocol at all, and degrades
+through the colour profile — a 256-colour terminal gets a quantised picture and a
+colourless one gets a brightness ramp. On a terminal that speaks kitty's graphics
+protocol the picture is transmitted and drawn by the terminal itself, at the
+terminal's own pixel resolution, inside the same cells. `alt` is what is drawn
+when the file cannot be read, because a row is a promise that something appears;
+`rows` caps the height (default 24). The picture keeps its aspect and is centred
+rather than stretched, and transparent samples show the panel background through
+them — which is what makes a radar tile, transparent where it is not raining,
+work.
 
 `contrib/ai-usage/` is a working example: a `jq` projection of
 `ai-usagebar usage --json`, which is a projection rather than a translation

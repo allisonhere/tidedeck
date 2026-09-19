@@ -1,17 +1,17 @@
 package main
 
 import (
+	"context"
+	"github.com/allisonhere/tideui"
+	"github.com/allisonhere/tideui/dash"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
-
-	tea "github.com/charmbracelet/bubbletea"
-
-	"github.com/allisonhere/tideui"
-	"github.com/allisonhere/tideui/dash"
-	"github.com/charmbracelet/x/ansi"
 )
 
 // TestMain points the demo's persistence at a throwaway config directory so
@@ -934,5 +934,82 @@ func TestEditKeyOpensTheFormForThePickedRow(t *testing.T) {
 	}
 	if !strings.Contains(m.state.status, "two") {
 		t.Fatalf("status = %q, want it to name the row", m.state.status)
+	}
+}
+
+type paneFetcher struct {
+	id      string
+	sized   bool
+	mu      sync.Mutex
+	fetches int
+}
+
+func (p *paneFetcher) Meta() dash.Meta {
+	return dash.Meta{ID: p.id, Title: p.id, Priority: 50, MinWidth: 10, MinHeight: 3}
+}
+func (p *paneFetcher) View(tideui.PanelContext) string { return "stub" }
+func (p *paneFetcher) Refresh(context.Context) error {
+	p.mu.Lock()
+	p.fetches++
+	p.mu.Unlock()
+	return nil
+}
+func (p *paneFetcher) PaneSized() bool { return p.sized }
+func (p *paneFetcher) count() int      { p.mu.Lock(); defer p.mu.Unlock(); return p.fetches }
+
+// A pane the layout has resized is due a fetch for a panel that orders its
+// pixels from its pane, and for nothing else: a panel that does not care about
+// the pane must not be re-asked every time a neighbour is resized.
+func TestResizedPanesRefetchOnlyWhatSizesItselfOnThePane(t *testing.T) {
+	m := newModel()
+	m.width, m.height = 120, 40
+	sized, plain := &paneFetcher{id: "sizedstub", sized: true}, &paneFetcher{id: "plainstub"}
+	m.deck.Register(sized, plain)
+	m.deck.AttachPanel(m.ws, sized)
+	m.deck.AttachPanel(m.ws, plain)
+	// A panel that is neither placed nor hidden is not in the layout; a hide and
+	// a show is how the app puts a newly registered panel into a split.
+	for _, id := range []string{sized.id, plain.id} {
+		m.ws.Hide(id)
+		if !m.ws.Show(id) {
+			t.Fatalf("panel %q could not be placed in the layout", id)
+		}
+	}
+
+	m.ws.Solve(m.width, m.height)
+	cmd := m.refreshResizedPanes()
+	if cmd == nil {
+		t.Fatal("the first frame did not refresh a panel that sizes its fetches on its pane")
+	}
+	cmd()
+	if sized.count() != 1 {
+		t.Fatalf("the pane-sized panel fetched %d times on the first frame, want 1", sized.count())
+	}
+	if plain.count() != 0 {
+		t.Fatalf("a panel that does not size its fetches on its pane fetched %d times, want 0", plain.count())
+	}
+
+	// The same layout is not a resize: no fetch, so a dashboard at rest is quiet.
+	if cmd := m.refreshResizedPanes(); cmd != nil {
+		t.Fatal("an unchanged layout asked a pane-sized panel for a fetch")
+	}
+	if sized.count() != 1 {
+		t.Fatalf("an unchanged layout fetched %d times, want the first one only", sized.count())
+	}
+
+	// A resize is a resize: the panel is drawn into a different pane, so it is
+	// holding a picture for a pane that is no longer there.
+	m.width = 160
+	m.ws.Solve(m.width, m.height)
+	if cmd := m.refreshResizedPanes(); cmd == nil {
+		t.Fatal("a resized pane did not schedule a fetch")
+	} else {
+		cmd()
+	}
+	if sized.count() != 2 {
+		t.Fatalf("after a resize the pane-sized panel fetched %d times, want 2", sized.count())
+	}
+	if plain.count() != 0 {
+		t.Fatalf("a resize fetched a panel that does not size its fetches on its pane (%d)", plain.count())
 	}
 }

@@ -2,6 +2,8 @@ package dash
 
 import (
 	"encoding/json"
+	"image/color"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -246,5 +248,47 @@ func TestBlockBodyIsContentUnlessItAsksForATone(t *testing.T) {
 	detail := body(Doc{Rows: []Row{{Type: "block", Body: []string{"balance: 0"}, BodyTone: "muted"}}})
 	if want := lipgloss.NewStyle().Background(ws.Bg).Foreground(ws.HintFg).Render("  balance: 0"); !strings.Contains(detail, want) {
 		t.Errorf("bodyTone did not colour the body:\n%q", detail)
+	}
+}
+
+// A document can point at a picture. The row is drawn from a path, and a path
+// that cannot be read draws its alt text rather than a hole - the same promise
+// every other row keeps. Imports for this test: path/filepath.
+func TestRenderDocDrawsAnImageRow(t *testing.T) {
+	noPlaceholdersForTests(t)
+	previous := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(previous) })
+	renderer := docRenderer()
+	path := writePNG(t, 2, 2, color.RGBA{R: 255, A: 255})
+
+	doc := Doc{Rows: []Row{
+		{Type: "text", Label: "radar", Value: "18:05"},
+		{Type: "image", Src: path, Rows: 2, Alt: "no picture"},
+	}}
+	out := RenderDoc(renderer, doc, 8, false)
+	cell := lipgloss.NewStyle().Foreground(lipgloss.Color("#ff0000")).Background(lipgloss.Color("#ff0000")).Render("▀")
+	if !strings.Contains(out, cell) {
+		t.Errorf("the picture was not drawn:\n%q", out)
+	}
+	// Bounded like every other row: nothing may exceed the pane.
+	for _, line := range strings.Split(ansi.Strip(out), "\n") {
+		if got := ansi.StringWidth(line); got != 8 {
+			t.Errorf("line width = %d, want 8: %q", got, line)
+		}
+	}
+
+	// A path that is not there draws the alt text, and does not take the rest of
+	// the document with it.
+	broken := Doc{Rows: []Row{
+		{Type: "image", Src: filepath.Join(t.TempDir(), "gone.png"), Alt: "no picture"},
+		{Type: "text", Label: "still", Value: "here"},
+	}}
+	plain := ansi.Strip(RenderDoc(renderer, broken, 24, false))
+	if !strings.Contains(plain, "no picture") {
+		t.Errorf("a missing picture drew %q, want its alt text", plain)
+	}
+	if !strings.Contains(plain, "still") {
+		t.Errorf("a missing picture lost the row after it: %q", plain)
 	}
 }
