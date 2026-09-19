@@ -73,6 +73,18 @@ func (a *Animator) Set(key string, target float64) {
 	a.targets[key] = target
 }
 
+// Snap sets a value and its target together, skipping the interpolation. It is
+// for the moments where easing would be wrong — coming back from an idle state
+// on a keypress, say, where the person is already working and should not have
+// to watch the interface catch up.
+func (a *Animator) Snap(key string, value float64) {
+	if a == nil {
+		return
+	}
+	a.values[key] = value
+	a.targets[key] = value
+}
+
 // Value returns the current animated value, defaulting to target when motion
 // is disabled.
 func (a *Animator) Value(key string) float64 {

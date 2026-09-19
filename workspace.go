@@ -64,6 +64,10 @@ type Workspace struct {
 	persistenceID string
 
 	focusPres FocusPresentation
+	// focusIdle is the workspace-wide idle target, 0 lit and 1 fully faded.
+	// It belongs to the workspace rather than to any panel: idleness is a
+	// property of the keyboard, not of what happens to be on screen.
+	focusIdle float64
 	anim      *Animator
 	picker    *PanelPicker
 	palette   *CommandPalette
@@ -1631,3 +1635,40 @@ func (ws *Workspace) sortedIDs() []string {
 
 // ErrNoStore is returned by Persist when persistence has no backing store.
 var ErrNoStore = errors.New("tideui: workspace persistence is not configured")
+
+// focusIdleKey names the animated scalar behind SetFocusIdle.
+const focusIdleKey = "focus.idle"
+
+// SetFocusIdle fades the focused panel's frame toward the unfocused colour,
+// 0 fully lit and 1 fully faded. Only the frame colour moves; the rail, accent
+// marker, title and key hints stay put, so the workspace never loses track of
+// where focus is.
+//
+// The workspace owns no timers, so the application decides what "idle" means
+// and calls this. With animation enabled the change is interpolated by the
+// animator the application already ticks; otherwise it applies at once.
+func (ws *Workspace) SetFocusIdle(level float64) {
+	level = clamp01(level)
+	ws.focusIdle = level
+	ws.anim.Set(focusIdleKey, level)
+}
+
+// SnapFocusIdle sets the frame fade without interpolating. Applications use it
+// for the way back: the fade out is decorative and can take its time, but a key
+// means the person is here now and the highlight should be on before they look
+// for it.
+func (ws *Workspace) SnapFocusIdle(level float64) {
+	level = clamp01(level)
+	ws.focusIdle = level
+	ws.anim.Snap(focusIdleKey, level)
+}
+
+// FocusIdle reports the frame fade in effect right now. While animation is
+// enabled this is the interpolated value, so it trails SetFocusIdle until the
+// application has ticked the animator far enough.
+func (ws *Workspace) FocusIdle() float64 {
+	if ws.anim.Enabled() {
+		return clamp01(ws.anim.Value(focusIdleKey))
+	}
+	return ws.focusIdle
+}

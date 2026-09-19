@@ -123,6 +123,9 @@ const (
 // text so they can be typed directly, and parsed back into a config on save.
 type formState struct {
 	live bool
+	// idleDim fades the focused panel's frame after a quiet spell. One switch
+	// for the whole workspace, not a per-panel override.
+	idleDim bool
 	// place is the city or ZIP to geocode. It is the only weather value the
 	// form still owns, because it is a query rather than a setting: nothing
 	// stores it, and the panel has no use for it.
@@ -163,6 +166,7 @@ func formFromConfig(cfg config) formState {
 	return formState{
 		doc:         cfg.doc,
 		live:        cfg.Live,
+		idleDim:     cfg.IdleDim,
 		place:       cfg.doc.String(weatherLocationKey),
 		gauge:       gaugeOrDefault(cfg.GaugeStyle),
 		spark:       sparkOrDefault(cfg.SparkStyle),
@@ -181,6 +185,7 @@ func formFromConfig(cfg config) formState {
 func (s formState) toConfig(deck *dash.Deck) (config, error) {
 	cfg := config{
 		Live:        s.live,
+		IdleDim:     s.idleDim,
 		GaugeStyle:  gaugeOrDefault(s.gauge),
 		SparkStyle:  sparkOrDefault(s.spark),
 		ClockFont:   clockFontOrDefault(s.clockFont),
@@ -546,6 +551,8 @@ func (s *settingsForm) buildCategories() []settingsCategory {
 			{label: "panel glyphs", kind: fieldChoice, choice: &s.state.glyphMode,
 				options:     glyphModeNames(),
 				description: "Show an icon in each panel's title. Per panel lets each one decide."},
+			{label: "dim focus when idle", kind: fieldBool, flag: &s.state.idleDim,
+				description: "Fade the focused panel's frame after 20s with no keys. Any key brings it straight back."},
 		}},
 		{name: "Plugins", fields: s.pluginFields()},
 		{name: "Weather", panelID: "weather", fields: []formField{

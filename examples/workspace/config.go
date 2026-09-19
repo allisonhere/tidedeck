@@ -23,6 +23,11 @@ type config struct {
 	// Icons picks the widget icon family: "plain", "emoji" or "nerd". Nerd
 	// needs a patched font and emoji a colour emoji font.
 	Icons string `json:"icons"`
+	// IdleDim fades the focused panel's frame after a spell with no keyboard
+	// input. It is deliberately one workspace-wide switch rather than a
+	// per-panel option: idleness is a property of the keyboard, not of any
+	// one panel.
+	IdleDim bool `json:"idle_dim"`
 	// GlyphMode controls panel header glyphs: on, off, or per_panel.
 	GlyphMode   string          `json:"glyph_mode"`
 	PanelGlyphs map[string]bool `json:"panel_glyphs,omitempty"`
@@ -91,6 +96,7 @@ func defaultConfig() config {
 		SparkStyle: "blocks",
 		ClockFont:  "dash",
 		Icons:      "emoji",
+		IdleDim:    true,
 		GlyphMode:  glyphModeOn,
 	}
 }

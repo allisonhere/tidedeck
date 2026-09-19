@@ -122,16 +122,26 @@ type SectionDivider struct {
 type FocusChrome struct {
 	Presentation FocusPresentation
 	Density      Density
+	// IdleFade pulls the focused panel's frame back toward the unfocused
+	// colour, 0 fully lit and 1 fully faded. It is a workspace-wide signal
+	// that nobody has touched the keyboard for a while, not a per-panel one,
+	// and it moves the border colour only — rail, marker, title and hints all
+	// stay as they were so focus is never actually in doubt.
+	IdleFade float64
 }
 
 // FrameColor returns the border colour for a panel's state.
 func (fc FocusChrome) FrameColor(styles Styles, focused, dimmed bool, accent lipgloss.Color) lipgloss.Color {
 	ws := styles.Workspace
 	if focused {
+		lit := ws.FrameActive
 		if accent != "" {
-			return readableText(accent, ws.Bg, paneFocusMinContrast)
+			lit = readableText(accent, ws.Bg, paneFocusMinContrast)
 		}
-		return ws.FrameActive
+		if fc.IdleFade > 0 {
+			return MixColors(lit, ws.FrameIdle, clamp01(fc.IdleFade))
+		}
+		return lit
 	}
 	if dimmed {
 		return ws.FrameDimmed
@@ -482,6 +492,8 @@ type PanelHeader struct {
 	Accent       lipgloss.Color
 	Density      Density
 	Border       lipgloss.Border
+	// IdleFade fades the frame colour while the workspace is idle.
+	IdleFade float64
 }
 
 // RenderPanelHeader renders the inner content of a panel's top border line,
@@ -496,7 +508,7 @@ func (r Renderer) RenderPanelHeader(h PanelHeader, width int) string {
 	styles := r.Styles
 	ws := styles.Workspace
 	bg := ws.Bg
-	borderStyle := lipgloss.NewStyle().Background(bg).Foreground(panelFrameColor(styles, h.Focused, h.Dimmed, h.Accent))
+	borderStyle := lipgloss.NewStyle().Background(bg).Foreground(panelFrameColor(styles, h.Focused, h.Dimmed, h.Accent, h.IdleFade))
 
 	if len(h.Tabs) > 0 {
 		if content, used := r.RenderTabStrip(h.Tabs, h.ActiveTab, h.Focused, width); used > 0 {
@@ -584,6 +596,8 @@ type PanelFooter struct {
 	Accent  lipgloss.Color
 	Density Density
 	Border  lipgloss.Border
+	// IdleFade fades the frame colour while the workspace is idle.
+	IdleFade float64
 }
 
 // RenderPanelFooter renders the inner content of a panel's bottom border line,
@@ -597,7 +611,7 @@ func (r Renderer) RenderPanelFooter(f PanelFooter, width int) string {
 	}
 	styles := r.Styles
 	bg := styles.Workspace.Bg
-	borderStyle := lipgloss.NewStyle().Background(bg).Foreground(panelFrameColor(styles, f.Focused, f.Dimmed, f.Accent))
+	borderStyle := lipgloss.NewStyle().Background(bg).Foreground(panelFrameColor(styles, f.Focused, f.Dimmed, f.Accent, f.IdleFade))
 
 	content := ""
 	if f.Mode != "" {
@@ -1155,8 +1169,8 @@ func (r Renderer) RenderWorkspaceStatus(primary, secondary, mode string, hints [
 
 // --- helpers --------------------------------------------------------------
 
-func panelFrameColor(styles Styles, focused, dimmed bool, accent lipgloss.Color) lipgloss.Color {
-	return FocusChrome{Presentation: FocusPresentation{}}.FrameColor(styles, focused, dimmed, accent)
+func panelFrameColor(styles Styles, focused, dimmed bool, accent lipgloss.Color, idleFade float64) lipgloss.Color {
+	return FocusChrome{Presentation: FocusPresentation{}, IdleFade: idleFade}.FrameColor(styles, focused, dimmed, accent)
 }
 
 func markerGlyph(plain bool) string {

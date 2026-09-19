@@ -49,12 +49,17 @@ func TestRealConfigSurvivesASave(t *testing.T) {
 	sort.Strings(before)
 	sort.Strings(got)
 	t.Logf("before %d keys, after %d keys", len(before), len(got))
-	if len(before) != len(got) {
-		t.Fatalf("key count changed:\nbefore %v\nafter  %v", before, got)
+	// A save must lose nothing. It may legitimately gain a key: a build that
+	// ships a new setting writes it out the first time it saves a config
+	// written by an older build, which is exactly how every setting so far
+	// reached an existing install.
+	present := map[string]bool{}
+	for _, key := range got {
+		present[key] = true
 	}
-	for i := range before {
-		if before[i] != got[i] {
-			t.Fatalf("keys differ: %v vs %v", before, got)
+	for _, key := range before {
+		if !present[key] {
+			t.Fatalf("key %q lost on a no-op save:\nbefore %v\nafter  %v", key, before, got)
 		}
 	}
 	nested, ok := after["future_panel"].(map[string]any)
@@ -65,6 +70,9 @@ func TestRealConfigSurvivesASave(t *testing.T) {
 	for _, key := range configKeys() {
 		if key == "panel_gauges" || key == "panel_sparks" {
 			continue // omitempty: absent when empty, checked separately
+		}
+		if _, had := doc[key]; !had {
+			continue // new in this build; there is no earlier value to preserve
 		}
 		b, _ := json.Marshal(doc[key])
 		a, _ := json.Marshal(after[key])

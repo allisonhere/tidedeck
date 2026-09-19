@@ -94,6 +94,9 @@ type model struct {
 
 	cfg      config
 	settings *settingsForm
+	// lastInput is when a key last arrived. The workspace owns no timers, so
+	// idleness is decided here and pushed in with SetFocusIdle.
+	lastInput time.Time
 	// deck holds the panels that own their own data, rendering and settings.
 	deck *dash.Deck
 	// paneSizes is the size each pane was last drawn at, by panel id: a panel
@@ -133,6 +136,29 @@ type model struct {
 const slotCount = 5
 
 type tickMsg time.Time
+
+const (
+	// idleDimAfter is how long the keyboard stays quiet before the focused
+	// panel's frame fades back.
+	idleDimAfter = 20 * time.Second
+	// idleFadeFrame is the tick interval while the fade is in motion.
+	idleFadeFrame = 60 * time.Millisecond
+)
+
+// applyIdleDim tells the workspace whether the keyboard has gone quiet. The
+// animator does the interpolating; this only ever names the target.
+func (m *model) applyIdleDim() {
+	if !m.cfg.IdleDim {
+		m.ws.SnapFocusIdle(0)
+		return
+	}
+	if time.Since(m.lastInput) >= idleDimAfter {
+		// Easing out: the animator carries it, ticked below.
+		m.ws.SetFocusIdle(1)
+		return
+	}
+	m.ws.SnapFocusIdle(0)
+}
 
 func tickCmd(rate time.Duration) tea.Cmd {
 	return tea.Tick(rate, func(time.Time) tea.Msg { return tickMsg(time.Time{}) })
@@ -202,6 +228,7 @@ func newModel() model {
 	m := model{
 		state:        state,
 		deck:         deck,
+		lastInput:    started,
 		paneSizes:    map[string][2]int{},
 		ws:           ws,
 		picker:       tideui.NewThemePicker(tideui.ThemePickerOptions{InitialTheme: state.theme.Name}),
@@ -607,11 +634,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.refreshBadges()
-		m.ws.Animation().Tick()
+		m.applyIdleDim()
+		animating := m.ws.Animation().Tick()
 		// A pane-sized panel that has just been resized is due a fetch now: the
 		// pane it was drawn in is the pane it asked for, and the layout changes
 		// when a pane is zoomed or removed rather than on any schedule.
-		return m, tea.Batch(tickCmd(time.Second), m.refreshResizedPanes())
+		// A fade needs frames faster than the once-a-second dashboard beat, so
+		// the loop speeds up only while something is actually moving.
+		rate := time.Second
+		if animating {
+			rate = idleFadeFrame
+		}
+		return m, tea.Batch(tickCmd(rate), m.refreshResizedPanes())
 	case lookupMsg:
 		if m.settings.Opened() {
 			m.settings.ApplyLookup(msg.place, msg.err)
@@ -649,6 +683,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	case tea.KeyMsg:
+		m.lastInput = time.Now()
+		m.ws.SnapFocusIdle(0)
 		return m.handleKey(msg)
 	}
 	return m, nil

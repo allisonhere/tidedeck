@@ -126,6 +126,7 @@ func (wr WorkspaceRenderer) renderRegion(ws *Workspace, region SolvedRegion, foc
 		height:   rect.Height,
 		focused:  focused,
 		dimmed:   dimmed,
+		idleFade: ws.FocusIdle(),
 		accent:   panel.accent,
 		title:    panel.TitleText(),
 		subtitle: panel.subtitle,
@@ -294,6 +295,7 @@ type workspaceFrame struct {
 	mode          string
 	focused       bool
 	dimmed        bool
+	idleFade      float64
 	accentMarker  bool
 	capsule       bool
 	rail          bool
@@ -309,7 +311,7 @@ func renderWorkspaceFrame(renderer Renderer, f workspaceFrame) string {
 	}
 	styles := f.styles
 	bg := styles.Workspace.Bg
-	borderColor := FocusChrome{Presentation: FocusPresentation{}}.
+	borderColor := FocusChrome{Presentation: FocusPresentation{}, IdleFade: f.idleFade}.
 		FrameColor(styles, f.focused, f.dimmed, f.accent)
 	borderStyle := lipgloss.NewStyle().Background(bg).Foreground(borderColor)
 
@@ -326,6 +328,7 @@ func renderWorkspaceFrame(renderer Renderer, f workspaceFrame) string {
 		Tabs: f.tabs, ActiveTab: f.activeTab, Focused: f.focused, Dimmed: f.dimmed,
 		AccentMarker: f.accentMarker, Capsule: f.capsule,
 		Accent: f.accent, Density: styles.Density, Border: f.border,
+		IdleFade: f.idleFade,
 	}
 	top := borderStyle.Render(f.border.TopLeft) + renderer.RenderPanelHeader(header, max(0, f.width-2)) + borderStyle.Render(f.border.TopRight)
 	if f.height == 1 {
@@ -356,6 +359,7 @@ func renderWorkspaceFrame(renderer Renderer, f workspaceFrame) string {
 	footer := PanelFooter{
 		Hints: f.footerHints, Mode: f.mode, Focused: f.focused, Dimmed: f.dimmed,
 		Accent: f.accent, Density: styles.Density, Border: f.border,
+		IdleFade: f.idleFade,
 	}
 	bottom := borderStyle.Render(f.border.BottomLeft) + renderer.RenderPanelFooter(footer, innerWidth) + borderStyle.Render(f.border.BottomRight)
 	lines = append(lines, bottom)
