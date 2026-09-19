@@ -755,6 +755,7 @@ type fakeLauncher struct {
 	rows   []string
 	cursor int
 	asked  []string
+	edited []string
 }
 
 func (f *fakeLauncher) Meta() dash.Meta {
@@ -778,6 +779,14 @@ func (f *fakeLauncher) Launch() ([]string, string, bool) {
 	picked := f.rows[f.cursor]
 	f.asked = append(f.asked, picked)
 	return []string{"/bin/echo", picked}, "opening " + picked, true
+}
+
+// Edit is the pane's second action, so the key that runs the form has a path to
+// test without a plugin.
+func (f *fakeLauncher) Edit() ([]string, string, bool) {
+	picked := f.rows[f.cursor]
+	f.edited = append(f.edited, picked)
+	return []string{"/bin/echo", picked}, "editing " + picked, true
 }
 
 // plainPanel is a panel with no primary action of its own, so the keys that walk
@@ -898,5 +907,32 @@ func TestEnterStillUnzoomsAPanelWithNoAction(t *testing.T) {
 func TestLaunchCmdSuspendsForTheProgram(t *testing.T) {
 	if cmd := launchCmd("fake", []string{"/bin/echo", "hi"}); cmd == nil {
 		t.Fatal("launchCmd returned no command")
+	}
+}
+
+// The pane's second key: e opens the form for the row under the cursor while
+// Enter still acts on it. One key per meaning, and the pane decides which of the
+// two it has.
+func TestEditKeyOpensTheFormForThePickedRow(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := newModel()
+	m.width, m.height = 150, 44
+	panel := &fakeLauncher{rows: []string{"one", "two", "three"}}
+	m.deck.Register(panel)
+	m.deck.AttachPanel(m.ws, panel)
+	m = showPanel(t, m, "fake")
+
+	m = update(t, m, tea.KeyMsg{Type: tea.KeySpace}) // enter the pane
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyDown})  // pick the second row
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
+
+	if len(panel.edited) != 1 || panel.edited[0] != "two" {
+		t.Fatalf("e edited %v, want the row under the cursor", panel.edited)
+	}
+	if len(panel.asked) != 0 {
+		t.Fatalf("e opened instead of editing: %v", panel.asked)
+	}
+	if !strings.Contains(m.state.status, "two") {
+		t.Fatalf("status = %q, want it to name the row", m.state.status)
 	}
 }
