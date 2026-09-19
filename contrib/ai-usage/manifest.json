@@ -6,20 +6,31 @@
   "author": "tidedeck",
   "license": "MIT",
   "description": "Plan usage and balances, read from the ai-usagebar binary.",
-  "kinds": ["panel"],
-  "entryPoints": { "panel": ["./render.sh"] },
+  "kinds": [
+    "panel"
+  ],
+  "entryPoints": {
+    "panel": [
+      "./render.sh"
+    ]
+  },
   "panel": {
     "displayName": "AI Usage",
+    "glyph": "\ud83e\udd16",
     "category": "AI",
     "refreshSeconds": 300,
     "minWidth": 22,
     "minHeight": 5,
     "priority": 45,
-    "gauge": true,
-    "spark": true,
     "schema": [
-      { "key": "binary", "type": "string", "label": "ai-usagebar binary",
-        "defaultValue": "ai-usagebar" }
-    ]
+      {
+        "key": "binary",
+        "type": "string",
+        "label": "ai-usagebar binary",
+        "defaultValue": "ai-usagebar"
+      }
+    ],
+    "gauge": true,
+    "spark": true
   }
 }
