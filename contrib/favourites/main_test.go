@@ -153,3 +153,84 @@ func TestRunHelp(t *testing.T) {
 		t.Fatalf("help does not list the verbs: %q", stdout.String())
 	}
 }
+
+// swapOpener and swapForm let a test watch what a row's keys do without opening a
+// browser and without a terminal.
+func swapOpener(replacement func(string) error) func() {
+	previous := runOpener
+	runOpener = replacement
+	return func() { runOpener = previous }
+}
+
+func swapForm(replacement func(Store, string) error) func() {
+	previous := runForm
+	runForm = replacement
+	return func() { runForm = previous }
+}
+
+// A row's enter key hands a web link to the desktop's opener, as one argument.
+func TestRunOpenHandsALinkToTheOpener(t *testing.T) {
+	t.Setenv("TIDEDECK_PLUGIN_PATH", filepath.Join(t.TempDir(), "favourites.json"))
+	var opened []string
+	defer swapOpener(func(link string) error {
+		opened = append(opened, link)
+		return nil
+	})()
+
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"open", "https://go.dev"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("open exited %d: %s", code, stderr.String())
+	}
+	if len(opened) != 1 || opened[0] != "https://go.dev" {
+		t.Fatalf("the opener was given %v, want the link and nothing else", opened)
+	}
+}
+
+// The add row opens the form: one command serves every row, so the program
+// decides, and an empty list is not a dead end.
+func TestRunOpenOpensTheFormForTheAddRow(t *testing.T) {
+	t.Setenv("TIDEDECK_PLUGIN_PATH", filepath.Join(t.TempDir(), "favourites.json"))
+	var edited []string
+	defer swapForm(func(store Store, id string) error {
+		edited = append(edited, id)
+		return nil
+	})()
+	opened := false
+	defer swapOpener(func(link string) error {
+		opened = true
+		return nil
+	})()
+
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"open", "add"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("open add exited %d: %s", code, stderr.String())
+	}
+	if len(edited) != 1 || edited[0] != addRowID {
+		t.Fatalf("open add ran the form with %v, want the add id", edited)
+	}
+	if opened {
+		t.Fatal("open add handed something to the browser")
+	}
+}
+
+// A link no browser should be handed never reaches the opener, and the reader is
+// told which scheme was refused rather than that something went wrong.
+func TestRunOpenRefusesALinkABrowserShouldNotOpen(t *testing.T) {
+	t.Setenv("TIDEDECK_PLUGIN_PATH", filepath.Join(t.TempDir(), "favourites.json"))
+	opened := false
+	defer swapOpener(func(link string) error {
+		opened = true
+		return nil
+	})()
+
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"open", "javascript:alert(1)"}, &stdout, &stderr); code != 1 {
+		t.Fatalf("opening a bookmarklet exited %d, want 1", code)
+	}
+	if opened {
+		t.Fatal("a javascript: link reached the opener")
+	}
+	if !strings.Contains(stderr.String(), "javascript") {
+		t.Fatalf("the refusal does not name the scheme: %q", stderr.String())
+	}
+}

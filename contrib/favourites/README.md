@@ -12,6 +12,8 @@ only way in: edit the file by hand and the pane shows what you wrote.
 ## What it does
 
 - **`enter`** on a row opens that link in your browser, through `xdg-open`.
+- **`e`** on a row opens the form for that entry. Enter acts on a row, `e` changes
+  it; the pane previews and the form is the only thing that writes.
 - The last row, `＋ add a favourite`, opens a blank form. It is there even when
   the list is empty, which is what stops an empty pane being a dead end: with no
   openable row, `enter` could only ever say "select one first".
@@ -25,6 +27,8 @@ only way in: edit the file by hand and the pane shows what you wrote.
   one. A link another entry already uses is refused, naming that entry.
 - `favourites path` prints the file it is using, which is the first question when
   a form saves somewhere unexpected.
+- The verbs are `render`, `open <link>` (a link to the browser, `add` to the form),
+  `edit <link>` and `path`.
 
 ## Installing
 

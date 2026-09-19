@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -22,6 +23,8 @@ import (
 const usage = `favourites - a list of links, with a form to keep it
 
   favourites render        print the panel document
+  favourites open <link>   open that link in the browser
+  favourites open add      add a new favourite
   favourites edit <link>   edit the favourite with that link
   favourites edit add      add a new favourite
   favourites path          print the file the list lives in
@@ -58,6 +61,17 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, string(document))
 		return 0
 
+	case "open":
+		if len(args) < 2 {
+			fmt.Fprintln(stderr, "favourites: open needs a link, or 'add' for a new favourite")
+			return 2
+		}
+		if err := openRow(store, args[1]); err != nil {
+			fmt.Fprintf(stderr, "favourites: %v\n", err)
+			return 1
+		}
+		return 0
+
 	case "edit":
 		if len(args) < 2 {
 			fmt.Fprintln(stderr, "favourites: edit needs a link, or 'add' for a new favourite")
@@ -82,6 +96,35 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 }
+
+// openRow is what a row's enter key does. The program that owns the list decides,
+// which is why the manifest declares one command for every row: a link goes to the
+// browser, and the add row opens a blank form.
+func openRow(store Store, id string) error {
+	if id == addRowID {
+		return runForm(store, addRowID)
+	}
+	if !openable(id) {
+		return fmt.Errorf("%s is not a link a browser should open", id)
+	}
+	if err := runOpener(id); err != nil {
+		return fmt.Errorf("opening %s: %w", id, err)
+	}
+	return nil
+}
+
+// The two things a row's keys do, held as variables so a test can watch them
+// without opening a browser and without a terminal.
+var (
+	// runOpener hands a link to the desktop's opener. argv and never a shell: the
+	// link comes out of a file the reader owns, so it is passed as one argument
+	// rather than as part of a command line.
+	runOpener = func(link string) error {
+		return exec.Command("xdg-open", link).Run()
+	}
+	// runForm opens the form, which is what the add row and the edit key do.
+	runForm = edit
+)
 
 // edit runs the form with the terminal in hand. The dashboard hands it over for
 // exactly this: the program that owns the data is the program that changes it.

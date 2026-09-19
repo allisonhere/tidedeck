@@ -82,6 +82,12 @@ type PanelManifest struct {
 	// row's id, so one template serves every row, and the command is run with
 	// the terminal handed to it.
 	Open []string `json:"open"`
+
+	// Edit is the argv that changes a row rather than acting on it: the form
+	// the plugin owns, run with the same id placeholder and the same handover.
+	// A panel that declares one answers the edit key inside the pane; a panel
+	// that does not leaves that key to the rest of the application.
+	Edit []string `json:"edit"`
 }
 
 // OpenIDPlaceholder is the token a manifest's open command puts where the id of
@@ -195,19 +201,30 @@ func (m Manifest) Validate() []string {
 	// An open command has to say where the id goes. Without a placeholder it
 	// would run the same thing whatever the reader picked, which looks like it
 	// worked and opens the wrong thing.
-	if len(m.Panel.Open) > 0 {
-		if strings.TrimSpace(m.Panel.Open[0]) == "" {
-			problems = append(problems, "panel.open[0] is empty")
+	problems = append(problems, commandProblems(m.Panel.Open, "panel.open")...)
+	problems = append(problems, commandProblems(m.Panel.Edit, "panel.edit")...)
+	return problems
+}
+
+// commandProblems checks a declared command. An empty program, or one that does
+// not name the id placeholder, would run the same thing whatever the reader
+// picked - which looks like it worked and opens the wrong thing.
+func commandProblems(argv []string, field string) []string {
+	if len(argv) == 0 {
+		return nil
+	}
+	var problems []string
+	if strings.TrimSpace(argv[0]) == "" {
+		problems = append(problems, field+"[0] is empty")
+	}
+	named := false
+	for _, arg := range argv {
+		if strings.Contains(arg, OpenIDPlaceholder) {
+			named = true
 		}
-		named := false
-		for _, arg := range m.Panel.Open {
-			if strings.Contains(arg, OpenIDPlaceholder) {
-				named = true
-			}
-		}
-		if !named {
-			problems = append(problems, fmt.Sprintf("panel.open names no %s placeholder", OpenIDPlaceholder))
-		}
+	}
+	if !named {
+		problems = append(problems, fmt.Sprintf("%s names no %s placeholder", field, OpenIDPlaceholder))
 	}
 	return problems
 }
@@ -228,6 +245,15 @@ func (m Manifest) OpenArgv() ([]string, bool) {
 		return nil, false
 	}
 	return m.resolve(m.Panel.Open), true
+}
+
+// EditArgv is the argv that changes the selected row, resolved against the
+// plugin the same way.
+func (m Manifest) EditArgv() ([]string, bool) {
+	if len(m.Panel.Edit) == 0 {
+		return nil, false
+	}
+	return m.resolve(m.Panel.Edit), true
 }
 
 // resolve makes a command's first element absolute against the plugin, so a

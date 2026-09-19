@@ -41,6 +41,7 @@ func TestManifestRunsThisProgramForBothJobs(t *testing.T) {
 		Panel       struct {
 			Glyph string   `json:"glyph"`
 			Open  []string `json:"open"`
+			Edit  []string `json:"edit"`
 		} `json:"panel"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
@@ -66,6 +67,23 @@ func TestManifestRunsThisProgramForBothJobs(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(raw.Panel.Open, " "), "{id}") {
 		t.Fatalf("open %v does not name the row's id, so every row would open the same thing", raw.Panel.Open)
+	}
+	if got := filepath.Base(raw.Panel.Open[0]); got != "favourites" {
+		t.Fatalf("open runs %q, want the same program", got)
+	}
+	// The second key edits the row, so the form has to be declared too - and
+	// reachable, which means the same placeholder and the same program.
+	if len(raw.Panel.Edit) == 0 {
+		t.Fatal("no edit command: a row would be a preview nothing can change")
+	}
+	if got := filepath.Base(raw.Panel.Edit[0]); got != "favourites" {
+		t.Fatalf("edit runs %q, want the same program", got)
+	}
+	if !strings.Contains(strings.Join(raw.Panel.Edit, " "), "{id}") {
+		t.Fatalf("edit %v does not name the row's id, so every row would open the same form", raw.Panel.Edit)
+	}
+	if strings.Join(raw.Panel.Open, " ") == strings.Join(raw.Panel.Edit, " ") {
+		t.Fatal("open and edit run the same thing: one of the two keys would be a duplicate")
 	}
 
 	// A pane glyph is a colour emoji, two cells wide, like every other pane the

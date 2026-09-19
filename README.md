@@ -1223,12 +1223,21 @@ declare the command that opens it, with `{id}` where that row's id belongs:
 "panel": { "open": ["tidemail", "--open", "{id}"] }
 ```
 
+It can declare a second command for **changing** the same row — a form the plugin
+owns, run with the same id:
+
+```json
+"panel": { "edit": ["favourites", "edit", "{id}"] }
+```
+
 `Space` enters the panel, the arrows (or `j`/`k`) move a cursor over the rows that
-carry an id, and `Enter` inside the panel hands the terminal to that command — the
-dashboard suspends itself, so the tool is the one thing on screen, and re-runs the
-panel when it exits. Rows without an id are not destinations, so a setup hint is
-never landed on, and a manifest whose open command names no `{id}` is refused
-rather than run against the wrong row. The id is the plugin's own opaque value:
+carry an id, and inside the panel `Enter` hands the terminal to the open command
+while `e` hands it to the edit command — the dashboard suspends itself, so the tool
+is the one thing on screen, and re-runs the panel when it exits. A panel that
+declares no edit command leaves `e` to the rest of the application, the way one
+that declares no open command leaves `Enter`. Rows without an id are not
+destinations, so a setup hint is never landed on, and a manifest whose open or edit
+command names no `{id}` is refused rather than run against the wrong row. The id is the plugin's own opaque value:
 nothing in the dashboard parses it, so a plugin may name a message, a container or
 a file with it.
 

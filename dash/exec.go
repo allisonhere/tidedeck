@@ -367,6 +367,23 @@ func (e *execPanel) Launch() ([]string, string, bool) {
 	return substituteOpenID(template, row.ID), "opening " + rowTitle(row), true
 }
 
+// Edit is the pane's second action: the program that changes the row rather than
+// acting on it, declared under "edit" and run with the same row id. Like Launch
+// it only says what to run - the caller owns the terminal.
+func (e *execPanel) Edit() ([]string, string, bool) {
+	template, declared := e.manifest.EditArgv()
+	if !declared {
+		return nil, "", false
+	}
+	e.mu.Lock()
+	row, ok := openableAt(e.shown, e.cursor)
+	e.mu.Unlock()
+	if !ok {
+		return nil, "select a row first", true
+	}
+	return substituteOpenID(template, row.ID), "editing " + rowTitle(row), true
+}
+
 // substituteOpenID puts the picked row's id where the manifest's placeholder is.
 // Every occurrence is replaced: an argument that names the id twice is a plugin's
 // business, not ours.

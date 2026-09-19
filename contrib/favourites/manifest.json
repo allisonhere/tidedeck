@@ -2,20 +2,29 @@
   "schemaVersion": 1,
   "id": "tidedeck.favourites",
   "name": "Favourites",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "tidedeck",
   "license": "MIT",
   "description": "A list of links you keep, with a form to add, change and remove them.",
-  "kinds": ["panel"],
+  "kinds": [
+    "panel"
+  ],
   "entryPoints": {
-    "panel": ["./favourites", "render"]
+    "panel": [
+      "./favourites",
+      "render"
+    ]
   },
   "panel": {
     "displayName": "Favourites",
     "description": "Links you keep, opened with enter.",
     "glyph": "\ud83d\udd16",
     "category": "Favourites",
-    "open": ["./favourites", "edit", "{id}"],
+    "open": [
+      "./favourites",
+      "open",
+      "{id}"
+    ],
     "refreshSeconds": 60,
     "minWidth": 24,
     "minHeight": 5,
@@ -29,6 +38,11 @@
         "placeholder": "~/.local/share/tidedeck/favourites.json",
         "defaultValue": ""
       }
+    ],
+    "edit": [
+      "./favourites",
+      "edit",
+      "{id}"
     ]
   }
 }

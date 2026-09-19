@@ -974,6 +974,31 @@ func (m *model) launchFocused() (tea.Cmd, bool) {
 	return launchCmd(m.ws.Focused(), argv), true
 }
 
+// editFocused hands the terminal to the program that *changes* the focused pane's
+// selection, when the pane declares one. Enter acts on a row and e changes it, so
+// a pane that only previews something does not send the reader out of the app to
+// edit it. It reports whether the pane had such an action, so the key falls
+// through to the rest of the application when it did not.
+func (m *model) editFocused() (tea.Cmd, bool) {
+	panel, ok := m.deck.Lookup(m.ws.Focused())
+	if !ok {
+		return nil, false
+	}
+	editor, ok := panel.(dash.Editor)
+	if !ok {
+		return nil, false
+	}
+	argv, status, declared := editor.Edit()
+	if !declared {
+		return nil, false
+	}
+	m.state.status = status
+	if len(argv) == 0 {
+		return nil, true
+	}
+	return launchCmd(m.ws.Focused(), argv), true
+}
+
 // handleEnteredKey routes a key to the pane that has the keyboard. Only what
 // walking that pane needs is taken - esc to leave it, Enter for its primary
 // action, the arrows and j/k for its cursor - so the application's shortcuts and
@@ -994,6 +1019,10 @@ func (m *model) handleEnteredKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		return nil, m.moveSelection(-1)
 	case "down", "j":
 		return nil, m.moveSelection(1)
+	case "e":
+		if cmd, handled := m.editFocused(); handled {
+			return cmd, true
+		}
 	}
 	return nil, false
 }

@@ -89,7 +89,10 @@ func openableFixture(t *testing.T) Panel {
   {"type":"spacer"},
   {"type":"block","id":"9","label":"sam@example.com · 1h","body":["dinner?"]},
   {"type":"spacer"}]}
-JSON`, map[string]any{"panel": map[string]any{"open": []string{"tidemail", "--open", "{id}"}}})
+JSON`, map[string]any{"panel": map[string]any{
+		"open": []string{"tidemail", "--open", "{id}"},
+		"edit": []string{"favourites", "edit", "{id}"},
+	}})
 	panel := Exec(manifest)
 	if err := panel.(Fetcher).Refresh(context.Background()); err != nil {
 		t.Fatal(err)
@@ -466,5 +469,91 @@ func TestExecPanelOptionalGlyph(t *testing.T) {
 	manifest.Panel.Glyph = "too\nwide"
 	if got := Exec(manifest).Meta().Glyph; got != "" {
 		t.Fatalf("invalid plugin glyph = %q, want fallback", got)
+	}
+}
+
+// The second action is the form: the same row id, run by the program that owns
+// the data. A pane that previews what it cannot change sends the reader out of
+// the app to change it.
+func TestExecPanelEditsTheSelectedRow(t *testing.T) {
+	panel := openableFixture(t)
+	view(panel, false)
+
+	editor, ok := panel.(Editor)
+	if !ok {
+		t.Fatal("a plugin with an edit command is not an editor")
+	}
+	argv, status, declared := editor.Edit()
+	if !declared {
+		t.Fatal("the panel declared no edit action")
+	}
+	if len(argv) != 3 || argv[0] != "favourites" || argv[1] != "edit" || argv[2] != "7" {
+		t.Fatalf("argv = %v, want favourites edit 7", argv)
+	}
+	if !strings.Contains(status, "ana@example.com") {
+		t.Errorf("status = %q, want it to name the row", status)
+	}
+	// The id follows the cursor, exactly as the open command's does.
+	panel.(Cursor).Move(1)
+	if argv, _, _ = editor.Edit(); len(argv) != 3 || argv[2] != "9" {
+		t.Fatalf("argv = %v, want the second row's id", argv)
+	}
+}
+
+// A panel that declares only an open command has no second action, so the edit
+// key stays the application's - the same rule the open key follows.
+func TestExecPanelWithoutAnEditCommandDeclaresNoAction(t *testing.T) {
+	manifest := plugin(t, `printf '{"rows":[{"type":"block","id":"7","label":"x","body":["y"]}]}\n'`,
+		map[string]any{"panel": map[string]any{"open": []string{"tidemail", "--open", "{id}"}}})
+	panel := Exec(manifest)
+	if err := panel.(Fetcher).Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	view(panel, false)
+	editor, ok := panel.(Editor)
+	if !ok {
+		t.Fatal("a panel is not an editor, not even to decline")
+	}
+	if argv, _, declared := editor.Edit(); declared || len(argv) != 0 {
+		t.Fatalf("Edit = %v/%v, want no action declared", argv, declared)
+	}
+}
+
+// A declared edit command is checked the way an open command is: without the id
+// placeholder it would open the same form whatever row the reader picked, which
+// looks like it worked and edits the wrong thing. Written to a directory by hand,
+// because the fixture helper refuses a manifest that does not validate.
+func TestManifestChecksADeclaredEditCommand(t *testing.T) {
+	dir := t.TempDir()
+	manifest := map[string]any{
+		"schemaVersion": ManifestSchemaVersion, "id": "test.plugin", "name": "Test",
+		"version": "1.0.0", "author": "test", "description": "a test plugin",
+		"kinds":       []string{KindPanel},
+		"entryPoints": map[string]any{KindPanel: []string{"true"}},
+		"panel":       map[string]any{"edit": []string{"favourites", "edit"}},
+	}
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var problems []string
+	loaded, err := LoadManifest(dir)
+	if err != nil {
+		problems = append(problems, err.Error())
+	} else {
+		problems = loaded.Validate()
+	}
+	found := false
+	for _, problem := range problems {
+		if strings.Contains(problem, "panel.edit") && strings.Contains(problem, "{id}") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("an edit command naming no id was accepted: %v", problems)
 	}
 }

@@ -127,6 +127,14 @@ type Launcher interface {
 	Launch() (argv []string, status string, ok bool)
 }
 
+// Editor is implemented by a panel whose selection can also be *changed* in the
+// program that owns it: the pane previews, the program edits. Edit returns the
+// same three things Launcher does, so a panel that declares no edit command
+// leaves that key to the rest of the application.
+type Editor interface {
+	Edit() (argv []string, status string, ok bool)
+}
+
 // Clicker is implemented by a panel that maps a click inside its content area
 // to an item, with x and y relative to the body. It returns the text to copy
 // and a status message, and whether the click hit an item.
