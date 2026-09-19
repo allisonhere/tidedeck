@@ -32,15 +32,21 @@ only way in: edit the file by hand and the pane shows what you wrote.
 
 ## Installing
 
+The panel is a Go program that imports TideDeck's own library packages, so it is
+compiled inside a checkout and ships with the app: nothing to do when you install
+TideDeck. It is deliberately **not** in the plugin catalogue - the shell plugins
+beside it install and run as they are, and this one cannot.
+
+To build and install it by hand, from a checkout:
+
 ```
-go build -o ~/.config/tidedeck/plugins/tidedeck.favourites/favourites ./contrib/favourites
-cp contrib/favourites/manifest.json ~/.config/tidedeck/plugins/tidedeck.favourites/
+./contrib/favourites/build.sh
+mkdir -p ~/.config/tidedeck/plugins/tidedeck.favourites
+cp -r contrib/favourites/. ~/.config/tidedeck/plugins/tidedeck.favourites/
 ```
 
-With `$XDG_CONFIG_HOME` set, the plugins directory lives under it, and the list
-follows `$XDG_DATA_HOME`. The manifest names the program as `./favourites`
-because the dashboard resolves an entry point and an open command against the
-manifest's own directory, not against your `PATH`.
+`build.sh` explains itself if it is run anywhere without a `go.mod` above it, and
+the pane does the same until the binary is there.
 
 ## Settings
 

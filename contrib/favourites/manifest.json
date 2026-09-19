@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "tidedeck.favourites",
   "name": "Favourites",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "author": "tidedeck",
   "license": "MIT",
   "description": "A list of links you keep, with a form to add, change and remove them.",
@@ -11,7 +11,7 @@
   ],
   "entryPoints": {
     "panel": [
-      "./favourites",
+      "./run.sh",
       "render"
     ]
   },
@@ -21,7 +21,7 @@
     "glyph": "\ud83d\udd16",
     "category": "Favourites",
     "open": [
-      "./favourites",
+      "./run.sh",
       "open",
       "{id}"
     ],
@@ -40,7 +40,7 @@
       }
     ],
     "edit": [
-      "./favourites",
+      "./run.sh",
       "edit",
       "{id}"
     ]

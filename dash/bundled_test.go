@@ -38,6 +38,20 @@ func TestBundledPluginsValidateAndWearAColourGlyph(t *testing.T) {
 			if width := ansi.StringWidth(manifest.Panel.Glyph); width != 2 {
 				t.Fatalf("glyph %q is %d cells wide, want 2: a colour emoji", manifest.Panel.Glyph, width)
 			}
+			// What the manifest names has to be there and be runnable. A plugin
+			// whose program is compiled by the user is only installable if the
+			// entry point it declares exists in the directory that ships.
+			command := manifest.Command(KindPanel)
+			if len(command) == 0 {
+				t.Fatal("the plugin declares no panel entry point")
+			}
+			info, err := os.Stat(command[0])
+			if err != nil {
+				t.Fatalf("the entry point %s is not there: %v", command[0], err)
+			}
+			if info.Mode().Perm()&0o111 == 0 {
+				t.Fatalf("the entry point %s is not executable (mode %v)", command[0], info.Mode().Perm())
+			}
 		})
 	}
 }
