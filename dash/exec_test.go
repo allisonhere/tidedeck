@@ -525,3 +525,31 @@ func TestExecPanelDrawsAnImageRowFromAPlugin(t *testing.T) {
 		t.Fatalf("a rewritten picture was not picked up:\n%q", out)
 	}
 }
+
+// A pane's own colour glyph arrives from a plugin manifest, and the host has to keep it:
+// an emoji like the mail pane's envelope is two cells wide and several runes long, which
+// is exactly what a naive "one rune, one cell" rule would throw away. Rubbish still gets
+// dropped, because a multi-line or three-cell glyph damages the pane's border.
+func TestNormalizeGlyphKeepsAColourGlyph(t *testing.T) {
+	cases := []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{"colour emoji", "📧", "📧"},
+		{"emoji with a variation selector", "🌤️", "🌤️"},
+		{"a plain symbol", "✉", "✉"},
+		{"padded", " 📧 ", "📧"},
+		{"three cells", "🇺🇸🇺🇸", ""},
+		{"a newline inside it", "📧\nM", ""},
+		{"trailing whitespace", "📧\n", "📧"},
+		{"empty", "", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := normalizeGlyph(c.value); got != c.want {
+				t.Fatalf("normalizeGlyph(%q) = %q, want %q", c.value, got, c.want)
+			}
+		})
+	}
+}

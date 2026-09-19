@@ -350,6 +350,25 @@ func TestPanelHeaderTruncationAndBadge(t *testing.T) {
 	}
 }
 
+// A pane header carrying a colour glyph - the mail pane's envelope, and every other pane
+// the host gives an emoji - is still exactly the width the frame asked for. A colour emoji
+// is two cells wide and some are several runes, so this is the case where counting runes
+// instead of cells would push the pane's own border out by a column.
+func TestPanelHeaderKeepsItsWidthWithAColourGlyph(t *testing.T) {
+	r := chromeRenderer(Compact)
+	for _, glyph := range []string{"📧", "🌤️", "📅", "⚙️", "🔌"} {
+		for _, width := range []int{3, 4, 6, 12, 40, 118} {
+			header := r.RenderPanelHeader(PanelHeader{
+				Title:  glyph + " Mail",
+				Border: lipgloss.NormalBorder(), Density: Compact,
+			}, width)
+			if got := lipgloss.Width(header); got != width {
+				t.Errorf("a header with %q at width %d came out %d cells wide", glyph, width, got)
+			}
+		}
+	}
+}
+
 func TestPanelFooterHintsAndMode(t *testing.T) {
 	r := chromeRenderer(Compact)
 	hints := r.RenderPanelFooter(PanelFooter{
