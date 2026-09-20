@@ -436,6 +436,43 @@ func TestExecPanelWithoutInputDeclinesTyping(t *testing.T) {
 	if panel.Type('a') || panel.Backspace() {
 		t.Fatal("a panel without input should decline typing")
 	}
+	if panel.Clear() {
+		t.Fatal("a panel without input should decline clearing")
+	}
+}
+
+// Clear drops the typed input, so a host can collapse a search once the row it
+// picked has been acted on: the program sees an empty setting on the next run.
+func TestExecPanelClearsInput(t *testing.T) {
+	manifest := plugin(t,
+		`printf '{"rows":[{"type":"text","label":"query","value":"%s"}]}' "$TIDEDECK_PLUGIN_QUERY"`,
+		map[string]any{
+			"panel": map[string]any{
+				"input":      "query",
+				"inputChars": "abc",
+				"schema":     []map[string]any{{"key": "query", "type": "string", "label": "Query"}},
+			},
+		})
+	panel := Exec(manifest).(*execPanel)
+	if err := panel.Configure(NewValues()); err != nil {
+		t.Fatal(err)
+	}
+	panel.Type('a')
+	panel.Type('b')
+
+	if !panel.Clear() {
+		t.Fatal("Clear was declined with input typed")
+	}
+	if panel.Clear() {
+		t.Fatal("Clear said it cleared an already-empty input")
+	}
+	if err := panel.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	out := ansi.Strip(panel.View(tideui.PanelContext{Width: 40, Renderer: docRenderer()}))
+	if strings.Contains(out, "ab") {
+		t.Fatalf("cleared input still reached the program:\n%s", out)
+	}
 }
 
 // A manifest can name a row to copy, so a plugin offers a copyable value with

@@ -660,6 +660,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.state.status = "back from " + msg.argv[0]
 		}
+		// The row a search picked has been acted on, so the search box is
+		// cleared: the pane collapses back to its input row instead of showing
+		// the same matches again.
+		if panel, ok := m.deck.Lookup(msg.panel); ok {
+			if clearer, ok := panel.(dash.InputClearer); ok {
+				clearer.Clear()
+			}
+		}
+		if m.editTarget == msg.panel {
+			m.editing, m.editTarget = false, ""
+		}
 		// The program just changed the data this pane previews - TideMail marks
 		// the message it opened as read - so the panel is due again instead of
 		// stale until its next interval.

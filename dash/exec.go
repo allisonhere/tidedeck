@@ -217,6 +217,19 @@ func (e *execPanel) Backspace() bool {
 	return true
 }
 
+// Clear drops everything typed so far, so a host can collapse a search once the
+// row it picked has been acted on. The setting the input stands in for is left
+// alone: this clears the search, not the plugin's configuration.
+func (e *execPanel) Clear() bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.manifest.Panel.Input == "" || e.input == "" {
+		return false
+	}
+	e.input = ""
+	return true
+}
+
 // envKey converts a setting key into an environment variable name.
 func envKey(key string) string {
 	var out strings.Builder

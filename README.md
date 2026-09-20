@@ -1216,7 +1216,10 @@ still reaches the application. The single-key commands are reserved: `m`, `w`,
 Typing an accepted rune — or `/` when the first letter would be reserved —
 starts an edit session in which the panel takes the reserved runes too, and
 `Esc` ends it. What was typed is passed to the program as that setting's
-environment variable, and the program is re-run on each keystroke:
+environment variable, and the program is re-run on each keystroke. When the row
+a search picked is acted on — its `open` or `edit` command exits — the input is
+cleared, so a search box collapses back to its input row instead of showing the
+same matches again (`dash.InputClearer`):
 
 ```json
 "panel": {

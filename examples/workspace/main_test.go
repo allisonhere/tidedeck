@@ -807,6 +807,62 @@ func (plainPanel) Meta() dash.Meta {
 }
 func (plainPanel) View(tideui.PanelContext) string { return "nothing to open" }
 
+// searchPanel takes typing and can be cleared, so the launch path can be tested
+// without a plugin, a subprocess or a terminal.
+type searchPanel struct {
+	typed  string
+	clears int
+}
+
+func (p *searchPanel) Meta() dash.Meta {
+	return dash.Meta{ID: "search", Title: "Search", Role: tideui.RoleOptional, MinWidth: 10, MinHeight: 3, Hidden: true}
+}
+func (p *searchPanel) View(tideui.PanelContext) string { return p.typed }
+func (p *searchPanel) Type(r rune) bool                { p.typed += string(r); return true }
+func (p *searchPanel) Backspace() bool {
+	if p.typed == "" {
+		return false
+	}
+	p.typed = p.typed[:len(p.typed)-1]
+	return true
+}
+func (p *searchPanel) Clear() bool {
+	if p.typed == "" {
+		return false
+	}
+	p.typed, p.clears = "", p.clears+1
+	return true
+}
+func (p *searchPanel) Refresh(context.Context) error { return nil }
+
+// Acting on a row the search picked empties the search box, so the pane
+// collapses back to its input row instead of showing the same matches again.
+func TestLaunchClearsTheSearchBox(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := newModel()
+	m.width, m.height = 150, 44
+	panel := &searchPanel{}
+	m.deck.Register(panel)
+	m.deck.AttachPanel(m.ws, panel)
+	m = showPanel(t, m, "search")
+
+	// "/" starts the typing session, then the runes land in the panel.
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("ab")})
+	if panel.typed != "ab" || !m.editing {
+		t.Fatalf("typed=%q editing=%v, want a session with ab", panel.typed, m.editing)
+	}
+
+	// The program the row opened exits.
+	m = update(t, m, launchMsg{panel: "search", argv: []string{"true"}})
+	if panel.typed != "" || panel.clears != 1 {
+		t.Fatalf("typed=%q clears=%d, want the search cleared", panel.typed, panel.clears)
+	}
+	if m.editing {
+		t.Fatal("the typing session outlived the launch")
+	}
+}
+
 // Space, arrows, Enter: space gives the pane the keyboard in the tiled layout,
 // the arrows pick a message, Enter opens the one under the cursor. Enter on its
 // own is the zoom, and opens nothing.

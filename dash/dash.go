@@ -101,6 +101,13 @@ type Input interface {
 	Backspace() bool
 }
 
+// InputClearer is implemented by a panel whose typed input can be reset. A host
+// clears it once the row a search picked has been acted on, so the pane
+// collapses back to its input row instead of showing the same matches again.
+type InputClearer interface {
+	Clear() bool
+}
+
 // Copier is implemented by a panel whose content can be copied. Copy returns
 // the text and whether there is anything to copy; the caller puts it on the
 // clipboard, so the panel stays independent of the terminal.
