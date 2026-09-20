@@ -3,6 +3,7 @@ module github.com/allisonhere/tideui
 go 1.26.1
 
 require (
+	github.com/allisonhere/ripple v0.3.0
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/colorprofile v0.4.1
