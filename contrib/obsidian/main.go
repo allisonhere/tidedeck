@@ -103,7 +103,7 @@ func renderDoc(stdout, stderr io.Writer, cfg settings) int {
 		var body []string
 		if current != nil {
 			if data, readErr := ReadNote(vault, current.Rel); readErr == nil {
-				body = BodyLines(data, previewLines)
+				body = ReadableLines(data, previewLines)
 			}
 		}
 		return writeDoc(stdout, stderr, Render(vault, vaults, "", nil, current, body, nil))
@@ -113,7 +113,7 @@ func renderDoc(stdout, stderr io.Writer, cfg settings) int {
 	for _, note := range RankNotes(notes, cfg.query) {
 		excerpt := ""
 		if data, readErr := ReadNote(vault, note.Rel); readErr == nil {
-			excerpt = Excerpt(data, 90)
+			excerpt = Excerpt(data, note.Title, 90)
 		}
 		matches = append(matches, Match{Note: note, Excerpt: excerpt})
 	}

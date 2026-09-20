@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -11,9 +12,20 @@ import (
 // own height anyway; this only stops a very long note bloating the document.
 const previewLines = 80
 
-// BodyLines returns a note's lines for the pane to draw: YAML frontmatter is
-// dropped (it is metadata, not reading matter), tabs are expanded, and the run
-// is capped.
+var (
+	reImage  = regexp.MustCompile(`!\[([^\]]*)\]\([^)]*\)`)
+	reLink   = regexp.MustCompile(`\[([^\]]*)\]\([^)]*\)`)
+	reWiki   = regexp.MustCompile(`\[\[([^\]|]+)(?:\|([^\]]+))?\]\]`)
+	reBold   = regexp.MustCompile(`\*\*([^*\n]+)\*\*|__([^_\n]+)__`)
+	reStrike = regexp.MustCompile(`~~([^~\n]+)~~`)
+	reCode   = regexp.MustCompile("`([^`\n]*)`")
+	reTask   = regexp.MustCompile(`^(\s*)[-*+] \[([ xX])\] (.*)$`)
+	reBullet = regexp.MustCompile(`^(\s*)[-*+] (.*)$`)
+)
+
+// BodyLines returns a note's raw lines with YAML frontmatter dropped (it is
+// metadata, not reading matter), tabs expanded, and the run capped. It is the
+// base ReadableLines strips markdown from.
 func BodyLines(body []byte, maxLines int) []string {
 	lines := strings.Split(strings.ReplaceAll(string(body), "\r\n", "\n"), "\n")
 	if len(lines) > 0 && strings.TrimSpace(lines[0]) == "---" {
@@ -37,21 +49,108 @@ func BodyLines(body []byte, maxLines int) []string {
 	return out
 }
 
-// Excerpt is the first line of a note worth showing beside its name: the first
-// non-blank line that is not a heading or a bullet marker, so the list says
-// something about each note without opening it.
-func Excerpt(body []byte, max int) string {
-	for _, line := range BodyLines(body, 200) {
+// ReadableLines turns a note into lines fit for a pane: markdown the terminal
+// cannot render is stripped, because a reader should see the note, not its
+// source. Headings lose their hashes, emphasis its markers, links their URLs,
+// bullets become dots, and fenced code keeps its indentation.
+func ReadableLines(body []byte, maxLines int) []string {
+	var out []string
+	inFence := false
+	for _, line := range BodyLines(body, 0) {
 		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") ||
-			strings.HasPrefix(trimmed, "---") || strings.HasPrefix(trimmed, "```") {
+		switch {
+		case strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~"):
+			inFence = !inFence
+			continue
+		case inFence:
+			out = append(out, "    "+strings.TrimRight(line, " \t"))
+			continue
+		case trimmed == "":
+			if len(out) > 0 && out[len(out)-1] != "" {
+				out = append(out, "")
+			}
+			continue
+		case isHorizontalRule(trimmed):
 			continue
 		}
-		trimmed = strings.TrimLeft(trimmed, "-*>0123456789. \t")
-		if trimmed == "" {
+		out = append(out, readableLine(line))
+	}
+	for len(out) > 0 && out[len(out)-1] == "" {
+		out = out[:len(out)-1]
+	}
+	if maxLines > 0 && len(out) > maxLines {
+		out = out[:maxLines]
+	}
+	return out
+}
+
+func readableLine(line string) string {
+	trimmed := strings.TrimSpace(line)
+	switch {
+	case reTask.MatchString(line):
+		m := reTask.FindStringSubmatch(line)
+		box := "☐"
+		if strings.EqualFold(m[2], "x") {
+			box = "☑"
+		}
+		return m[1] + box + " " + stripInline(m[3])
+	case strings.HasPrefix(trimmed, "#"):
+		return stripInline(strings.TrimSpace(strings.TrimLeft(trimmed, "#")))
+	case strings.HasPrefix(trimmed, ">"):
+		return "│ " + stripInline(strings.TrimSpace(strings.TrimLeft(trimmed, ">")))
+	case reBullet.MatchString(line):
+		m := reBullet.FindStringSubmatch(line)
+		return m[1] + "• " + stripInline(m[2])
+	default:
+		return stripInline(line)
+	}
+}
+
+// stripInline removes the markdown that decorates a run of text: image and link
+// syntax, wikilinks, emphasis and inline code. Emphasis is only stripped for
+// the doubled markers, so an identifier like some_snake_case survives.
+func stripInline(s string) string {
+	s = reImage.ReplaceAllString(s, "$1")
+	s = reLink.ReplaceAllString(s, "$1")
+	s = reWiki.ReplaceAllStringFunc(s, func(match string) string {
+		parts := reWiki.FindStringSubmatch(match)
+		if len(parts) == 3 && parts[2] != "" {
+			return parts[2]
+		}
+		return parts[1]
+	})
+	s = reCode.ReplaceAllString(s, "$1")
+	s = reBold.ReplaceAllString(s, "$1$2")
+	s = reStrike.ReplaceAllString(s, "$1")
+	return strings.TrimRight(s, " \t")
+}
+
+func isHorizontalRule(trimmed string) bool {
+	if len(trimmed) < 3 {
+		return false
+	}
+	marker := rune(trimmed[0])
+	if marker != '-' && marker != '*' && marker != '_' {
+		return false
+	}
+	for _, r := range trimmed {
+		if r != marker && r != ' ' {
+			return false
+		}
+	}
+	return true
+}
+
+// Excerpt is the first readable line of a note that is not the note's own
+// title, for the search list: enough to tell two similar names apart.
+func Excerpt(body []byte, title string, max int) string {
+	title = strings.ToLower(strings.TrimSpace(title))
+	for _, line := range ReadableLines(body, 200) {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.ToLower(line) == title {
 			continue
 		}
-		return capText(trimmed, max)
+		return capText(line, max)
 	}
 	return ""
 }

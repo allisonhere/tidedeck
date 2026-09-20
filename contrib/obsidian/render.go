@@ -45,7 +45,7 @@ func Render(vault *Vault, vaults []Vault, query string, matches []Match, current
 	if query == "" {
 		doc.Badge = &dash.DocBadge{Text: name, Tone: "muted"}
 		doc.Rows = append(doc.Rows, dash.Row{
-			Type: "text", Label: "search", Value: "type to find a note", Tone: "muted",
+			Type: "text", Label: "search", Value: "type to search · e edits", Tone: "muted",
 		})
 		if current == nil {
 			doc.Rows = append(doc.Rows, dash.Row{
@@ -65,11 +65,13 @@ func Render(vault *Vault, vaults []Vault, query string, matches []Match, current
 
 	doc.Badge = &dash.DocBadge{Text: fmt.Sprintf("%d match", len(matches)), Tone: "accent"}
 	doc.Rows = append(doc.Rows, dash.Row{Type: "text", Label: "search", Value: query, Tone: "accent"})
+	// The new-note row sits above the list, so it stays visible in a short pane
+	// however many matches there are.
+	doc.Rows = append(doc.Rows, newNoteRow(query))
 	if len(matches) == 0 {
 		doc.Rows = append(doc.Rows, dash.Row{
 			Type: "text", Label: "no note", Value: "nothing matches " + query, Tone: "muted",
 		})
-		doc.Rows = append(doc.Rows, newNoteRow(query))
 		return doc
 	}
 
@@ -79,19 +81,19 @@ func Render(vault *Vault, vaults []Vault, query string, matches []Match, current
 	}
 	doc.Rows = append(doc.Rows, dash.Row{Type: "divider", Label: "NOTES"})
 	for _, match := range shown {
-		row := dash.Row{Type: "block", Label: match.Title, Value: folderOf(match.Rel), ID: match.Rel}
-		if match.Excerpt != "" {
-			row.Body = []string{match.Excerpt}
-			row.BodyTone = "muted"
+		value := match.Excerpt
+		if value == "" {
+			value = folderOf(match.Rel)
 		}
-		doc.Rows = append(doc.Rows, row)
+		doc.Rows = append(doc.Rows, dash.Row{
+			Type: "text", Label: match.Title, Value: value, ID: match.Rel,
+		})
 	}
 	if len(matches) > len(shown) {
 		doc.Rows = append(doc.Rows, dash.Row{
 			Type: "text", Label: "more", Value: fmt.Sprintf("%d more", len(matches)-len(shown)), Tone: "muted",
 		})
 	}
-	doc.Rows = append(doc.Rows, newNoteRow(query))
 	return doc
 }
 

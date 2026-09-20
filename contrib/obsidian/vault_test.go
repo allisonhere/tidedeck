@@ -178,13 +178,38 @@ func TestBodyLinesDropsFrontmatterAndCaps(t *testing.T) {
 	}
 }
 
-func TestExcerptSkipsHeadings(t *testing.T) {
+func TestExcerptSkipsTheTitleAndHeadings(t *testing.T) {
 	body := []byte("# Title\n\n## Section\n\nthe real first line\nmore\n")
-	if got := Excerpt(body, 40); got != "the real first line" {
+	if got := Excerpt(body, "Title", 40); got != "Section" {
 		t.Fatalf("excerpt = %q", got)
 	}
-	if got := Excerpt([]byte("# Only A Title\n"), 40); got != "" {
+	if got := Excerpt([]byte("# Only A Title\n"), "Only A Title", 40); got != "" {
 		t.Fatalf("excerpt = %q, want empty when there is only a heading", got)
+	}
+}
+
+func TestReadableLinesStripsMarkdown(t *testing.T) {
+	body := []byte("# Heading\n\n" +
+		"Some **bold** and `code` and a [link](https://x) and [[Wiki|alias]].\n\n" +
+		"- a bullet\n- [x] done\n- [ ] todo\n\n" +
+		"```go\nfmt.Println(\"hi\")\n```\n\n" +
+		"> a quote\n")
+	got := strings.Join(ReadableLines(body, 0), "\n")
+	for _, want := range []string{
+		"Heading",
+		"Some bold and code and a link and alias.",
+		"• a bullet",
+		"☑ done",
+		"☐ todo",
+		"    fmt.Println(\"hi\")",
+		"│ a quote",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("readable body is missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "**") || strings.Contains(got, "](") || strings.Contains(got, "```") {
+		t.Fatalf("markdown survived:\n%s", got)
 	}
 }
 

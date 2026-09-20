@@ -110,8 +110,8 @@ func TestRunRenderSearchListsMatches(t *testing.T) {
 	if hasID(doc, "Welcome.md") {
 		t.Fatalf("welcome should not match tftp: %#v", doc.Rows)
 	}
-	if last := doc.Rows[len(doc.Rows)-1]; last.ID != newNoteID {
-		t.Fatalf("last row = %#v, want the new-note row", last)
+	if doc.Rows[1].ID != newNoteID {
+		t.Fatalf("row 1 = %#v, want the new-note row", doc.Rows[1])
 	}
 }
 

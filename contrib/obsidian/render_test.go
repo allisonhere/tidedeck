@@ -66,12 +66,12 @@ func TestRenderSearchListsMatchesAndOffersANewNote(t *testing.T) {
 		t.Fatalf("badge = %#v, want the match count", doc.Badge)
 	}
 	first := findRow(t, doc, "TideFTP")
-	if first.ID != "TideFTP.md" || len(first.Body) != 1 || first.Body[0] != "the ftp app" {
+	if first.ID != "TideFTP.md" || first.Value != "the ftp app" || first.Type != "text" {
 		t.Fatalf("match row = %#v", first)
 	}
-	newRow := doc.Rows[len(doc.Rows)-1]
-	if newRow.ID != newNoteID || !strings.Contains(newRow.Label, "new note") {
-		t.Fatalf("last row = %#v, want the new-note row", newRow)
+	// The new-note row sits above the list so it stays visible.
+	if doc.Rows[1].ID != newNoteID {
+		t.Fatalf("row 1 = %#v, want the new-note row", doc.Rows[1])
 	}
 }
 
@@ -81,8 +81,8 @@ func TestRenderSearchWithoutMatches(t *testing.T) {
 	if row := findRow(t, doc, "no note"); row.Tone != "muted" {
 		t.Fatalf("no-match row = %#v", row)
 	}
-	if last := doc.Rows[len(doc.Rows)-1]; last.ID != newNoteID {
-		t.Fatalf("last row = %#v, want the new-note row", last)
+	if doc.Rows[1].ID != newNoteID {
+		t.Fatalf("row 1 = %#v, want the new-note row", doc.Rows[1])
 	}
 }
 

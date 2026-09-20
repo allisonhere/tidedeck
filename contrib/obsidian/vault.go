@@ -250,9 +250,9 @@ func WriteNote(vault *Vault, rel string, body []byte) error {
 }
 
 // FuzzyScore reports whether pattern is a case-insensitive subsequence of
-// target, and how good the match is. Consecutive runs and matches at a word
-// boundary score higher than a scatter of letters, so "tftp" picks
-// "TideFTP.md" over an incidental set of letters in a long path.
+// target, and how good the match is. A consecutive run and a match at a word
+// boundary score higher; a gap between matched letters costs, so a tight match
+// in a short name beats a scattered one in a long path.
 func FuzzyScore(pattern, target string) (int, bool) {
 	if pattern == "" {
 		return 0, true
@@ -268,11 +268,14 @@ func FuzzyScore(pattern, target string) (int, bool) {
 			continue
 		}
 		score++
-		if index == previous+1 {
-			score += 4 // a consecutive run
+		switch {
+		case index == previous+1:
+			score += 6 // a consecutive run
+		case previous >= 0:
+			score -= min(index-previous-1, 5) // a gap costs
 		}
 		if index == 0 || isWordBreak(haystack[index-1]) {
-			score += 3 // the start of a word
+			score += 4 // the start of a word
 		}
 		previous = index
 		at++
@@ -281,7 +284,7 @@ func FuzzyScore(pattern, target string) (int, bool) {
 		return 0, false
 	}
 	// A tighter target beats a sprawling one, and an early match beats a late.
-	score += max(0, 12-len(haystack)/8)
+	score += max(0, 12-len(haystack)/6)
 	return score, true
 }
 
@@ -290,41 +293,52 @@ func isWordBreak(r rune) bool {
 }
 
 // RankNotes filters and orders notes for a query: fuzzy score first, then the
-// most recently edited, so an empty query is simply the recent notes.
+// most recently edited, so an empty query is simply the recent notes. Weak
+// matches are dropped, because a fuzzy subsequence can spell almost anything
+// out of a long path and a list of near-misses helps nobody.
 func RankNotes(notes []Note, query string) []Note {
-	ranked := append([]Note(nil), notes...)
 	query = strings.TrimSpace(query)
-	if query != "" {
-		type scored struct {
-			note  Note
-			score int
-		}
-		var matches []scored
-		for _, note := range notes {
-			best := -1
-			if score, ok := FuzzyScore(query, note.Title); ok {
-				best = score + 8 // a title match is worth more than a path one
-			}
-			if score, ok := FuzzyScore(query, note.Rel); ok && score > best {
-				best = score
-			}
-			if best >= 0 {
-				matches = append(matches, scored{note, best})
-			}
-		}
-		sort.SliceStable(matches, func(i, j int) bool {
-			if matches[i].score != matches[j].score {
-				return matches[i].score > matches[j].score
-			}
-			return noteLess(matches[i].note, matches[j].note)
-		})
-		ranked = make([]Note, len(matches))
-		for i, match := range matches {
-			ranked[i] = match.note
-		}
+	if query == "" {
+		ranked := append([]Note(nil), notes...)
+		sort.SliceStable(ranked, func(i, j int) bool { return noteLess(ranked[i], ranked[j]) })
 		return ranked
 	}
-	sort.SliceStable(ranked, func(i, j int) bool { return noteLess(ranked[i], ranked[j]) })
+
+	type scored struct {
+		note  Note
+		score int
+	}
+	var matches []scored
+	for _, note := range notes {
+		best := -1
+		if score, ok := FuzzyScore(query, note.Title); ok {
+			best = score + 8 // a title match is worth more than a path one
+		}
+		if score, ok := FuzzyScore(query, note.Rel); ok && score > best {
+			best = score
+		}
+		if best >= 0 {
+			matches = append(matches, scored{note, best})
+		}
+	}
+	sort.SliceStable(matches, func(i, j int) bool {
+		if matches[i].score != matches[j].score {
+			return matches[i].score > matches[j].score
+		}
+		return noteLess(matches[i].note, matches[j].note)
+	})
+
+	cutoff := 0
+	if len(matches) > 0 {
+		cutoff = max(1, matches[0].score/3)
+	}
+	ranked := make([]Note, 0, len(matches))
+	for _, match := range matches {
+		if match.score < cutoff {
+			continue
+		}
+		ranked = append(ranked, match.note)
+	}
 	return ranked
 }
 

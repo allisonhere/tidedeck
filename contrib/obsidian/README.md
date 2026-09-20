@@ -6,12 +6,13 @@ file on disk, so the panel reads them directly and never needs Obsidian running.
 ## What it does
 
 - **The pane reads a note, not a list.** It shows the note you last loaded -
-  or, before that, the most recently edited one - with its body under it. The
-  search row sits on top, so there is always one place to type.
-- **Type to search, and the matches drop in** below: each with its folder and a
-  line of its body, so two notes with similar names can be told apart. Matching
-  is fuzzy over names and paths, so `prj` finds `Projects/` and `tftp` finds
-  `TideFTP`.
+  or, before that, the most recently edited one - with its body under it,
+  markdown stripped so it reads like a note rather than source. The search row
+  sits on top, so there is always one place to type.
+- **Type to search, and the matches drop in** below, each with a line of its
+  body, so two notes with similar names can be told apart. Matching is fuzzy
+  over names and paths, so `prj` finds `Projects/` and `tftp` finds `TideFTP`,
+  and a scattered match in a long path is dropped rather than listed.
 - **`enter` loads the note** the cursor is on into the pane, and the search
   clears, so you are reading it. **`e` edits it** in a full-screen
   [Ripple](#requirements) editor: arrows and word motions, selection,
