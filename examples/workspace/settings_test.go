@@ -325,42 +325,42 @@ func TestSettingsClockFieldsComeFromThePanel(t *testing.T) {
 
 func TestSettingsGaugeStyleChoice(t *testing.T) {
 	form := newSettingsForm()
-	form.Open(config{GaugeStyle: "solid"})
+	form.Open(config{GaugeStyle: "segment"})
 	form.Update(tea.KeyMsg{Type: tea.KeyEnter}) // open General
 	form.Update(tea.KeyMsg{Type: tea.KeyDown})  // Live data -> gauge style
 	field := form.currentField()
 	if field == nil || field.kind != fieldChoice || field.choice == nil {
 		t.Fatalf("field = %+v, want gauge style choice", field)
 	}
-	if got := form.value(*field); got != "solid" {
-		t.Fatalf("gauge value = %q, want solid", got)
+	if got := form.value(*field); got != "segment" {
+		t.Fatalf("gauge value = %q, want segment", got)
 	}
 	// There are more gauge styles than are worth cycling blind, so enter opens
 	// a picker. The arrows still step the value in place.
 	form.Update(tea.KeyMsg{Type: tea.KeyRight})
-	if form.state.gauge == "solid" {
+	if form.state.gauge == "segment" {
 		t.Fatal("gauge style did not step")
 	}
 	if action := form.Update(tea.KeyMsg{Type: tea.KeyCtrlS}); action != settingsSaved {
 		t.Fatalf("save action = %v", action)
 	}
-	if form.SavedConfig().GaugeStyle == "solid" {
+	if form.SavedConfig().GaugeStyle == "segment" {
 		t.Fatal("gauge style did not save")
 	}
 }
 
 func TestSettingsChoiceArrowKeys(t *testing.T) {
 	form := newSettingsForm()
-	form.Open(config{GaugeStyle: "solid"})
+	form.Open(config{GaugeStyle: "segment"})
 	form.Update(tea.KeyMsg{Type: tea.KeyEnter}) // open General
 	form.Update(tea.KeyMsg{Type: tea.KeyDown})  // gauge style
 	form.Update(tea.KeyMsg{Type: tea.KeyRight})
-	if got := form.value(*form.currentField()); got != "blocks" {
-		t.Fatalf("right arrow -> %q, want blocks", got)
+	if got := form.value(*form.currentField()); got != "block" {
+		t.Fatalf("right arrow -> %q, want block", got)
 	}
 	form.Update(tea.KeyMsg{Type: tea.KeyLeft})
-	if got := form.value(*form.currentField()); got != "solid" {
-		t.Fatalf("left arrow -> %q, want solid", got)
+	if got := form.value(*form.currentField()); got != "segment" {
+		t.Fatalf("left arrow -> %q, want segment", got)
 	}
 }
 
@@ -1099,20 +1099,20 @@ func TestSettingsNumberFieldValidatesAsTyped(t *testing.T) {
 	}
 }
 
-// A long choice opens a picker and draws it; without the overlay the control
-// would hold the keyboard while nothing on screen had changed.
-func TestSettingsChoicePickerDraws(t *testing.T) {
+// The standard gauge list is short, so it steps in place instead of opening a
+// picker: a two-item picker is ceremony. A long list still opens one, which
+// the form package's TestChoiceOpensPickerOnlyWhenLong covers.
+func TestSettingsShortChoiceStepsInPlace(t *testing.T) {
 	form := gpuForm(t)
 	openCategory(t, form, "GPU")
 	form.Update(tea.KeyMsg{Type: tea.KeyDown}) // gauge style
+	before := form.value(*form.currentField())
 	form.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if !form.editing {
-		t.Fatal("enter did not open the picker")
+	if form.editing {
+		t.Fatal("a two-item choice opened a picker")
 	}
-	r := tideui.NewRenderer(tideui.BuiltinThemes[0], tideui.StyleOptions{})
-	view := form.RenderWorkspace(r, 96, 24)
-	if !strings.Contains(view, "gauge style") {
-		t.Fatal("the picker was not drawn")
+	if form.value(*form.currentField()) == before {
+		t.Fatal("the short choice did not step")
 	}
 }
 
@@ -1421,7 +1421,6 @@ func TestPanelGlyphsAreColourEmoji(t *testing.T) {
 	ids := []string{
 		"agenda", "weather", "system", "gpu", "updates", "clock", "git", "news",
 		"network", "storage", "services", "tasks", "notes", "markets", "calculator",
-		"mail", "tidedeck.mail",
 	}
 	for _, id := range ids {
 		glyph := panelGlyph(id)
@@ -1432,6 +1431,45 @@ func TestPanelGlyphsAreColourEmoji(t *testing.T) {
 			t.Errorf("panel %q glyph %q is %d cells: a colour glyph is two cells wide, one cell is a monochrome symbol",
 				id, glyph, width)
 		}
+	}
+}
+
+// The settings screen draws the glyph a panel declares. It used the host's
+// hand-written map for every panel, and no plugin is in that map, so a plugin's
+// page wore the generic plug however its manifest was written - the mail page
+// showed a plug while its pane header showed the envelope.
+func TestSettingsIconUsesThePluginsGlyph(t *testing.T) {
+	manifest := dash.Manifest{
+		SchemaVersion: dash.ManifestSchemaVersion,
+		ID:            "tidedeck.mail",
+		Name:          "Mail",
+		Kinds:         []string{dash.KindPanel},
+		EntryPoints:   map[string][]string{dash.KindPanel: {"./render.sh"}},
+		Panel: dash.PanelManifest{
+			DisplayName: "Mail",
+			Glyph:       "📧",
+			Schema:      []dash.SchemaField{{Key: "account", Type: "string", Label: "account"}},
+		},
+	}
+	ws := tideui.NewWorkspace()
+	deck := dash.New()
+	deck.Register(dash.Exec(manifest))
+	deck.Attach(ws)
+
+	form := newSettingsForm()
+	form.SetWorkspace(ws)
+	form.SetDeck(deck)
+	cfg := defaultConfig()
+	cfg.doc = dash.NewValues()
+	form.Open(cfg)
+
+	icon := form.settingsIcon(settingsCategory{name: "Mail", panelID: "tidedeck.mail"})
+	if icon != "📧" {
+		t.Fatalf("settings icon = %q, want the manifest's envelope", icon)
+	}
+	// A host panel declares no glyph, so the map beside this still supplies one.
+	if host := form.settingsIcon(settingsCategory{name: "Clock", panelID: "clock"}); host != "🕒" {
+		t.Fatalf("host icon = %q, want the hand-written clock", host)
 	}
 }
 
@@ -1453,5 +1491,31 @@ func TestMailPluginDeclaresAColourGlyph(t *testing.T) {
 	if width := ansi.StringWidth(manifest.Panel.Glyph); width != 2 {
 		t.Fatalf("the mail plugin declares glyph %q, %d cells wide; a colour emoji is two",
 			manifest.Panel.Glyph, width)
+	}
+}
+
+// And the settings screen has to draw that envelope, not merely know it exists:
+// the glyph the manifest declares is the one the category list shows.
+func TestSettingsDrawsTheMailPluginsEnvelope(t *testing.T) {
+	manifest, err := dash.LoadManifest(filepath.Join("..", "..", "contrib", "mail"))
+	if err != nil {
+		t.Fatalf("loading the mail plugin's manifest: %v", err)
+	}
+	ws := tideui.NewWorkspace()
+	deck := dash.New()
+	deck.Register(dash.Exec(manifest))
+	deck.Attach(ws)
+
+	form := newSettingsForm()
+	form.SetWorkspace(ws)
+	form.SetDeck(deck)
+	cfg := defaultConfig()
+	cfg.doc = dash.NewValues()
+	form.Open(cfg)
+
+	r := tideui.NewRenderer(tideui.CatppuccinMocha, tideui.StyleOptions{})
+	drawn := strings.Join(form.renderCategories(r, 40, 80), "\n")
+	if !strings.Contains(drawn, "📧") {
+		t.Fatalf("the settings list does not draw the mail envelope:\n%s", ansi.Strip(drawn))
 	}
 }

@@ -169,14 +169,52 @@ func TestGaugeStyles(t *testing.T) {
 		if r.Styles.Gauge != style {
 			t.Fatalf("resolved gauge = %q, want %q", r.Styles.Gauge, style)
 		}
-		got := r.RenderProgressBar(ProgressBar{Fraction: 0.5, Width: 10, Tone: ToneGood}, r.Styles.Workspace.Bg)
-		if w := lipgloss.Width(got); w != 10 {
-			t.Fatalf("%s gauge width = %d, want 10", style, w)
+		// Every family, at every width from a sliver to a wide pane, is exactly
+		// the width asked for: a gauge that overflows or drifts breaks a row.
+		for _, width := range []int{1, 2, 3, 5, 8, 10, 14, 15, 20, 40} {
+			got := r.RenderProgressBar(ProgressBar{Fraction: 0.5, Width: width, Tone: ToneGood}, r.Styles.Workspace.Bg)
+			if w := lipgloss.Width(got); w != width {
+				t.Fatalf("%s gauge at width %d rendered %d cells (%q)", style, width, w, ansi.Strip(got))
+			}
 		}
 	}
 	unknown := NewRenderer(CatppuccinMocha, StyleOptions{Gauge: GaugeStyle("nope")})
-	if unknown.Styles.Gauge != GaugeSolid {
-		t.Fatalf("unknown gauge = %q, want solid", unknown.Styles.Gauge)
+	if unknown.Styles.Gauge != GaugeBlock {
+		t.Fatalf("unknown gauge = %q, want block", unknown.Styles.Gauge)
+	}
+}
+
+// The glyph sets that predate the two standard shapes keep working: a config
+// written before the change resolves to the shape that reads most like it.
+func TestLegacyGaugeStylesMapToAFamily(t *testing.T) {
+	cases := map[GaugeStyle]GaugeStyle{
+		"solid": GaugeBlock, "bars": GaugeBlock,
+		"blocks": GaugeSegment, "circles": GaugeSegment,
+		"fisheye": GaugeSegment, "marker": GaugeSegment,
+	}
+	for legacy, want := range cases {
+		r := NewRenderer(CatppuccinMocha, StyleOptions{Gauge: legacy})
+		if r.Styles.Gauge != want {
+			t.Errorf("legacy %q resolved to %q, want %q", legacy, r.Styles.Gauge, want)
+		}
+	}
+}
+
+// Each shape is its own, and the fill follows the value.
+func TestGaugeFamiliesDifferAndTrackTheValue(t *testing.T) {
+	r := NewRenderer(CatppuccinMocha, StyleOptions{})
+	bg := r.Styles.Workspace.Bg
+	drawn := map[string]string{}
+	for _, style := range GaugeStyles() {
+		empty := ansi.Strip(r.RenderProgressBar(ProgressBar{Fraction: 0, Width: 17, Style: style}, bg))
+		full := ansi.Strip(r.RenderProgressBar(ProgressBar{Fraction: 1, Width: 17, Style: style}, bg))
+		if empty == full {
+			t.Errorf("%s draws the same at 0 and 1: %q", style, empty)
+		}
+		if seen, dup := drawn[empty]; dup {
+			t.Errorf("%s and %s draw the same empty gauge: %q", style, seen, empty)
+		}
+		drawn[empty] = string(style)
 	}
 }
 
@@ -207,12 +245,12 @@ func TestPanelSparklineOverride(t *testing.T) {
 	if got := wr.panelRenderer(panel).Styles.Sparkline; got != SparkBlocks {
 		t.Fatalf("default panel sparkline = %q, want blocks", got)
 	}
-	panel.Sparkline(SparkBraille)
-	if style, ok := panel.PanelSparkline(); !ok || style != SparkBraille {
-		t.Fatalf("PanelSparkline = %q,%v, want braille", style, ok)
+	panel.Sparkline(SparkDots)
+	if style, ok := panel.PanelSparkline(); !ok || style != SparkDots {
+		t.Fatalf("PanelSparkline = %q,%v, want dots", style, ok)
 	}
-	if got := wr.panelRenderer(panel).Styles.Sparkline; got != SparkBraille {
-		t.Fatalf("panel sparkline = %q, want braille", got)
+	if got := wr.panelRenderer(panel).Styles.Sparkline; got != SparkDots {
+		t.Fatalf("panel sparkline = %q, want dots", got)
 	}
 	panel.ClearSparkline()
 	if got := wr.panelRenderer(panel).Styles.Sparkline; got != SparkBlocks {
@@ -229,32 +267,32 @@ func TestGaugeSample(t *testing.T) {
 		}
 	}
 	// The sample differs between styles, so the picker previews are distinct.
-	a := NewRenderer(CatppuccinMocha, StyleOptions{}).GaugeSample(GaugeSolid, 8)
-	b := NewRenderer(CatppuccinMocha, StyleOptions{}).GaugeSample(GaugeCircles, 8)
+	a := NewRenderer(CatppuccinMocha, StyleOptions{}).GaugeSample(GaugeBlock, 8)
+	b := NewRenderer(CatppuccinMocha, StyleOptions{}).GaugeSample(GaugeSegment, 8)
 	if a == b {
-		t.Fatalf("solid and circles samples should differ: %q", a)
+		t.Fatalf("block and segment samples should differ: %q", a)
 	}
 }
 
 func TestPanelGaugeOverride(t *testing.T) {
-	wr := NewWorkspaceRenderer(NewRenderer(CatppuccinMocha, StyleOptions{Gauge: GaugeSolid}))
+	wr := NewWorkspaceRenderer(NewRenderer(CatppuccinMocha, StyleOptions{Gauge: GaugeSegment}))
 	panel := newPanel("system", nil)
-	if got := wr.panelRenderer(panel).Styles.Gauge; got != GaugeSolid {
-		t.Fatalf("default panel gauge = %q, want solid", got)
+	if got := wr.panelRenderer(panel).Styles.Gauge; got != GaugeSegment {
+		t.Fatalf("default panel gauge = %q, want segment", got)
 	}
-	panel.Gauge(GaugeCircles)
-	if style, ok := panel.PanelGauge(); !ok || style != GaugeCircles {
-		t.Fatalf("PanelGauge = %q,%v, want circles", style, ok)
+	panel.Gauge(GaugeBlock)
+	if style, ok := panel.PanelGauge(); !ok || style != GaugeBlock {
+		t.Fatalf("PanelGauge = %q,%v, want block", style, ok)
 	}
-	if got := wr.panelRenderer(panel).Styles.Gauge; got != GaugeCircles {
-		t.Fatalf("panel gauge = %q, want circles", got)
+	if got := wr.panelRenderer(panel).Styles.Gauge; got != GaugeBlock {
+		t.Fatalf("panel gauge = %q, want block", got)
 	}
 	panel.ClearGauge()
 	if panel.HasPanelGauge() {
 		t.Fatal("ClearGauge did not clear the override")
 	}
-	if got := wr.panelRenderer(panel).Styles.Gauge; got != GaugeSolid {
-		t.Fatalf("cleared panel gauge = %q, want solid", got)
+	if got := wr.panelRenderer(panel).Styles.Gauge; got != GaugeSegment {
+		t.Fatalf("cleared panel gauge = %q, want segment", got)
 	}
 }
 
@@ -618,12 +656,6 @@ func TestWorkspaceRenderArrangeLiveMoveBounded(t *testing.T) {
 // highest of them red — the reddest cell was also the smallest.
 func TestSparklinePeakIsTheLargestGlyph(t *testing.T) {
 	for _, style := range SparklineStyles() {
-		if _, banded := bandedDefaults[style]; banded {
-			// The banded styles are deliberately absolute: a run that peaks
-			// at 22% should stay near the bottom of the ramp. They have their
-			// own tests below.
-			continue
-		}
 		r := NewRenderer(CatppuccinMocha, StyleOptions{Sparkline: style})
 		ramp := sparkGlyphs(style)
 		// A run that never leaves the bottom of the absolute scale, which is
@@ -648,8 +680,8 @@ func TestSparklinePeakIsTheLargestGlyph(t *testing.T) {
 // Scaling a run to its own min and max turns sampling noise into a full-height
 // swing, so a run that barely moves is drawn at its actual level instead.
 func TestSparklineFlatRunsUseTheirActualLevel(t *testing.T) {
-	r := NewRenderer(CatppuccinMocha, StyleOptions{Sparkline: SparkBullets})
-	ramp := sparkGlyphs(SparkBullets)
+	r := NewRenderer(CatppuccinMocha, StyleOptions{Sparkline: SparkDots})
+	ramp := sparkGlyphs(SparkDots)
 
 	idle := ansi.Strip(r.RenderSparkline(Sparkline{Values: []float64{0.06, 0.07, 0.06, 0.07}, Width: 4}, ""))
 	for _, g := range idle {
@@ -686,262 +718,9 @@ func TestSparkRampsAreDistinctAndSingleWidth(t *testing.T) {
 			}
 		}
 	}
-	// The interchangeable small dots are gone from the bullets ramp.
-	if strings.ContainsRune(string(sparkGlyphs(SparkBullets)), '∙') {
-		t.Fatal("bullets should not pair ∙ with •: they render alike")
-	}
-}
-
-// Heat sizes and colours every sample by its own value, so the same reading
-// always draws the same glyph regardless of what it sits next to.
-func TestHeatSparklineUsesAbsoluteBands(t *testing.T) {
-	r := NewRenderer(CatppuccinMocha, StyleOptions{Sparkline: SparkHeat})
-	ramp := []rune(HeatGlyphs)
-
-	// One sample per band, at the middle of each.
-	out := ansi.Strip(r.RenderSparkline(Sparkline{
-		Values: []float64{0.10, 0.30, 0.50, 0.70, 0.95}, Width: 5,
-	}, ""))
-	if out != HeatGlyphs {
-		t.Fatalf("band midpoints drew %q, want %q", out, HeatGlyphs)
-	}
-
-	// The boundaries themselves belong to the lower band: 0.2 is the top of
-	// the first, not the bottom of the second.
-	for _, c := range []struct {
-		value float64
-		want  rune
-	}{
-		{0, ramp[0]}, {0.2, ramp[0]}, {0.21, ramp[1]}, {0.4, ramp[1]},
-		{0.41, ramp[2]}, {0.6, ramp[2]}, {0.61, ramp[3]}, {0.8, ramp[3]},
-		{0.81, ramp[4]}, {1, ramp[4]},
-		{1.5, ramp[4]}, {-0.5, ramp[0]}, // out of range is clamped, not dropped
-	} {
-		got := ansi.Strip(r.RenderSparkline(Sparkline{Values: []float64{c.value}, Width: 1}, ""))
-		if got != string(c.want) {
-			t.Fatalf("value %.2f drew %q, want %q", c.value, got, string(c.want))
-		}
-	}
-
-	// A quiet run stays quiet: run-relative styles would stretch this across
-	// the whole ramp, which is the behaviour heat exists to avoid.
-	quiet := ansi.Strip(r.RenderSparkline(Sparkline{Values: []float64{0.02, 0.08, 0.05, 0.19}, Width: 4}, ""))
-	if quiet != strings.Repeat(string(ramp[0]), 4) {
-		t.Fatalf("a run entirely under 20%% drew %q, want four %q", quiet, string(ramp[0]))
-	}
-}
-
-// Severity has to climb with size, or the two halves of the signal disagree.
-func TestHeatSparklineColoursClimbWithSize(t *testing.T) {
-	withTrueColor(t)
-	r := NewRenderer(CatppuccinMocha, StyleOptions{Sparkline: SparkHeat})
-	seen := map[string]bool{}
-	previous := ""
-	for _, value := range []float64{0.1, 0.3, 0.5, 0.7, 0.95} {
-		out := r.RenderSparkline(Sparkline{Values: []float64{value}, Width: 1}, "")
-		if out == previous {
-			t.Fatalf("value %.2f rendered identically to the band below it", value)
-		}
-		previous = out
-		seen[out] = true
-	}
-	if len(seen) != 5 {
-		t.Fatalf("expected five distinct band renderings, got %d", len(seen))
-	}
-}
-
-func TestHeatSparklineConfiguration(t *testing.T) {
-	// The glyph set is overridable.
-	custom := NewRenderer(CatppuccinMocha, StyleOptions{Sparkline: SparkHeat,
-		SparkRamps: map[SparklineStyle]string{SparkHeat: "abc"}})
-	if got := ansi.Strip(custom.RenderSparkline(Sparkline{Values: []float64{0.1, 0.5, 0.99}, Width: 3}, "")); got != "abc" {
-		t.Fatalf("custom ramp drew %q, want abc", got)
-	}
-	// Bands are configurable: almost everything is critical here.
-	strict := NewRenderer(CatppuccinMocha, StyleOptions{Sparkline: SparkHeat,
-		SparkRamps: map[SparklineStyle]string{SparkHeat: "ab"},
-		SparkBands: map[SparklineStyle][]float64{SparkHeat: {0.05, 1}},
-	})
-	if got := ansi.Strip(strict.RenderSparkline(Sparkline{Values: []float64{0.02, 0.2}, Width: 2}, "")); got != "ab" {
-		t.Fatalf("custom bands drew %q, want ab", got)
-	}
-	// Malformed configuration falls back rather than rendering holes.
-	for _, bad := range []StyleOptions{
-		{Sparkline: SparkHeat, SparkBands: map[SparklineStyle][]float64{SparkHeat: {0.5, 0.2, 1}}},   // not ascending
-		{Sparkline: SparkHeat, SparkBands: map[SparklineStyle][]float64{SparkHeat: {0.2, 0.4}}},      // too few for the ramp
-		{Sparkline: SparkHeat, SparkBands: map[SparklineStyle][]float64{SparkHeat: {0.2, 0.4, 0.6}}}, // short of full scale
-		{Sparkline: SparkHeat, SparkRamps: map[SparklineStyle]string{SparkHeat: "x"}},                // a ramp with no range
-	} {
-		ramp := BuildStyles(CatppuccinMocha, bad).Banded[SparkHeat]
-		if len(ramp.Glyphs) != len(ramp.Bands) {
-			t.Fatalf("%+v resolved to %d glyphs and %d bands", bad, len(ramp.Glyphs), len(ramp.Bands))
-		}
-		if !validHeatBands(ramp.Bands, len(ramp.Glyphs)) {
-			t.Fatalf("%+v resolved to unusable bands %v", bad, ramp.Bands)
-		}
-	}
-	// A zero-value Styles still renders.
-	var bare Renderer
-	bare.Styles.Sparkline = SparkHeat
-	if got := ansi.Strip(bare.RenderSparkline(Sparkline{Values: []float64{0.9}, Width: 1}, "")); got == "" {
-		t.Fatal("a zero-value renderer should still draw a heat sparkline")
-	}
-}
-
-// The weighted ramp bands like heat, but the signal is stroke weight rather
-// than dot area, so it survives a terminal with no colour at all.
-func TestWeightedSparklineBandsAndWeight(t *testing.T) {
-	r := NewRenderer(CatppuccinMocha, StyleOptions{Sparkline: SparkWeighted})
-	ramp := []rune(WeightGlyphs)
-
-	if out := ansi.Strip(r.RenderSparkline(Sparkline{
-		Values: []float64{0.10, 0.30, 0.50, 0.70, 0.95}, Width: 5,
-	}, "")); out != WeightGlyphs {
-		t.Fatalf("band midpoints drew %q, want %q", out, WeightGlyphs)
-	}
-
-	// Rising then falling returns through the same weights.
-	rise := ansi.Strip(r.RenderSparkline(Sparkline{
-		Values: []float64{0.05, 0.3, 0.5, 0.7, 0.95, 0.7, 0.5, 0.3, 0.05}, Width: 9,
-	}, ""))
-	if rise != "╵╷│┃█┃│╷╵" {
-		t.Fatalf("rise and fall drew %q, want ╵╷│┃█┃│╷╵", rise)
-	}
-
-	// Thresholds are shared with heat and configurable.
-	strict := NewRenderer(CatppuccinMocha, StyleOptions{Sparkline: SparkWeighted,
-		SparkBands: map[SparklineStyle][]float64{SparkWeighted: {0.1, 0.2, 0.3, 0.4, 1}},
-	})
-	if out := ansi.Strip(strict.RenderSparkline(Sparkline{Values: []float64{0.35}, Width: 1}, "")); out != string(ramp[3]) {
-		t.Fatalf("with tighter bands 0.35 drew %q, want %q", out, string(ramp[3]))
-	}
-	// The glyph sequence is replaceable by a theme.
-	themed := NewRenderer(CatppuccinMocha, StyleOptions{Sparkline: SparkWeighted,
-		SparkRamps: map[SparklineStyle]string{SparkWeighted: "▁▃▅▇█"}})
-	if out := ansi.Strip(themed.RenderSparkline(Sparkline{Values: []float64{0.1, 0.9}, Width: 2}, "")); out != "▁█" {
-		t.Fatalf("themed ramp drew %q, want ▁█", out)
-	}
-	// Overriding one ramp leaves the other alone.
-	if got := string(themed.Styles.Banded[SparkHeat].Glyphs); got != HeatGlyphs {
-		t.Fatalf("heat ramp = %q, want it untouched by a weighted override", got)
-	}
-}
-
-// Colour is an addition to the weight progression, not a replacement for it:
-// stripped of colour, the samples must still differ.
-func TestWeightedSparklineReadsWithoutColour(t *testing.T) {
-	r := NewRenderer(CatppuccinMocha, StyleOptions{Sparkline: SparkWeighted})
-	seen := map[rune]bool{}
-	for _, value := range []float64{0.1, 0.3, 0.5, 0.7, 0.95} {
-		plain := []rune(ansi.Strip(r.RenderSparkline(Sparkline{Values: []float64{value}, Width: 1}, "")))
-		if len(plain) != 1 {
-			t.Fatalf("value %.2f drew %d cells, want 1", value, len(plain))
-		}
-		if seen[plain[0]] {
-			t.Fatalf("value %.2f repeats a glyph already used by a lower band", value)
-		}
-		seen[plain[0]] = true
-	}
-	// An ASCII theme keeps a weight progression rather than dropping to one mark.
-	ascii := NewRenderer(VT52, StyleOptions{Sparkline: SparkWeighted})
-	out := ansi.Strip(ascii.RenderSparkline(Sparkline{Values: []float64{0.1, 0.3, 0.5, 0.7, 0.95}, Width: 5}, ""))
-	if out != WeightGlyphsASCII {
-		t.Fatalf("ascii fallback drew %q, want %q", out, WeightGlyphsASCII)
-	}
-}
-
-func TestStrokeSparklineBands(t *testing.T) {
-	r := NewRenderer(CatppuccinMocha, StyleOptions{Sparkline: SparkStroke})
-
-	// Four bands, not five: 0-25, 26-50, 51-75, 76-100.
-	if out := ansi.Strip(r.RenderSparkline(Sparkline{
-		Values: []float64{0.10, 0.40, 0.60, 0.90}, Width: 4,
-	}, "")); out != StrokeGlyphs {
-		t.Fatalf("band midpoints drew %q, want %q", out, StrokeGlyphs)
-	}
-	if out := ansi.Strip(r.RenderSparkline(Sparkline{
-		Values: []float64{0.1, 0.4, 0.6, 0.9, 0.6, 0.4, 0.1}, Width: 7,
-	}, "")); out != "╴─━█━─╴" {
-		t.Fatalf("rise and fall drew %q, want ╴─━█━─╴", out)
-	}
-	// Boundaries belong to the lower band.
-	ramp := []rune(StrokeGlyphs)
-	for _, c := range []struct {
-		value float64
-		want  rune
-	}{{0.25, ramp[0]}, {0.26, ramp[1]}, {0.5, ramp[1]}, {0.51, ramp[2]}, {0.75, ramp[2]}, {0.76, ramp[3]}} {
-		if got := ansi.Strip(r.RenderSparkline(Sparkline{Values: []float64{c.value}, Width: 1}, "")); got != string(c.want) {
-			t.Fatalf("value %.2f drew %q, want %q", c.value, got, string(c.want))
-		}
-	}
-	// Bursty and smooth activity keep one cell per sample and no padding.
-	bursty := ansi.Strip(r.RenderSparkline(Sparkline{
-		Values: []float64{0.1, 0.9, 0.4, 0.1, 0.6, 0.1, 0.9, 0.9, 0.4, 0.1}, Width: 10,
-	}, ""))
-	if bursty != "╴█─╴━╴██─╴" {
-		t.Fatalf("bursty drew %q, want ╴█─╴━╴██─╴", bursty)
-	}
-	if strings.Contains(bursty, " ") {
-		t.Fatalf("samples must not be separated by spaces: %q", bursty)
-	}
-	if got := ansi.Strip(NewRenderer(VT52, StyleOptions{Sparkline: SparkStroke}).RenderSparkline(
-		Sparkline{Values: []float64{0.1, 0.4, 0.6, 0.9}, Width: 4}, "")); got != StrokeGlyphsASCII {
-		t.Fatalf("ascii fallback drew %q, want %q", got, StrokeGlyphsASCII)
-	}
-}
-
-// Everything every banded style has to satisfy, so a style added to
-// bandedDefaults cannot skip the contract.
-func TestBandedStylesShareOneContract(t *testing.T) {
-	for style, def := range bandedDefaults {
-		r := NewRenderer(CatppuccinMocha, StyleOptions{Sparkline: style})
-		ramp := r.Styles.Banded[style]
-
-		if len(ramp.Glyphs) != len(ramp.Bands) {
-			t.Fatalf("%s: %d glyphs but %d bands", style, len(ramp.Glyphs), len(ramp.Bands))
-		}
-		if len(ramp.Glyphs) < 2 {
-			t.Fatalf("%s: a ramp needs at least two steps", style)
-		}
-		if !validHeatBands(ramp.Bands, len(ramp.Glyphs)) {
-			t.Fatalf("%s: bands %v are not usable", style, ramp.Bands)
-		}
-		if string(ramp.Glyphs) != def.unicode {
-			t.Fatalf("%s: default ramp = %q, want %q", style, string(ramp.Glyphs), def.unicode)
-		}
-		// Unicode and ASCII ramps must agree in length, or the ASCII theme
-		// silently loses bands.
-		if len([]rune(def.ascii)) != len([]rune(def.unicode)) {
-			t.Fatalf("%s: ascii ramp %q has a different number of steps than %q", style, def.ascii, def.unicode)
-		}
-		// Every glyph one cell, all distinct, in both ramps.
-		for _, set := range []string{def.unicode, def.ascii} {
-			seen := map[rune]bool{}
-			for _, glyph := range set {
-				if lipgloss.Width(string(glyph)) != 1 {
-					t.Fatalf("%s: glyph %q is not one cell", style, string(glyph))
-				}
-				if seen[glyph] {
-					t.Fatalf("%s: ramp %q repeats %q", style, set, string(glyph))
-				}
-				seen[glyph] = true
-			}
-		}
-		// Absolute, not run-relative: a quiet run stays in the lowest band.
-		quiet := ansi.Strip(r.RenderSparkline(Sparkline{Values: []float64{0.01, 0.05, 0.02}, Width: 3}, ""))
-		if quiet != strings.Repeat(string(ramp.Glyphs[0]), 3) {
-			t.Fatalf("%s: a run under the first threshold drew %q", style, quiet)
-		}
-		// Full scale reaches the top of the ramp, and output is exactly width.
-		for _, width := range []int{1, 4, 9, 20} {
-			out := ansi.Strip(r.RenderSparkline(Sparkline{Values: []float64{1}, Width: width}, ""))
-			if len([]rune(out)) != width {
-				t.Fatalf("%s: width %d drew %d cells", style, width, len([]rune(out)))
-			}
-			if []rune(out)[0] != ramp.Glyphs[len(ramp.Glyphs)-1] {
-				t.Fatalf("%s: full scale drew %q, want the top of the ramp", style, out)
-			}
-		}
+	// The bullets ramp is gone: only the block and dot ramps remain.
+	if len(SparklineStyles()) != 2 {
+		t.Fatalf("SparklineStyles = %v, want the standard blocks and dots", SparklineStyles())
 	}
 }
 

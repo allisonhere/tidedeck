@@ -92,11 +92,14 @@ func (m MetricRow) PlotWidth() int {
 	return max(0, m.TotalWidth-m.LabelWidth-m.ValueWidth-4)
 }
 
-// ProgressBar describes a standalone gauge.
+// ProgressBar describes a standalone gauge. A zero Style uses the renderer's
+// own Styles.Gauge, which is what a panel sets for its pane; setting Style asks
+// for a specific family regardless.
 type ProgressBar struct {
 	Fraction float64
 	Width    int
 	Tone     Tone
+	Style    GaugeStyle
 }
 
 // Sparkline describes a compact trend glyph run.
@@ -663,45 +666,134 @@ func (r Renderer) RenderSectionDivider(d SectionDivider, bg lipgloss.Color) stri
 }
 
 // RenderProgressBar renders a gauge of exactly width cells using theme tokens.
-// The glyph set follows Styles.Gauge; the marker style draws a track with a
-// single dot at the fill position instead of filling a run of cells.
+// The glyph family follows Styles.Gauge unless bar.Style names one. Every
+// family honours three widths - full, compact and tiny - so a gauge reads in a
+// wide pane, in a split, and in a sliver without overflowing or vanishing.
 func (r Renderer) RenderProgressBar(bar ProgressBar, bg lipgloss.Color) string {
+	return r.renderGauge(bar, bg)
+}
+
+// renderGauge is the one path every gauge takes: family, value, width and tone
+// in; exactly width styled cells out.
+func (r Renderer) renderGauge(bar ProgressBar, bg lipgloss.Color) string {
 	width := max(1, bar.Width)
 	fraction := clamp01(bar.Fraction)
-	filled := int(math.Round(fraction * float64(width)))
-	filled = min(width, max(0, filled))
-	fullStyle := lipgloss.NewStyle().Background(bg).Foreground(r.ToneColor(bar.Tone))
-	emptyStyle := lipgloss.NewStyle().Background(bg).Foreground(r.Styles.Workspace.MetricTrack)
+	style := r.Styles.Gauge
+	if bar.Style != "" {
+		style = normalizeGaugeStyle(bar.Style)
+	}
+
+	fill := lipgloss.NewStyle().Background(bg).Foreground(r.ToneColor(bar.Tone))
+	track := lipgloss.NewStyle().Background(bg).Foreground(r.Styles.Workspace.MetricTrack)
 	if r.Styles.PlainUI {
-		return fullStyle.Render(strings.Repeat("#", filled)) + emptyStyle.Render(strings.Repeat("-", width-filled))
+		return r.renderPlainGauge(style, fraction, width, fill, track)
 	}
-	full, empty, marker, track := gaugeGlyphs(r.Styles.Gauge)
-	if marker != "" {
-		if fraction <= 0 {
-			return emptyStyle.Render(strings.Repeat(track, width))
+
+	switch style {
+	case GaugeSegment:
+		return r.renderSegmentGauge(fraction, width, fill, track)
+	default:
+		return r.renderBlockGauge(fraction, width, fill, track)
+	}
+}
+
+// gaugeCell is one cell of a gauge: the glyph and the style it is drawn in.
+// Building a slice of exact length is how a family guarantees its width.
+type gaugeCell struct {
+	glyph string
+	style lipgloss.Style
+}
+
+func renderGaugeCells(cells []gaugeCell) string {
+	var b strings.Builder
+	for _, cell := range cells {
+		b.WriteString(cell.style.Render(cell.glyph))
+	}
+	return b.String()
+}
+
+// gaugeTier is how much room a family has to work with. Full gets the framed
+// forms, compact drops to bare runs, and tiny falls back to a single mark.
+type gaugeTier int
+
+const (
+	gaugeTiny gaugeTier = iota
+	gaugeCompact
+	gaugeFull
+)
+
+func gaugeTierFor(width int) gaugeTier {
+	switch {
+	case width >= 15:
+		return gaugeFull
+	case width >= 4:
+		return gaugeCompact
+	default:
+		return gaugeTiny
+	}
+}
+
+// renderSegmentGauge fills discrete cells left to right. It is the family for
+// plain bounded values: the fill count is the value, cell for cell.
+func (r Renderer) renderSegmentGauge(fraction float64, width int, fill, track lipgloss.Style) string {
+	cells := make([]gaugeCell, 0, width)
+	switch gaugeTierFor(width) {
+	case gaugeFull:
+		// [■ ■ ■ ■ □ □ □ □]: a marker every other cell, inside brackets.
+		inner := width - 2
+		segments := (inner + 1) / 2
+		filled := min(segments, max(0, int(math.Round(fraction*float64(segments)))))
+		cells = append(cells, gaugeCell{"[", track})
+		for i := 0; i < inner; i++ {
+			if i%2 == 1 {
+				cells = append(cells, gaugeCell{" ", track})
+			} else if i/2 < filled {
+				cells = append(cells, gaugeCell{"■", fill})
+			} else {
+				cells = append(cells, gaugeCell{"□", track})
+			}
 		}
-		pos := min(width-1, max(0, filled-1))
-		return emptyStyle.Render(strings.Repeat(track, pos)) +
-			fullStyle.Render(marker) +
-			emptyStyle.Render(strings.Repeat(track, width-pos-1))
+		cells = append(cells, gaugeCell{"]", track})
+	default:
+		// ▰▰▰▰▱▱▱▱: one cell per segment, at any width.
+		filled := min(width, max(0, int(math.Round(fraction*float64(width)))))
+		for i := 0; i < width; i++ {
+			if i < filled {
+				cells = append(cells, gaugeCell{"▰", fill})
+			} else {
+				cells = append(cells, gaugeCell{"▱", track})
+			}
+		}
 	}
-	return fullStyle.Render(strings.Repeat(full, filled)) + emptyStyle.Render(strings.Repeat(empty, width-filled))
+	return renderGaugeCells(cells)
+}
+
+// renderBlockGauge fills a run of cells, ██████░░░░, at any width. It is the
+// standard progress bar: the fill is the value and nothing else.
+func (r Renderer) renderBlockGauge(fraction float64, width int, fill, track lipgloss.Style) string {
+	filled := min(width, max(0, int(math.Round(fraction*float64(width)))))
+	cells := make([]gaugeCell, 0, width)
+	for i := 0; i < width; i++ {
+		if i < filled {
+			cells = append(cells, gaugeCell{"█", fill})
+		} else {
+			cells = append(cells, gaugeCell{"░", track})
+		}
+	}
+	return renderGaugeCells(cells)
+}
+
+// renderPlainGauge is the ASCII fallback for themes without geometric glyphs:
+// a filled run of # and - .
+func (r Renderer) renderPlainGauge(style GaugeStyle, fraction float64, width int, fill, track lipgloss.Style) string {
+	filled := min(width, max(0, int(math.Round(fraction*float64(width)))))
+	return fill.Render(strings.Repeat("#", filled)) + track.Render(strings.Repeat("-", width-filled))
 }
 
 // GaugeSample returns plain sample glyphs for a style, e.g. for previews in a
 // picker. It is unstyled so the caller can colour it to match its own surface.
 func (r Renderer) GaugeSample(style GaugeStyle, width int) string {
-	width = max(1, width)
-	filled := min(width, max(1, width*3/5))
-	if r.Styles.PlainUI {
-		return strings.Repeat("#", filled) + strings.Repeat("-", width-filled)
-	}
-	full, empty, marker, track := gaugeGlyphs(style)
-	if marker != "" {
-		pos := min(width-1, max(0, filled-1))
-		return strings.Repeat(track, pos) + marker + strings.Repeat(track, width-pos-1)
-	}
-	return strings.Repeat(full, filled) + strings.Repeat(empty, width-filled)
+	return r.renderGauge(ProgressBar{Fraction: 0.6, Width: width, Tone: ToneAccent, Style: style}, r.Styles.Workspace.Bg)
 }
 
 // SparkSample returns a plain sample sparkline for a style, e.g. for previews
@@ -727,44 +819,8 @@ func sparkGlyphs(style SparklineStyle) []rune {
 	switch normalizeSparklineStyle(style) {
 	case SparkDots:
 		return []rune("·∘○◉●")
-	case SparkBraille:
-		return []rune("⡀⡄⡆⡇⣇⣧⣷⣿")
-	case SparkBullets:
-		// A dot, an open ring, then a filled disc. The ramp used to be
-		// "∙•●": the bullet operator and the bullet render at the same size
-		// in most terminal fonts, so it had two visible steps, not three,
-		// and the top of a run was not obviously bigger than the middle.
-		return []rune("·○●")
-	case SparkTicks:
-		return []rune("ˌˈ│┃")
-	case SparkShades:
-		return []rune("░▒▓█")
-	case SparkHeat:
-		return []rune(HeatGlyphs)
-	case SparkWeighted:
-		return []rune(WeightGlyphs)
-	case SparkStroke:
-		return []rune(StrokeGlyphs)
 	default:
 		return []rune("▁▂▃▄▅▆▇█")
-	}
-}
-
-// gaugeGlyphs returns the fill, track, and optional marker glyphs for a style.
-func gaugeGlyphs(style GaugeStyle) (full, empty, marker, track string) {
-	switch normalizeGaugeStyle(style) {
-	case GaugeBlocks:
-		return "▰", "▱", "", ""
-	case GaugeCircles:
-		return "●", "○", "", ""
-	case GaugeFisheye:
-		return "◉", "○", "", ""
-	case GaugeMarker:
-		return "", "", "●", "─"
-	case GaugeBars:
-		return "▮", "▯", "", ""
-	default:
-		return "█", "░", "", ""
 	}
 }
 
@@ -773,9 +829,6 @@ func gaugeGlyphs(style GaugeStyle) (full, empty, marker, track string) {
 // run's minimum and maximum, so the shape and the colour agree.
 func (r Renderer) RenderSparkline(spark Sparkline, bg lipgloss.Color) string {
 	width := max(1, spark.Width)
-	if ramp, bands, ok := r.bandedRamp(); ok {
-		return r.renderBandedSparkline(spark, ramp, bands, width, bg)
-	}
 	glyphs := sparkGlyphs(r.Styles.Sparkline)
 	if r.Styles.PlainUI {
 		glyphs = []rune(".:-=+*#@")
@@ -807,53 +860,6 @@ func (r Renderer) RenderSparkline(spark Sparkline, bg lipgloss.Color) string {
 // to its own min and max turns sampling noise into a full-height, full-colour
 // swing, so a run that barely moves is drawn at its actual level instead.
 const sparkFlatRange = 0.02
-
-// bandedRamp returns the ramp and thresholds for a banded sparkline style, or
-// false for the run-relative styles.
-func (r Renderer) bandedRamp() ([]rune, []float64, bool) {
-	def, banded := bandedDefaults[r.Styles.Sparkline]
-	if !banded {
-		return nil, nil, false
-	}
-	ramp := r.Styles.Banded[r.Styles.Sparkline]
-	if len(ramp.Glyphs) == 0 || len(ramp.Bands) != len(ramp.Glyphs) {
-		// A zero-value Styles (constructed directly rather than through
-		// BuildStyles) still has to render something.
-		glyphs, bands := normalizeBanded("", nil, r.Styles.PlainUI, def)
-		return glyphs, bands, true
-	}
-	return ramp.Glyphs, ramp.Bands, true
-}
-
-// renderBandedSparkline draws each sample at its own absolute level: the band
-// a value falls into picks both the glyph and the colour, so a quiet run stays
-// light and green instead of being stretched across the whole ramp the way a
-// run-relative sparkline would. One glyph per sample, no connecting marks and
-// no padding between them, every glyph a single cell. Because the ramp itself
-// climbs in weight, the run still reads where colour is unavailable.
-func (r Renderer) renderBandedSparkline(spark Sparkline, glyphs []rune, bands []float64, width int, bg lipgloss.Color) string {
-	ws := r.Styles.Workspace
-	var b strings.Builder
-	for _, value := range resample(spark.Values, width) {
-		band := heatBand(clamp01(value), bands)
-		// Colour steps with the band so weight and severity always agree, and
-		// so the configured thresholds govern both.
-		color := ws.MetricGradient(float64(band) / float64(len(bands)-1))
-		b.WriteString(lipgloss.NewStyle().Background(bg).Foreground(color).
-			Render(string(glyphs[band])))
-	}
-	return b.String()
-}
-
-// heatBand returns the index of the band a value falls in.
-func heatBand(value float64, bands []float64) int {
-	for i, upper := range bands {
-		if value <= upper {
-			return i
-		}
-	}
-	return len(bands) - 1
-}
 
 // valueRange returns the minimum and maximum of a non-empty slice.
 func valueRange(values []float64) (float64, float64) {

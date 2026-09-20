@@ -47,102 +47,44 @@ const (
 	RoundCorners PaneCorners = "round"
 )
 
-// GaugeStyle selects the glyph set used by progress bars and metric gauges.
+// GaugeStyle selects the shape used by progress bars and metric gauges. There
+// are two, both standard: a solid block bar and a segmented meter.
 type GaugeStyle string
 
 const (
-	GaugeSolid   GaugeStyle = "solid"   // █ fill / ░ track (default)
-	GaugeBlocks  GaugeStyle = "blocks"  // ▰ fill / ▱ track
-	GaugeCircles GaugeStyle = "circles" // ● fill / ○ track
-	GaugeFisheye GaugeStyle = "fisheye" // ◉ fill / ○ track
-	GaugeMarker  GaugeStyle = "marker"  // ─ track with a ● marker
-	GaugeBars    GaugeStyle = "bars"    // ▮ fill / ▯ track
+	// GaugeBlock fills a run of cells, ██████░░░░. This is the default.
+	GaugeBlock GaugeStyle = "block"
+	// GaugeSegment fills discrete segments: [■ ■ ■ ■ □ □ □ □] at full width,
+	// ▰▰▰▰▱▱▱▱ when compact, so the fill count is the value cell for cell.
+	GaugeSegment GaugeStyle = "segment"
 )
 
 // GaugeStyles lists the available gauge styles in display order.
-func GaugeStyles() []GaugeStyle {
-	return []GaugeStyle{GaugeSolid, GaugeBlocks, GaugeCircles, GaugeFisheye, GaugeMarker, GaugeBars}
+func GaugeStyles() []GaugeStyle { return []GaugeStyle{GaugeBlock, GaugeSegment} }
+
+// legacyGaugeStyles maps the glyph sets that predate these two onto the shape
+// that reads most like them, so a config written before the change keeps
+// working instead of snapping to the default.
+var legacyGaugeStyles = map[GaugeStyle]GaugeStyle{
+	"solid":   GaugeBlock,
+	"bars":    GaugeBlock,
+	"blocks":  GaugeSegment,
+	"circles": GaugeSegment,
+	"fisheye": GaugeSegment,
+	"marker":  GaugeSegment,
 }
 
-// SparklineStyle selects the glyph ramp used by sparklines.
+// SparklineStyle selects the glyph ramp used by sparklines. There are two,
+// both standard.
 type SparklineStyle string
 
 const (
-	SparkBlocks  SparklineStyle = "blocks"  // ▁▂▃▄▅▆▇█ (default)
-	SparkDots    SparklineStyle = "dots"    // ·∘○◉●
-	SparkBraille SparklineStyle = "braille" // ⡀⡄⡆⡇⣇⣧⣷⣿
-	SparkBullets SparklineStyle = "bullets" // ·○●
-	SparkTicks   SparklineStyle = "ticks"   // ˌˈ│┃
-	SparkShades  SparklineStyle = "shades"  // ░▒▓█
-	// SparkHeat sizes and colours each sample by its own absolute value
-	// rather than by where it falls within the run, so a quiet stretch stays
-	// small and green instead of being stretched to fill the ramp. It reads
-	// as a small heatmap: size carries magnitude, colour carries severity.
-	SparkHeat SparklineStyle = "heat" // ·∘○◉● graded green → red
-	// SparkWeighted bands the same way as SparkHeat but draws weight rather
-	// than area: each step is a heavier vertical stroke, so the run reads as
-	// heavier and hotter as the value climbs. The weight progression carries
-	// the signal on its own, so it still reads on a monochrome terminal.
-	SparkWeighted SparklineStyle = "weighted" // ╵╷│┃█ graded green → red
-	// SparkStroke bands like the others but grows horizontally: each step is
-	// a longer, heavier stroke, so a busy stretch reads as a thicker line.
-	SparkStroke SparklineStyle = "stroke" // ╴─━█ graded green → red
+	SparkBlocks SparklineStyle = "blocks" // ▁▂▃▄▅▆▇█ (default)
+	SparkDots   SparklineStyle = "dots"   // ·∘○◉●
 )
 
-// StrokeGlyphs is the default ramp for SparkStroke, lightest to heaviest.
-const StrokeGlyphs = "╴─━█"
-
-// StrokeGlyphsASCII replaces StrokeGlyphs where the theme asks for ASCII.
-const StrokeGlyphsASCII = ".-=#"
-
-// WeightGlyphs is the default ramp for SparkWeighted, lightest to heaviest.
-const WeightGlyphs = "╵╷│┃█"
-
-// WeightGlyphsASCII replaces WeightGlyphs where the theme asks for ASCII,
-// keeping the sense of increasing weight.
-const WeightGlyphsASCII = ".:|#@"
-
-// HeatGlyphs is the default ramp for SparkHeat, smallest to largest.
-const HeatGlyphs = "·∘○◉●"
-
-// HeatGlyphsASCII replaces HeatGlyphs where the theme asks for ASCII.
-const HeatGlyphsASCII = ".oO0@"
-
-// DefaultHeatBands are the upper bounds of each heat band, as fractions of
-// full scale: 0-20%, 21-40%, 41-60%, 61-80%, 81-100%.
-func DefaultHeatBands() []float64 { return []float64{0.2, 0.4, 0.6, 0.8, 1} }
-
-// DefaultStrokeBands are the upper bounds of each stroke band: 0-25%, 26-50%,
-// 51-75%, 76-100%.
-func DefaultStrokeBands() []float64 { return []float64{0.25, 0.5, 0.75, 1} }
-
-// BandedRamp is one absolute-banded sparkline style's resolved glyphs and the
-// thresholds between them. The two are always the same length.
-type BandedRamp struct {
-	Glyphs []rune
-	Bands  []float64
-}
-
-// bandedDefault describes a banded style before any theme override.
-type bandedDefault struct {
-	unicode string
-	ascii   string
-	bands   func() []float64
-}
-
-// bandedDefaults is the set of sparkline styles that band on absolute value
-// rather than scaling to the run. Adding a style here is all it takes for it
-// to be configurable and rendered.
-var bandedDefaults = map[SparklineStyle]bandedDefault{
-	SparkHeat:     {HeatGlyphs, HeatGlyphsASCII, DefaultHeatBands},
-	SparkWeighted: {WeightGlyphs, WeightGlyphsASCII, DefaultHeatBands},
-	SparkStroke:   {StrokeGlyphs, StrokeGlyphsASCII, DefaultStrokeBands},
-}
-
 // SparklineStyles lists the available sparkline styles in display order.
-func SparklineStyles() []SparklineStyle {
-	return []SparklineStyle{SparkBlocks, SparkDots, SparkBraille, SparkBullets, SparkTicks, SparkShades, SparkHeat, SparkWeighted, SparkStroke}
-}
+func SparklineStyles() []SparklineStyle { return []SparklineStyle{SparkBlocks, SparkDots} }
 
 // IconStyle selects the glyph family used for widget icons.
 type IconStyle string
@@ -252,10 +194,6 @@ type StyleOptions struct {
 	Sparkline   SparklineStyle
 	ClockFont   ClockFont
 	Overrides   ThemeOverrides
-	// SparkRamps replaces the glyphs of a banded sparkline style (heat,
-	// weighted, stroke), lightest to heaviest. A missing or unusable entry
-	// falls back to the built-in ramp, or its ASCII form for an ASCII theme.
-	SparkRamps map[SparklineStyle]string
 	// IconStyle picks the glyph family for widget icons. Empty means plain,
 	// which is safe in any font; emoji and nerd need a colour emoji font or a
 	// patched font respectively. An ASCII theme overrides this with ASCII.
@@ -272,10 +210,6 @@ type StyleOptions struct {
 	// means nobody measured it, and anything that needs a pane's size in pixels
 	// assumes 8 - the width a monospace cell has at a sane font size.
 	CellWidth float64
-	// SparkBands sets where a banded style changes glyph and colour, as
-	// ascending fractions of full scale ending at 1, one per glyph in that
-	// style's ramp. A missing or malformed entry falls back to the default.
-	SparkBands map[SparklineStyle][]float64
 	// ModalShadow draws a small drop shadow behind every modal overlay when
 	// true. Off by default so existing consumers are unaffected unless they
 	// opt in.
@@ -290,7 +224,7 @@ type Styles struct {
 	PlainUI     bool  // true when the theme uses ASCII borders (e.g. VT52)
 	Density     Density
 	PaneCorners PaneCorners    // normalized; square unless RoundCorners was requested
-	Gauge       GaugeStyle     // normalized; solid unless another style was requested
+	Gauge       GaugeStyle     // normalized; block unless another style was requested
 	Sparkline   SparklineStyle // normalized; blocks unless another style was requested
 	ClockFont   ClockFont      // normalized; dash unless another font was requested
 
@@ -298,11 +232,6 @@ type Styles struct {
 	// resolved from it.
 	IconStyle IconStyle
 	RepoIcons RepoIcons
-
-	// Banded holds the resolved configuration of each absolute-banded
-	// sparkline style. Every ramp is validated against its own thresholds, so
-	// a ramp and its bands are always the same length.
-	Banded map[SparklineStyle]BandedRamp
 
 	// ModalShadow and ModalShadowColor control the modal drop shadow drawn
 	// by Renderer.Render. ModalShadowColor is resolved once here (from the
@@ -604,7 +533,10 @@ func normalizeGaugeStyle(g GaugeStyle) GaugeStyle {
 			return g
 		}
 	}
-	return GaugeSolid
+	if legacy, ok := legacyGaugeStyles[g]; ok {
+		return legacy
+	}
+	return GaugeBlock
 }
 
 func normalizeSparklineStyle(s SparklineStyle) SparklineStyle {
@@ -645,65 +577,6 @@ func resolveRepoIcons(overrides RepoIcons, style IconStyle, plain bool) RepoIcon
 		}
 	}
 	return icons
-}
-
-// resolveBanded builds every banded style's ramp, applying any theme override
-// and falling back to the built-in defaults.
-func resolveBanded(ramps map[SparklineStyle]string, bands map[SparklineStyle][]float64, plain bool) map[SparklineStyle]BandedRamp {
-	out := make(map[SparklineStyle]BandedRamp, len(bandedDefaults))
-	for style, def := range bandedDefaults {
-		glyphs, thresholds := normalizeBanded(ramps[style], bands[style], plain, def)
-		out[style] = BandedRamp{Glyphs: glyphs, Bands: thresholds}
-	}
-	return out
-}
-
-// normalizeBanded resolves a ramp and its bands together, because they
-// have to stay the same length: a band without a glyph could never be drawn.
-// A malformed request falls back to the defaults rather than rendering a
-// sparkline with holes in it.
-func normalizeBanded(ramp string, bands []float64, plain bool, def bandedDefault) ([]rune, []float64) {
-	glyphs := []rune(ramp)
-	if len(glyphs) < 2 {
-		glyphs = []rune(def.unicode)
-		if plain {
-			glyphs = []rune(def.ascii)
-		}
-	}
-	resolved := append([]float64(nil), bands...)
-	if !validHeatBands(resolved, len(glyphs)) {
-		resolved = def.bands()
-		if len(resolved) != len(glyphs) {
-			// A custom ramp of another length gets evenly spaced bands.
-			resolved = evenHeatBands(len(glyphs))
-		}
-	}
-	return glyphs, resolved
-}
-
-// validHeatBands reports whether bands are usable: one per glyph, ascending,
-// inside 0..1, and reaching the top of the scale.
-func validHeatBands(bands []float64, glyphs int) bool {
-	if len(bands) != glyphs || glyphs == 0 {
-		return false
-	}
-	previous := 0.0
-	for _, band := range bands {
-		if band <= previous || band > 1 {
-			return false
-		}
-		previous = band
-	}
-	return bands[len(bands)-1] >= 1
-}
-
-// evenHeatBands spaces bands evenly across the scale.
-func evenHeatBands(count int) []float64 {
-	bands := make([]float64, count)
-	for i := range bands {
-		bands[i] = float64(i+1) / float64(count)
-	}
-	return bands
 }
 
 func normalizeClockFont(f ClockFont) ClockFont {
@@ -776,7 +649,6 @@ func BuildStyles(base Theme, options StyleOptions) Styles {
 	sparkline := normalizeSparklineStyle(options.Sparkline)
 	clockFont := normalizeClockFont(options.ClockFont)
 	plain := t.UsesASCII()
-	banded := resolveBanded(options.SparkRamps, options.SparkBands, plain)
 	iconStyle := normalizeIconStyle(options.IconStyle)
 	repoIcons := resolveRepoIcons(options.RepoIcons, iconStyle, plain)
 	itemPadding := func(style lipgloss.Style) lipgloss.Style {
@@ -811,7 +683,6 @@ func BuildStyles(base Theme, options StyleOptions) Styles {
 	return Styles{
 		Theme: t, PlainUI: plain, Density: density, PaneCorners: paneCorners,
 		Gauge: gauge, Sparkline: sparkline, ClockFont: clockFont,
-		Banded:      banded,
 		IconStyle:   iconStyle,
 		RepoIcons:   repoIcons,
 		ModalShadow: options.ModalShadow, ModalShadowColor: shadowBG,

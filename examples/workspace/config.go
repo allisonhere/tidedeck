@@ -92,7 +92,7 @@ func (c config) withDoc(doc dash.Values) config {
 func defaultConfig() config {
 	return config{
 		Feeds:      defaultFeeds(),
-		GaugeStyle: "solid",
+		GaugeStyle: "block",
 		SparkStyle: "blocks",
 		ClockFont:  "dash",
 		Icons:      "emoji",

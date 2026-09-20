@@ -295,14 +295,14 @@ func panelOverrides(in map[string]string) map[string]string {
 	return out
 }
 
-// gaugeOrDefault falls back to the solid style when no gauge style is set.
+// gaugeOrDefault falls back to the segment family when no gauge style is set.
 func gaugeOrDefault(style string) string {
 	for _, known := range tideui.GaugeStyles() {
 		if style == string(known) {
 			return style
 		}
 	}
-	return string(tideui.GaugeSolid)
+	return string(tideui.GaugeBlock)
 }
 
 // sparkStyleNames lists the selectable sparkline styles as strings.
@@ -435,7 +435,7 @@ func (s settingsForm) SavedConfig() config { return s.cfg }
 // caller can preview it live before it is saved.
 func (s settingsForm) GaugeStyle() string {
 	if s.state == nil {
-		return string(tideui.GaugeSolid)
+		return string(tideui.GaugeBlock)
 	}
 	return gaugeOrDefault(s.state.gauge)
 }
@@ -1639,7 +1639,7 @@ func (s settingsForm) RenderWorkspace(r tideui.Renderer, width, height int) stri
 // PlainUI - so the rule underneath is labelled with the state as well.
 func (s settingsForm) renderHeader(r tideui.Renderer, category settingsCategory, width int) string {
 	bg := paneSurface(r)
-	title := settingsIcon(category) + " " + strings.ToUpper(category.name)
+	title := s.settingsIcon(category) + " " + strings.ToUpper(category.name)
 
 	// The title stays the ordinary heading colour; the rule beneath it carries
 	// the state. Colouring both made the page shout, and the title is the one
@@ -1725,7 +1725,7 @@ func (s settingsForm) hintBar() string {
 	return strings.Join(parts, " · ")
 }
 
-func settingsIcon(category settingsCategory) string {
+func (s settingsForm) settingsIcon(category settingsCategory) string {
 	switch category.panelID {
 	case "":
 		if category.name == "Plugins" {
@@ -1733,8 +1733,28 @@ func settingsIcon(category settingsCategory) string {
 		}
 		return "⚙️"
 	default:
+		// A plugin declares its own glyph in its manifest; the hand-written map
+		// below is only for the host's panes, which declare none. Using the map
+		// for everything meant every plugin page wore the generic plug.
+		if glyph := s.declaredGlyph(category.panelID); glyph != "" {
+			return glyph
+		}
 		return panelGlyph(category.panelID)
 	}
+}
+
+// declaredGlyph is the glyph a panel itself declares, which for a plugin is the
+// one in its manifest.
+func (s settingsForm) declaredGlyph(id string) string {
+	if s.deck == nil {
+		return ""
+	}
+	for _, panel := range s.deck.Panels() {
+		if panel.Meta().ID == id {
+			return panel.Meta().Glyph
+		}
+	}
+	return ""
 }
 
 func panelGlyph(id string) string {
@@ -1805,7 +1825,7 @@ func (s settingsForm) categoryLines(r tideui.Renderer, width, rows int) []string
 		}
 		lines = append(lines, r.RenderSoftRowOn(tideui.SoftRow{
 			Prefix:   "  ",
-			Text:     settingsIcon(category) + " " + category.name,
+			Text:     s.settingsIcon(category) + " " + category.name,
 			Suffix:   suffix,
 			Selected: index == s.category,
 		}, width, paneSurface(r)))
