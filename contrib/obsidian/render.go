@@ -8,16 +8,25 @@ import (
 	"github.com/allisonhere/tideui/dash"
 )
 
-// maxMatches caps the list the pane draws while searching. A fuzzy query in a
-// big vault can match hundreds of notes; the pane shows the best of them and
-// says how many were left.
-const maxMatches = 12
+const (
+	// maxMatches caps the list the pane draws; a vault can match many notes.
+	maxMatches = 8
+	// newNoteID is the row that makes a note from the query. It cannot collide
+	// with a note id, which is always a vault-relative .md path.
+	newNoteID = "new"
+)
 
-// Render turns a vault's notes into the panel document. Without a query the
-// pane is a single search row - a note list is only drawn when the reader is
-// actually searching. The rows that carry an id are the matches, and the
-// reader's enter key loads the one under the cursor in the editor.
-func Render(vault *Vault, vaults []Vault, notes []Note, query string, problem error) dash.Doc {
+// Match is a note the search found, with a line of its body so two notes with
+// similar names can be told apart.
+type Match struct {
+	Note
+	Excerpt string
+}
+
+// Render draws the pane. With no query it is a reader - the search row, the
+// current note and its body. With a query it is the fuzzy matches, each
+// openable, and a row to make a new note from the query.
+func Render(vault *Vault, vaults []Vault, query string, matches []Match, current *Note, body []string, problem error) dash.Doc {
 	doc := dash.Doc{SchemaVersion: dash.DocSchemaVersion, Options: vaultOptions(vaults)}
 
 	if problem != nil {
@@ -28,45 +37,68 @@ func Render(vault *Vault, vaults []Vault, notes []Note, query string, problem er
 		return doc
 	}
 
+	name := "vault"
+	if vault != nil && vault.Name != "" {
+		name = vault.Name
+	}
 	query = strings.TrimSpace(query)
 	if query == "" {
-		if vault != nil && vault.Name != "" {
-			doc.Badge = &dash.DocBadge{Text: vault.Name, Tone: "muted"}
-		}
-		// The whole pane is one row until something is searched for.
+		doc.Badge = &dash.DocBadge{Text: name, Tone: "muted"}
 		doc.Rows = append(doc.Rows, dash.Row{
 			Type: "text", Label: "search", Value: "type to find a note", Tone: "muted",
 		})
-		return doc
-	}
-
-	doc.Badge = &dash.DocBadge{Text: fmt.Sprintf("%d match", len(notes)), Tone: "accent"}
-	doc.Rows = append(doc.Rows, dash.Row{
-		Type: "text", Label: "search", Value: query, Tone: "accent",
-	})
-	if len(notes) == 0 {
+		if current == nil {
+			doc.Rows = append(doc.Rows, dash.Row{
+				Type: "text", Label: "no notes", Value: "this vault is empty", Tone: "warning",
+			})
+			return doc
+		}
 		doc.Rows = append(doc.Rows, dash.Row{
-			Type: "text", Label: "no note", Value: "nothing matches " + query, Tone: "warning",
+			Type: "text", Label: current.Title, Value: folderOf(current.Rel), ID: current.Rel, Tone: "accent",
 		})
+		if len(body) > 0 {
+			doc.Rows = append(doc.Rows, dash.Row{Type: "divider", Label: "NOTE"})
+			doc.Rows = append(doc.Rows, dash.Row{Type: "block", Body: body})
+		}
 		return doc
 	}
 
-	matches := notes
-	if len(matches) > maxMatches {
-		matches = matches[:maxMatches]
+	doc.Badge = &dash.DocBadge{Text: fmt.Sprintf("%d match", len(matches)), Tone: "accent"}
+	doc.Rows = append(doc.Rows, dash.Row{Type: "text", Label: "search", Value: query, Tone: "accent"})
+	if len(matches) == 0 {
+		doc.Rows = append(doc.Rows, dash.Row{
+			Type: "text", Label: "no note", Value: "nothing matches " + query, Tone: "muted",
+		})
+		doc.Rows = append(doc.Rows, newNoteRow(query))
+		return doc
+	}
+
+	shown := matches
+	if len(shown) > maxMatches {
+		shown = shown[:maxMatches]
 	}
 	doc.Rows = append(doc.Rows, dash.Row{Type: "divider", Label: "NOTES"})
-	for _, note := range matches {
+	for _, match := range shown {
+		row := dash.Row{Type: "block", Label: match.Title, Value: folderOf(match.Rel), ID: match.Rel}
+		if match.Excerpt != "" {
+			row.Body = []string{match.Excerpt}
+			row.BodyTone = "muted"
+		}
+		doc.Rows = append(doc.Rows, row)
+	}
+	if len(matches) > len(shown) {
 		doc.Rows = append(doc.Rows, dash.Row{
-			Type: "text", Label: note.Title, Value: folderOf(note.Rel), ID: note.Rel,
+			Type: "text", Label: "more", Value: fmt.Sprintf("%d more", len(matches)-len(shown)), Tone: "muted",
 		})
 	}
-	if len(notes) > len(matches) {
-		doc.Rows = append(doc.Rows, dash.Row{
-			Type: "text", Label: "more", Value: fmt.Sprintf("%d more", len(notes)-len(matches)), Tone: "muted",
-		})
-	}
+	doc.Rows = append(doc.Rows, newNoteRow(query))
 	return doc
+}
+
+// newNoteRow makes a note named after the query. Enter opens it in the editor,
+// because a note that does not exist yet has nothing to read.
+func newNoteRow(query string) dash.Row {
+	return dash.Row{Type: "text", Label: "＋ new note", Value: capText(query, 40), ID: newNoteID, Tone: "accent"}
 }
 
 // vaultOptions offers the vault setting every vault Obsidian knows, blank first

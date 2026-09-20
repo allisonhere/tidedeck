@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "tidedeck.obsidian",
   "name": "Obsidian",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "author": "tidedeck",
   "license": "MIT",
-  "description": "Search and edit notes in your Obsidian vault.",
+  "description": "Read, search and edit notes in your Obsidian vault.",
   "kinds": [
     "panel"
   ],
@@ -17,10 +17,15 @@
   },
   "panel": {
     "displayName": "Obsidian",
-    "description": "Type to find a note; enter loads it in the editor.",
+    "description": "Read the current note; type to find another, e to edit.",
     "glyph": "\ud83d\udc8e",
     "category": "Notes",
     "open": [
+      "./run.sh",
+      "open",
+      "{id}"
+    ],
+    "edit": [
       "./run.sh",
       "edit",
       "{id}"
@@ -29,14 +34,14 @@
     "inputChars": "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .-_/",
     "refreshSeconds": 30,
     "minWidth": 26,
-    "minHeight": 4,
+    "minHeight": 6,
     "priority": 45,
     "schema": [
       {
         "key": "vault",
         "type": "string",
         "label": "vault",
-        "description": "Which vault to search. The list is read from Obsidian.",
+        "description": "Which vault to read. The list is read from Obsidian.",
         "placeholder": "the open vault",
         "defaultValue": ""
       },
@@ -45,6 +50,14 @@
         "type": "string",
         "label": "search",
         "description": "What is typed in the pane; it filters the notes as you type.",
+        "defaultValue": ""
+      },
+      {
+        "key": "folder",
+        "type": "string",
+        "label": "new note folder",
+        "description": "Where a new note is created, relative to the vault. Blank is the vault root.",
+        "placeholder": "vault root",
         "defaultValue": ""
       },
       {

@@ -5,15 +5,21 @@ file on disk, so the panel reads them directly and never needs Obsidian running.
 
 ## What it does
 
-- **The pane is one search row.** Until you type, there is no list of notes - a
-  note app should not greet you with a wall of filenames. Type and the fuzzy
-  matches drop in below.
-- **Fuzzy search**: note names and paths match as a subsequence, so `prj` finds
-  `Projects/` and `tftp` finds `TideFTP`.
-- **`enter` loads the note under the cursor in the editor** - a full-screen
-  [Ripple](#requirements) surface: arrows and word motions, selection, undo/redo,
-  clipboard copy/cut/paste. `ctrl+s` writes the note and leaves, `esc` leaves
-  without saving; in `vim` mode `:w` and `:q` do the same.
+- **The pane reads a note, not a list.** It shows the note you last loaded -
+  or, before that, the most recently edited one - with its body under it. The
+  search row sits on top, so there is always one place to type.
+- **Type to search, and the matches drop in** below: each with its folder and a
+  line of its body, so two notes with similar names can be told apart. Matching
+  is fuzzy over names and paths, so `prj` finds `Projects/` and `tftp` finds
+  `TideFTP`.
+- **`enter` loads the note** the cursor is on into the pane, and the search
+  clears, so you are reading it. **`e` edits it** in a full-screen
+  [Ripple](#requirements) editor: arrows and word motions, selection,
+  undo/redo, clipboard. `ctrl+s` saves, `esc` leaves without saving; in `vim`
+  mode `:w` and `:q` do the same.
+- **A new note is one row away.** While searching, the last row offers
+  `＋ new note` named after what you typed; enter makes it and opens the editor,
+  because a note that does not exist yet has nothing to read.
 - **Notes are written atomically** - a temporary file renamed over the original -
   so a crash half way through leaves the note intact, and only a `.md` file
   inside the vault can be written at all.
@@ -30,17 +36,19 @@ works.
 
 | Setting | Default | What it does |
 |---|---|---|
-| `vault` | the open vault | Which vault to search. **A list**, read from Obsidian. |
+| `vault` | the open vault | Which vault to read. **A list**, read from Obsidian. |
 | `search` | — | What is typed in the pane. This is the input the pane takes. |
+| `new note folder` | vault root | Where `＋ new note` creates a note, relative to the vault. |
 | `editor mode` | plain | Ripple in `plain` (conventional) or `vim` mode. |
 
 ## Keys
 
 | Where | Key | Does |
 |---|---|---|
-| Pane | type | filter the vault; the matches appear |
-| Pane | `↑`/`↓` | move over the matches |
-| Pane | `enter` | load the note in the Ripple editor |
+| Pane | type | search the vault; the matches appear |
+| Pane | `↑`/`↓` | move over the matches or the current note |
+| Pane | `enter` | load the note under the cursor (or make a new one) |
+| Pane | `e` | edit the note under the cursor in Ripple |
 | Editor | `ctrl+s` | save and leave (or `:w` in vim mode) |
 | Editor | `esc` | leave without saving (or `:q` in vim mode) |
 

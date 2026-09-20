@@ -64,16 +64,21 @@ func TestManifestRunsThisProgramForEveryJob(t *testing.T) {
 		t.Fatalf("the panel entry point runs the verb %q, want render", entry[1])
 	}
 
-	// The reader's enter key loads the note in the editor, so the open command
-	// names the row's id and runs this program.
-	if len(raw.Panel.Open) == 0 {
-		t.Fatal("no open command: a row would be a destination with nowhere to go")
+	// enter loads a note and e edits it, so both commands run this program and
+	// name the row's id.
+	for _, command := range [][]string{raw.Panel.Open, raw.Panel.Edit} {
+		if len(command) == 0 {
+			t.Fatal("a row command is missing: a row would have nowhere to go")
+		}
+		if got := filepath.Base(command[0]); got != "run.sh" {
+			t.Fatalf("a row command runs %q, want the same entry script", got)
+		}
+		if !strings.Contains(strings.Join(command, " "), "{id}") {
+			t.Fatalf("%v does not name the row's id, so every row would do the same thing", command)
+		}
 	}
-	if got := filepath.Base(raw.Panel.Open[0]); got != "run.sh" {
-		t.Fatalf("open runs %q, want the same entry script", got)
-	}
-	if !strings.Contains(strings.Join(raw.Panel.Open, " "), "{id}") {
-		t.Fatalf("open %v does not name the row's id, so every row would load the same note", raw.Panel.Open)
+	if strings.Join(raw.Panel.Open, " ") == strings.Join(raw.Panel.Edit, " ") {
+		t.Fatal("open and edit run the same thing: one of the two keys would be a duplicate")
 	}
 
 	// The query is the pane's typing, so the setting it names has to exist.

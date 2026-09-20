@@ -167,6 +167,56 @@ func TestNotePathRefusesToEscapeTheVault(t *testing.T) {
 	}
 }
 
+func TestBodyLinesDropsFrontmatterAndCaps(t *testing.T) {
+	body := []byte("---\ntags: [x]\n---\n\n# Title\n\nfirst line\nsecond\nthird\n")
+	lines := BodyLines(body, 3)
+	if len(lines) != 3 {
+		t.Fatalf("lines = %q, want 3", lines)
+	}
+	if lines[0] != "# Title" || lines[1] != "" || lines[2] != "first line" {
+		t.Fatalf("lines = %q, want the frontmatter dropped and the body kept", lines)
+	}
+}
+
+func TestExcerptSkipsHeadings(t *testing.T) {
+	body := []byte("# Title\n\n## Section\n\nthe real first line\nmore\n")
+	if got := Excerpt(body, 40); got != "the real first line" {
+		t.Fatalf("excerpt = %q", got)
+	}
+	if got := Excerpt([]byte("# Only A Title\n"), 40); got != "" {
+		t.Fatalf("excerpt = %q, want empty when there is only a heading", got)
+	}
+}
+
+func TestCreateNoteSanitizesAndDoesNotClobber(t *testing.T) {
+	vault := &Vault{Name: "v", Path: t.TempDir()}
+	rel, err := CreateNote(vault, "Inbox", "My/Idea: notes?")
+	if err != nil {
+		t.Fatalf("CreateNote: %v", err)
+	}
+	if rel != "Inbox/My Idea notes.md" {
+		t.Fatalf("rel = %q", rel)
+	}
+	if _, err := os.Stat(filepath.Join(vault.Path, "Inbox", "My Idea notes.md")); err != nil {
+		t.Fatalf("the note was not created: %v", err)
+	}
+	// Typing a name that already exists opens it rather than overwriting it.
+	if err := os.WriteFile(filepath.Join(vault.Path, "Inbox", "My Idea notes.md"), []byte("keep me"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	again, err := CreateNote(vault, "Inbox", "My Idea notes")
+	if err != nil || again != rel {
+		t.Fatalf("CreateNote again = %q, %v", again, err)
+	}
+	body, _ := os.ReadFile(filepath.Join(vault.Path, "Inbox", "My Idea notes.md"))
+	if string(body) != "keep me" {
+		t.Fatalf("an existing note was clobbered: %q", body)
+	}
+	if _, err := CreateNote(vault, "", "..."); err == nil {
+		t.Fatal("a note with no usable name was created")
+	}
+}
+
 func TestReadWriteNoteRoundTripsAndLeavesNoLitter(t *testing.T) {
 	vault := &Vault{Name: "v", Path: t.TempDir()}
 	if err := os.WriteFile(filepath.Join(vault.Path, "Note.md"), []byte("old\n"), 0o644); err != nil {

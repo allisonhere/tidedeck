@@ -8,13 +8,6 @@ import (
 	"github.com/allisonhere/tideui/dash"
 )
 
-func sampleNotes() []Note {
-	return []Note{
-		{Rel: "TideFTP.md", Title: "TideFTP"},
-		{Rel: "Projects/Tide.md", Title: "Tide"},
-	}
-}
-
 func findRow(t *testing.T, doc dash.Doc, label string) dash.Row {
 	t.Helper()
 	for _, row := range doc.Rows {
@@ -26,58 +19,76 @@ func findRow(t *testing.T, doc dash.Doc, label string) dash.Row {
 	return dash.Row{}
 }
 
-// Without a query the pane is a single search row: no wall of notes.
-func TestRenderWithoutAQueryIsOneRow(t *testing.T) {
-	doc := Render(&Vault{Name: "Vault"}, nil, nil, "", nil)
-	if len(doc.Rows) != 1 {
-		t.Fatalf("rows = %#v, want the one search row", doc.Rows)
-	}
-	row := doc.Rows[0]
-	if row.Label != "search" || row.ID != "" || row.Tone != "muted" {
-		t.Fatalf("search row = %#v", row)
-	}
+// Without a query the pane is a reader: the search row, the current note, and
+// its body. No list of notes.
+func TestRenderReaderShowsTheCurrentNote(t *testing.T) {
+	current := &Note{Rel: "Projects/Tide.md", Title: "Tide"}
+	doc := Render(&Vault{Name: "Vault"}, nil, "", nil, current, []string{"# Tide", "a note"}, nil)
+
 	if doc.Badge == nil || doc.Badge.Text != "Vault" {
 		t.Fatalf("badge = %#v, want the vault name", doc.Badge)
 	}
-}
-
-// A query draws the matches, each openable, and counts them.
-func TestRenderListsMatchesWhileSearching(t *testing.T) {
-	doc := Render(&Vault{Name: "Vault"}, nil, RankNotes(sampleNotes(), "tftp"), "tftp", nil)
-
-	if doc.Badge == nil || !strings.Contains(doc.Badge.Text, "1") {
-		t.Fatalf("badge = %#v, want the match count", doc.Badge)
+	if row := findRow(t, doc, "search"); row.Tone != "muted" {
+		t.Fatalf("search row = %#v", row)
 	}
-	row := findRow(t, doc, "TideFTP")
-	if row.ID != "TideFTP.md" {
-		t.Fatalf("match row id = %q, want the note path", row.ID)
+	row := findRow(t, doc, "Tide")
+	if row.ID != "Projects/Tide.md" || row.Value != "Projects" || row.Tone != "accent" {
+		t.Fatalf("current-note row = %#v", row)
 	}
-	if row.Value != "vault root" {
-		t.Fatalf("row value = %q, want the folder", row.Value)
-	}
-	if findRow(t, doc, "search").Value != "tftp" {
-		t.Fatalf("the query was not echoed: %#v", doc.Rows)
-	}
-	// The list is only drawn while searching.
-	for _, row := range doc.Rows {
-		if row.Type == "block" {
-			t.Fatalf("a preview was drawn: %#v", row)
+	var body *dash.Row
+	for i := range doc.Rows {
+		if doc.Rows[i].Type == "block" {
+			body = &doc.Rows[i]
 		}
 	}
+	if body == nil || len(body.Body) != 2 || body.Body[0] != "# Tide" {
+		t.Fatalf("body = %#v", body)
+	}
 }
 
-// A query that matches nothing says so rather than showing an empty pane.
-func TestRenderExplainsNoMatches(t *testing.T) {
-	doc := Render(&Vault{Name: "Vault"}, nil, nil, "zzz", nil)
-	row := findRow(t, doc, "no note")
-	if row.Tone != "warning" || !strings.Contains(row.Value, "zzz") {
+// An empty vault says so rather than showing a blank pane.
+func TestRenderReaderWithoutNotes(t *testing.T) {
+	doc := Render(&Vault{Name: "Vault"}, nil, "", nil, nil, nil, nil)
+	if row := findRow(t, doc, "no notes"); row.Tone != "warning" {
+		t.Fatalf("no-notes row = %#v", row)
+	}
+}
+
+// A query lists the matches with an excerpt and an offer to make a note.
+func TestRenderSearchListsMatchesAndOffersANewNote(t *testing.T) {
+	matches := []Match{
+		{Note: Note{Rel: "TideFTP.md", Title: "TideFTP"}, Excerpt: "the ftp app"},
+		{Note: Note{Rel: "Projects/Tide.md", Title: "Tide"}},
+	}
+	doc := Render(&Vault{Name: "Vault"}, nil, "tide", matches, nil, nil, nil)
+
+	if doc.Badge == nil || !strings.Contains(doc.Badge.Text, "2") {
+		t.Fatalf("badge = %#v, want the match count", doc.Badge)
+	}
+	first := findRow(t, doc, "TideFTP")
+	if first.ID != "TideFTP.md" || len(first.Body) != 1 || first.Body[0] != "the ftp app" {
+		t.Fatalf("match row = %#v", first)
+	}
+	newRow := doc.Rows[len(doc.Rows)-1]
+	if newRow.ID != newNoteID || !strings.Contains(newRow.Label, "new note") {
+		t.Fatalf("last row = %#v, want the new-note row", newRow)
+	}
+}
+
+// A query that matches nothing still offers to make the note.
+func TestRenderSearchWithoutMatches(t *testing.T) {
+	doc := Render(&Vault{Name: "Vault"}, nil, "zzz", nil, nil, nil, nil)
+	if row := findRow(t, doc, "no note"); row.Tone != "muted" {
 		t.Fatalf("no-match row = %#v", row)
+	}
+	if last := doc.Rows[len(doc.Rows)-1]; last.ID != newNoteID {
+		t.Fatalf("last row = %#v, want the new-note row", last)
 	}
 }
 
 // A vault that cannot be found is explained, never a blank pane.
 func TestRenderExplainsAMissingVault(t *testing.T) {
-	doc := Render(nil, nil, nil, "", errors.New("Obsidian has no vaults"))
+	doc := Render(nil, nil, "", nil, nil, nil, errors.New("Obsidian has no vaults"))
 	if doc.Badge == nil || doc.Badge.Tone != "warning" {
 		t.Fatalf("badge = %#v, want a warning", doc.Badge)
 	}
@@ -89,7 +100,7 @@ func TestRenderExplainsAMissingVault(t *testing.T) {
 // The vault setting is offered as a list, blank first for the default.
 func TestRenderOffersTheVaults(t *testing.T) {
 	vaults := []Vault{{Name: "Vault"}, {Name: "Second"}}
-	doc := Render(&vaults[0], vaults, nil, "", nil)
+	doc := Render(&vaults[0], vaults, "", nil, nil, nil, nil)
 	options := doc.Options["vault"]
 	if len(options) != 3 || options[0] != "" || options[1] != "Vault" || options[2] != "Second" {
 		t.Fatalf("vault options = %v", options)

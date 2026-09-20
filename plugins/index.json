@@ -157,10 +157,10 @@
       "id": "tidedeck.obsidian",
       "name": "Obsidian",
       "displayName": "Obsidian",
-      "version": "1.1.0",
+      "version": "2.0.0",
       "author": "tidedeck",
       "license": "MIT",
-      "description": "Search and edit notes in your Obsidian vault.",
+      "description": "Read, search and edit notes in your Obsidian vault.",
       "glyph": "💎",
       "category": "Notes",
       "kinds": [
@@ -170,7 +170,7 @@
       "install": "https://github.com/allisonhere/tidedeck#contrib/obsidian",
       "refreshSeconds": 30,
       "minWidth": 26,
-      "minHeight": 4,
+      "minHeight": 6,
       "priority": 45,
       "gauge": false,
       "spark": false,
@@ -179,13 +179,19 @@
           "key": "vault",
           "type": "string",
           "label": "vault",
-          "description": "Which vault to search. The list is read from Obsidian."
+          "description": "Which vault to read. The list is read from Obsidian."
         },
         {
           "key": "query",
           "type": "string",
           "label": "search",
           "description": "What is typed in the pane; it filters the notes as you type."
+        },
+        {
+          "key": "folder",
+          "type": "string",
+          "label": "new note folder",
+          "description": "Where a new note is created, relative to the vault. Blank is the vault root."
         },
         {
           "key": "mode",
