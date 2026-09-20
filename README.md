@@ -503,25 +503,40 @@ ws.Panel("weather", weatherView).
 panel.ClearTheme() // back to the workspace theme
 ```
 
-The `heat`, `weighted` and `stroke` sparklines differ from the others: they
-size and colour each sample by its own absolute value rather than by where it
-falls within the run, so a quiet stretch stays small and green instead of being
-stretched to fill the ramp. `heat` grades dot area (`·∘○◉●`), `weighted` grades
-vertical stroke weight (`╵╷│┃█`) and `stroke` grades horizontal weight
-(`╴─━█`). Because the ramp itself climbs, each still reads where colour is
-unavailable. `StyleOptions.SparkRamps` replaces a style's glyphs and
-`StyleOptions.SparkBands` its thresholds, both keyed by style; each falls back
-to the built-in ramp, or its ASCII form for an ASCII theme.
-
-Gauge and sparkline styles are panel-scoped too, so one panel can use a
-different glyph set than the workspace:
+Sparklines come in two standard ramps: `blocks` (`▁▂▃▄▅▆▇█`) and `dots`
+(`·∘○◉●`). A run is scaled to its own minimum and maximum, so its shape fills
+the ramp; a run that barely moves is drawn at its actual level instead, so
+sampling noise does not read as a full-height swing. Gauge and sparkline styles
+are panel-scoped too, so one panel can differ from the workspace:
 
 ```go
-panel.Gauge(tideui.GaugeCircles)     // this panel's bars use circles
-panel.Sparkline(tideui.SparkBraille) // and its sparklines use braille
-panel.ClearGauge()                   // back to the workspace gauge
-panel.ClearSparkline()               // back to the workspace sparkline
+panel.Gauge(tideui.GaugeSegment)   // this panel's bars use the segmented meter
+panel.Sparkline(tideui.SparkDots)  // and its sparklines the dot ramp
+panel.ClearGauge()                 // back to the workspace gauge
+panel.ClearSparkline()             // back to the workspace sparkline
 ```
+
+### Gauges
+
+Every progress bar and metric gauge goes through one renderer
+(`RenderProgressBar`, or `MetricRow{Bar: true}`) and picks one of two standard
+shapes:
+
+| Style | Full / compact | For |
+|---|---|---|
+| `block` | `██████░░░░` | the default progress bar: percentages, capacity, memory, disk |
+| `segment` | `[■ ■ ■ ■ □ □ □ □]` / `▰▰▰▰▱▱▱▱` | a segmented meter, the fill count cell for cell |
+
+Both render at any width: the fill is a run of exactly `width` cells, so a gauge
+reads in a wide pane, in a split, and in a sliver. At full width `segment` gains
+its brackets and spacing; a one-cell gauge is a single filled or empty cell. The
+tone passed in (`ToneGood`/`ToneWarning`/`ToneDanger`/…) colours the fill, so
+state and shape agree. A caller can ask for a style per gauge with
+`ProgressBar.Style`, or leave it to the pane's `Styles.Gauge`.
+
+The glyph sets that predate these two (`solid`, `bars`, `blocks`, `circles`,
+`fisheye`, `marker`) map onto the shape that reads most like them, so a config
+written before the change keeps working.
 
 Panels without a theme keep following the global theme picker. Panel content
 inherits the panel theme automatically because `PanelContext` exposes the
@@ -599,7 +614,7 @@ Reusable, theme-aware components for building panels and dashboards:
 | `KeyHint` / `Renderer.RenderKeyHints` | compact key capsules with label-drop fallback |
 | `ListItem` / `Renderer.RenderListItem` | polished selectable rows with rail, icon, meta, counter |
 | `SectionDivider` | labelled rules for grouping content |
-| `MetricRow` / `ProgressBar` / `Sparkline` | aligned metrics, gauges, and trends; gauges pick from six glyph sets, sparklines from six ramps, and sparkline cells grade green→yellow→orange→red across the run's min–max |
+| `MetricRow` / `ProgressBar` / `Sparkline` | aligned metrics, gauges, and trends; gauges pick from two standard shapes (`block`, `segment`), sparklines from two ramps (`blocks`, `dots`), and sparkline cells grade green→yellow→orange→red across the run's min–max |
 | `FocusChrome` | shared "what does focused mean" decisions |
 | `StatusBar` regions / `Renderer.RenderStatusRegions` | three-region status strip with priority degradation |
 
@@ -804,10 +819,10 @@ stays readable instead of becoming one long scroll:
   hidden panel's row shows `off` in the category list; the choices are saved
   with the layout.
 - **Live data** toggles between the deterministic demo feed and real providers;
-  **gauge style** cycles the glyph set used by every progress bar and metric
-  gauge (`solid`, `blocks`, `circles`, `fisheye`, `marker`, `bars`) and
-  **spark style** the ramp used by sparklines (`blocks`, `dots`, `braille`,
-  `bullets`, `ticks`, `shades`, `heat`, `weighted`, `stroke`), **icons** the
+  **gauge style** picks the shape used by every progress bar and metric gauge
+  (`block`, `segment`; the older `solid`, `bars`, `blocks`, `circles`,
+  `fisheye` and `marker` resolve to the nearest shape) and
+  **spark style** the ramp used by sparklines (`blocks`, `dots`), **icons** the
   widget icon family (`emoji`, `plain`, `nerd`), which also decides how a key
   hint draws its keys (`↵`/`↩️`/`⏎` enter, arrows, and so on), and **clock font**
   the large-clock glyphs
@@ -1232,7 +1247,7 @@ It can declare a second command for **changing** the same row — a form the plu
 owns, run with the same id:
 
 ```json
-"panel": { "edit": ["favourites", "edit", "{id}"] }
+"panel": { "edit": ["favorites", "edit", "{id}"] }
 ```
 
 `Space` enters the panel, the arrows (or `j`/`k`) move a cursor over the rows that
@@ -1306,6 +1321,22 @@ from a broken one, so this one names the accounts it can see and how much mail
 each has, which is exactly what the account setting wants typed into it. A
 mistyped account says so and lists the real ones; a machine with no accounts
 yet says that instead of looking broken.
+
+`contrib/pagepulse/` is a fourth, and shows a plugin that reads a web service
+rather than a local one. PagePulse is a self-hosted analytics app whose
+production database only its own PHP can reach, so the panel cannot query it the
+way the mail panel reads a local cache. Instead it calls a small read-only JSON
+endpoint the app exposes, and draws the live visitor count, the period's totals
+against the one before, a spark of the traffic, the hot page, and the top
+sources. Every failure is drawn rather than swallowed - no URL set, a key
+refused, the API switched off, an unreachable host, an answer that will not
+parse - so the pane says which one it is instead of going blank.
+
+The bundled plugins are catalogued in `plugins/index.json`, generated from every
+plugin's own manifest by `go run ./cmd/plugincatalog`. It is what a site or a
+script reads to list and describe them without re-reading the manifests, and the
+`dash` package's `catalog_test.go` fails whenever the catalogue and the
+manifests drift.
 
 #### Running them
 

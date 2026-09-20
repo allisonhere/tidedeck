@@ -1,0 +1,253 @@
+{
+  "schemaVersion": 1,
+  "repository": "https://github.com/allisonhere/tidedeck",
+  "generatedBy": "go run ./cmd/plugincatalog",
+  "plugins": [
+    {
+      "id": "tidedeck.ai-usage",
+      "name": "AI Usage",
+      "displayName": "AI Usage",
+      "version": "1.0.0",
+      "author": "tidedeck",
+      "license": "MIT",
+      "description": "Plan usage and balances, read from the ai-usagebar binary.",
+      "glyph": "🤖",
+      "category": "AI",
+      "kinds": [
+        "panel"
+      ],
+      "source": "contrib/ai-usage",
+      "install": "https://github.com/allisonhere/tidedeck#contrib/ai-usage",
+      "refreshSeconds": 300,
+      "minWidth": 22,
+      "minHeight": 5,
+      "priority": 45,
+      "gauge": true,
+      "spark": true,
+      "settings": [
+        {
+          "key": "binary",
+          "type": "string",
+          "label": "ai-usagebar binary",
+          "description": ""
+        }
+      ]
+    },
+    {
+      "id": "tidedeck.docker",
+      "name": "Containers",
+      "displayName": "Containers",
+      "version": "1.0.0",
+      "author": "tidedeck",
+      "license": "MIT",
+      "description": "Docker containers, their state and health, read from docker ps.",
+      "glyph": "🐳",
+      "category": "System",
+      "kinds": [
+        "panel"
+      ],
+      "source": "contrib/docker",
+      "install": "https://github.com/allisonhere/tidedeck#contrib/docker",
+      "refreshSeconds": 10,
+      "minWidth": 26,
+      "minHeight": 5,
+      "priority": 35,
+      "gauge": false,
+      "spark": false,
+      "settings": [
+        {
+          "key": "all",
+          "type": "boolean",
+          "label": "show stopped",
+          "description": ""
+        },
+        {
+          "key": "filter",
+          "type": "string",
+          "label": "filter",
+          "description": ""
+        }
+      ]
+    },
+    {
+      "id": "tidedeck.favorites",
+      "name": "Favorites",
+      "displayName": "Favorites",
+      "version": "2.0.0",
+      "author": "tidedeck",
+      "license": "MIT",
+      "description": "A list of links you keep, with a form to add, change and remove them.",
+      "glyph": "🔖",
+      "category": "Favorites",
+      "kinds": [
+        "panel"
+      ],
+      "source": "contrib/favorites",
+      "install": "https://github.com/allisonhere/tidedeck#contrib/favorites",
+      "refreshSeconds": 60,
+      "minWidth": 24,
+      "minHeight": 5,
+      "priority": 45,
+      "gauge": false,
+      "spark": false,
+      "settings": [
+        {
+          "key": "path",
+          "type": "string",
+          "label": "list path",
+          "description": "Where the list is kept. Blank uses the default location under your data directory."
+        }
+      ]
+    },
+    {
+      "id": "tidedeck.mail",
+      "name": "Mail",
+      "displayName": "Mail",
+      "version": "1.5.1",
+      "author": "tidedeck",
+      "license": "MIT",
+      "description": "A preview of recent mail, read from TideMail's local cache.",
+      "glyph": "📧",
+      "category": "Mail",
+      "kinds": [
+        "panel"
+      ],
+      "source": "contrib/mail",
+      "install": "https://github.com/allisonhere/tidedeck#contrib/mail",
+      "refreshSeconds": 60,
+      "minWidth": 26,
+      "minHeight": 6,
+      "priority": 55,
+      "gauge": false,
+      "spark": false,
+      "settings": [
+        {
+          "key": "account",
+          "type": "string",
+          "label": "account",
+          "description": "Which account to preview. The list is read from your mailbox."
+        },
+        {
+          "key": "mailbox",
+          "type": "string",
+          "label": "mailbox",
+          "description": "Which mailbox to preview. Narrows to the chosen account."
+        },
+        {
+          "key": "count",
+          "type": "number",
+          "label": "messages shown",
+          "description": "How many messages the panel previews, 1 to 50."
+        },
+        {
+          "key": "unread",
+          "type": "boolean",
+          "label": "unread only",
+          "description": ""
+        },
+        {
+          "key": "db",
+          "type": "string",
+          "label": "mail.db path",
+          "description": "Blank uses TideMail's own location."
+        }
+      ]
+    },
+    {
+      "id": "tidedeck.obsidian",
+      "name": "Obsidian",
+      "displayName": "Obsidian",
+      "version": "1.0.0",
+      "author": "tidedeck",
+      "license": "MIT",
+      "description": "Search and edit notes in your Obsidian vault.",
+      "glyph": "💎",
+      "category": "Notes",
+      "kinds": [
+        "panel"
+      ],
+      "source": "contrib/obsidian",
+      "install": "https://github.com/allisonhere/tidedeck#contrib/obsidian",
+      "refreshSeconds": 30,
+      "minWidth": 26,
+      "minHeight": 6,
+      "priority": 45,
+      "gauge": false,
+      "spark": false,
+      "settings": [
+        {
+          "key": "vault",
+          "type": "string",
+          "label": "vault",
+          "description": "Which vault to search. The list is read from Obsidian."
+        },
+        {
+          "key": "query",
+          "type": "string",
+          "label": "search",
+          "description": "What is typed in the pane; it filters the notes as you type."
+        },
+        {
+          "key": "preview",
+          "type": "number",
+          "label": "preview lines",
+          "description": "How many lines of the best match to preview, 1 to 200."
+        },
+        {
+          "key": "mode",
+          "type": "choice",
+          "label": "editor mode",
+          "description": "Ripple's editing mode for editing a note."
+        }
+      ]
+    },
+    {
+      "id": "tidedeck.pagepulse",
+      "name": "PagePulse",
+      "displayName": "PagePulse",
+      "version": "1.0.0",
+      "author": "tidedeck",
+      "license": "MIT",
+      "description": "Who is on your PagePulse site now, and the page they are reading.",
+      "glyph": "📈",
+      "category": "Analytics",
+      "kinds": [
+        "panel"
+      ],
+      "source": "contrib/pagepulse",
+      "install": "https://github.com/allisonhere/tidedeck#contrib/pagepulse",
+      "refreshSeconds": 60,
+      "minWidth": 24,
+      "minHeight": 5,
+      "priority": 45,
+      "gauge": false,
+      "spark": false,
+      "settings": [
+        {
+          "key": "url",
+          "type": "string",
+          "label": "PagePulse URL",
+          "description": "Where your PagePulse install lives, for example https://stats.example.com."
+        },
+        {
+          "key": "key",
+          "type": "string",
+          "label": "API key",
+          "description": "A read key generated on PagePulse's Settings page. It is read-only."
+        },
+        {
+          "key": "site",
+          "type": "string",
+          "label": "site",
+          "description": "Which site to show. The list is read from PagePulse."
+        },
+        {
+          "key": "preset",
+          "type": "choice",
+          "label": "period",
+          "description": "The reporting period the totals cover."
+        }
+      ]
+    }
+  ]
+}
