@@ -26,10 +26,24 @@ func findRow(t *testing.T, doc dash.Doc, label string) dash.Row {
 	return dash.Row{}
 }
 
-// A query draws one openable row per match, and previews the best one.
-func TestRenderListsMatchesAndPreviewsTheBest(t *testing.T) {
-	vault := &Vault{Name: "Vault"}
-	doc := Render(vault, nil, RankNotes(sampleNotes(), "tftp"), "tftp", []string{"# TideFTP", "a note"}, "TideFTP", nil)
+// Without a query the pane is a single search row: no wall of notes.
+func TestRenderWithoutAQueryIsOneRow(t *testing.T) {
+	doc := Render(&Vault{Name: "Vault"}, nil, nil, "", nil)
+	if len(doc.Rows) != 1 {
+		t.Fatalf("rows = %#v, want the one search row", doc.Rows)
+	}
+	row := doc.Rows[0]
+	if row.Label != "search" || row.ID != "" || row.Tone != "muted" {
+		t.Fatalf("search row = %#v", row)
+	}
+	if doc.Badge == nil || doc.Badge.Text != "Vault" {
+		t.Fatalf("badge = %#v, want the vault name", doc.Badge)
+	}
+}
+
+// A query draws the matches, each openable, and counts them.
+func TestRenderListsMatchesWhileSearching(t *testing.T) {
+	doc := Render(&Vault{Name: "Vault"}, nil, RankNotes(sampleNotes(), "tftp"), "tftp", nil)
 
 	if doc.Badge == nil || !strings.Contains(doc.Badge.Text, "1") {
 		t.Fatalf("badge = %#v, want the match count", doc.Badge)
@@ -41,35 +55,20 @@ func TestRenderListsMatchesAndPreviewsTheBest(t *testing.T) {
 	if row.Value != "vault root" {
 		t.Fatalf("row value = %q, want the folder", row.Value)
 	}
-	var preview *dash.Row
-	for i := range doc.Rows {
-		if doc.Rows[i].Type == "block" {
-			preview = &doc.Rows[i]
+	if findRow(t, doc, "search").Value != "tftp" {
+		t.Fatalf("the query was not echoed: %#v", doc.Rows)
+	}
+	// The list is only drawn while searching.
+	for _, row := range doc.Rows {
+		if row.Type == "block" {
+			t.Fatalf("a preview was drawn: %#v", row)
 		}
-	}
-	if preview == nil || len(preview.Body) != 2 || preview.Body[0] != "# TideFTP" {
-		t.Fatalf("preview = %#v", preview)
-	}
-	if !strings.Contains(preview.Label, "") && preview.Label != "" {
-		t.Fatalf("preview block carried a label: %q", preview.Label)
-	}
-}
-
-// With no query the pane is the recent notes, not an empty box.
-func TestRenderWithoutAQueryShowsTheVault(t *testing.T) {
-	doc := Render(&Vault{Name: "Vault"}, nil, sampleNotes(), "", nil, "", nil)
-	row := findRow(t, doc, "search")
-	if row.Tone != "muted" || !strings.Contains(row.Value, "Vault") {
-		t.Fatalf("hint row = %#v", row)
-	}
-	if len(doc.Rows) < 3 {
-		t.Fatalf("rows = %#v, want the notes", doc.Rows)
 	}
 }
 
 // A query that matches nothing says so rather than showing an empty pane.
 func TestRenderExplainsNoMatches(t *testing.T) {
-	doc := Render(&Vault{Name: "Vault"}, nil, nil, "zzz", nil, "", nil)
+	doc := Render(&Vault{Name: "Vault"}, nil, nil, "zzz", nil)
 	row := findRow(t, doc, "no note")
 	if row.Tone != "warning" || !strings.Contains(row.Value, "zzz") {
 		t.Fatalf("no-match row = %#v", row)
@@ -78,7 +77,7 @@ func TestRenderExplainsNoMatches(t *testing.T) {
 
 // A vault that cannot be found is explained, never a blank pane.
 func TestRenderExplainsAMissingVault(t *testing.T) {
-	doc := Render(nil, nil, nil, "", nil, "", errors.New("Obsidian has no vaults"))
+	doc := Render(nil, nil, nil, "", errors.New("Obsidian has no vaults"))
 	if doc.Badge == nil || doc.Badge.Tone != "warning" {
 		t.Fatalf("badge = %#v, want a warning", doc.Badge)
 	}
@@ -90,7 +89,7 @@ func TestRenderExplainsAMissingVault(t *testing.T) {
 // The vault setting is offered as a list, blank first for the default.
 func TestRenderOffersTheVaults(t *testing.T) {
 	vaults := []Vault{{Name: "Vault"}, {Name: "Second"}}
-	doc := Render(&vaults[0], vaults, sampleNotes(), "", nil, "", nil)
+	doc := Render(&vaults[0], vaults, nil, "", nil)
 	options := doc.Options["vault"]
 	if len(options) != 3 || options[0] != "" || options[1] != "Vault" || options[2] != "Second" {
 		t.Fatalf("vault options = %v", options)

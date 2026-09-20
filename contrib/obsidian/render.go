@@ -8,14 +8,16 @@ import (
 	"github.com/allisonhere/tideui/dash"
 )
 
-// maxMatches caps the list the pane draws. A fuzzy query in a big vault can
-// match hundreds of notes; the pane shows the best of them and says how many
-// were left.
+// maxMatches caps the list the pane draws while searching. A fuzzy query in a
+// big vault can match hundreds of notes; the pane shows the best of them and
+// says how many were left.
 const maxMatches = 12
 
-// Render turns a vault's notes into the panel document: the fuzzy matches, and
-// a preview of the best one so a query loads a note as it is typed.
-func Render(vault *Vault, vaults []Vault, notes []Note, query string, preview []string, previewTitle string, problem error) dash.Doc {
+// Render turns a vault's notes into the panel document. Without a query the
+// pane is a single search row - a note list is only drawn when the reader is
+// actually searching. The rows that carry an id are the matches, and the
+// reader's enter key loads the one under the cursor in the editor.
+func Render(vault *Vault, vaults []Vault, notes []Note, query string, problem error) dash.Doc {
 	doc := dash.Doc{SchemaVersion: dash.DocSchemaVersion, Options: vaultOptions(vaults)}
 
 	if problem != nil {
@@ -26,24 +28,22 @@ func Render(vault *Vault, vaults []Vault, notes []Note, query string, preview []
 		return doc
 	}
 
-	name := "vault"
-	if vault != nil && vault.Name != "" {
-		name = vault.Name
-	}
 	query = strings.TrimSpace(query)
 	if query == "" {
-		doc.Badge = &dash.DocBadge{Text: fmt.Sprintf("%d notes", len(notes)), Tone: "muted"}
+		if vault != nil && vault.Name != "" {
+			doc.Badge = &dash.DocBadge{Text: vault.Name, Tone: "muted"}
+		}
+		// The whole pane is one row until something is searched for.
 		doc.Rows = append(doc.Rows, dash.Row{
-			Type: "text", Label: "search", Value: "type to filter " + name, Tone: "muted",
+			Type: "text", Label: "search", Value: "type to find a note", Tone: "muted",
 		})
-	} else {
-		doc.Badge = &dash.DocBadge{Text: fmt.Sprintf("%d match", len(notes)), Tone: "accent"}
+		return doc
 	}
 
-	matches := notes
-	if len(matches) > maxMatches {
-		matches = matches[:maxMatches]
-	}
+	doc.Badge = &dash.DocBadge{Text: fmt.Sprintf("%d match", len(notes)), Tone: "accent"}
+	doc.Rows = append(doc.Rows, dash.Row{
+		Type: "text", Label: "search", Value: query, Tone: "accent",
+	})
 	if len(notes) == 0 {
 		doc.Rows = append(doc.Rows, dash.Row{
 			Type: "text", Label: "no note", Value: "nothing matches " + query, Tone: "warning",
@@ -51,6 +51,10 @@ func Render(vault *Vault, vaults []Vault, notes []Note, query string, preview []
 		return doc
 	}
 
+	matches := notes
+	if len(matches) > maxMatches {
+		matches = matches[:maxMatches]
+	}
 	doc.Rows = append(doc.Rows, dash.Row{Type: "divider", Label: "NOTES"})
 	for _, note := range matches {
 		doc.Rows = append(doc.Rows, dash.Row{
@@ -62,25 +66,7 @@ func Render(vault *Vault, vaults []Vault, notes []Note, query string, preview []
 			Type: "text", Label: "more", Value: fmt.Sprintf("%d more", len(notes)-len(matches)), Tone: "muted",
 		})
 	}
-
-	if len(preview) > 0 {
-		label := "PREVIEW"
-		if previewTitle != "" {
-			label = "PREVIEW · " + strings.ToUpper(capLabel(previewTitle, 24))
-		}
-		doc.Rows = append(doc.Rows, dash.Row{Type: "divider", Label: label})
-		doc.Rows = append(doc.Rows, dash.Row{Type: "block", Body: preview})
-	}
 	return doc
-}
-
-// capLabel keeps a preview divider from being swallowed by a long note title.
-func capLabel(title string, limit int) string {
-	runes := []rune(strings.TrimSpace(title))
-	if len(runes) <= limit {
-		return string(runes)
-	}
-	return string(runes[:limit-1]) + "…"
 }
 
 // vaultOptions offers the vault setting every vault Obsidian knows, blank first

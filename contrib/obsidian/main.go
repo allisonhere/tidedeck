@@ -1,18 +1,14 @@
 // Command obsidian is a tidedeck panel over an Obsidian vault. Obsidian keeps
 // its notes as plain markdown on disk, so the pane reads them directly: a fuzzy
-// search filters the vault, the best match is previewed, enter opens the note
-// in Obsidian itself, and e edits the markdown in a full-screen Ripple editor.
+// search filters the vault, and enter loads the note under the cursor in a
+// full-screen Ripple editor.
 package main
 
 import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
-	"os/exec"
-	"strconv"
-	"strings"
 
 	"github.com/allisonhere/tideui/dash"
 )
@@ -20,18 +16,16 @@ import (
 const usage = `obsidian - search and edit notes in your Obsidian vault
 
   obsidian render       print the panel document
-  obsidian open <note>  open the note in Obsidian
-  obsidian edit <note>  edit the note's markdown with Ripple
+  obsidian edit <note>  open the note in the Ripple editor
   obsidian vaults       print the vaults Obsidian knows
   obsidian path         print the vault the pane will use
 `
 
 // settings are what the dashboard passes in as TIDEDECK_PLUGIN_* variables.
 type settings struct {
-	vault   string
-	query   string
-	mode    string
-	preview int
+	vault string
+	query string
+	mode  string
 }
 
 func settingsFromEnv() settings {
@@ -40,22 +34,10 @@ func settingsFromEnv() settings {
 		query: os.Getenv("TIDEDECK_PLUGIN_QUERY"),
 		mode:  os.Getenv("TIDEDECK_PLUGIN_MODE"),
 	}
-	cfg.preview = numberFromEnv("TIDEDECK_PLUGIN_PREVIEW", 18)
 	if cfg.mode != "vim" {
 		cfg.mode = "plain"
 	}
-	if cfg.preview > 200 {
-		cfg.preview = 200
-	}
 	return cfg
-}
-
-func numberFromEnv(name string, fallback int) int {
-	n, err := strconv.Atoi(strings.TrimSpace(os.Getenv(name)))
-	if err != nil || n <= 0 {
-		return fallback
-	}
-	return n
 }
 
 func main() {
@@ -72,12 +54,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case "render":
 		return renderDoc(stdout, stderr, cfg)
-	case "open":
-		if len(args) < 2 {
-			fmt.Fprintln(stderr, "obsidian: open needs a note")
-			return 2
-		}
-		return openCmd(stdout, stderr, cfg, args[1])
 	case "edit":
 		if len(args) < 2 {
 			fmt.Fprintln(stderr, "obsidian: edit needs a note")
@@ -104,24 +80,13 @@ func renderDoc(stdout, stderr io.Writer, cfg settings) int {
 	vaults, _ := Vaults()
 	vault, err := ResolveVault(cfg.vault)
 	if err != nil {
-		return writeDoc(stdout, stderr, Render(nil, vaults, nil, cfg.query, nil, "", err))
+		return writeDoc(stdout, stderr, Render(nil, vaults, nil, cfg.query, err))
 	}
 	notes, err := ScanNotes(vault.Path)
 	if err != nil {
-		return writeDoc(stdout, stderr, Render(vault, vaults, nil, cfg.query, nil, "", err))
+		return writeDoc(stdout, stderr, Render(vault, vaults, nil, cfg.query, err))
 	}
-	ranked := RankNotes(notes, cfg.query)
-
-	// Preview the best match, so a query loads a note as it is typed.
-	var preview []string
-	title := ""
-	if len(ranked) > 0 {
-		if body, readErr := ReadNote(vault, ranked[0].Rel); readErr == nil {
-			preview = PreviewLines(body, cfg.preview)
-			title = ranked[0].Title
-		}
-	}
-	return writeDoc(stdout, stderr, Render(vault, vaults, ranked, cfg.query, preview, title, nil))
+	return writeDoc(stdout, stderr, Render(vault, vaults, RankNotes(notes, cfg.query), cfg.query, nil))
 }
 
 func writeDoc(stdout, stderr io.Writer, doc dash.Doc) int {
@@ -132,32 +97,6 @@ func writeDoc(stdout, stderr io.Writer, doc dash.Doc) int {
 	}
 	fmt.Fprintln(stdout, string(data))
 	return 0
-}
-
-// openCmd hands the note to Obsidian through its own obsidian:// URL, so it
-// opens in the vault the reader already has running.
-func openCmd(stdout, stderr io.Writer, cfg settings, id string) int {
-	vault, err := ResolveVault(cfg.vault)
-	if err != nil {
-		fmt.Fprintf(stderr, "obsidian: %v\n", err)
-		return 1
-	}
-	if err := openInObsidian(vault, id); err != nil {
-		fmt.Fprintf(stderr, "obsidian: %v\n", err)
-		return 1
-	}
-	return 0
-}
-
-func openInObsidian(vault *Vault, rel string) error {
-	abs, err := notePath(vault, rel)
-	if err != nil {
-		return err
-	}
-	if _, err := os.Stat(abs); err != nil {
-		return fmt.Errorf("no note at %s", rel)
-	}
-	return runOpener("obsidian://open?path=" + url.QueryEscape(abs))
 }
 
 func editCmd(stdout, stderr io.Writer, cfg settings, id string) int {
@@ -201,10 +140,4 @@ func vaultPath(stdout, stderr io.Writer, cfg settings) int {
 	}
 	fmt.Fprintln(stdout, vault.Path)
 	return 0
-}
-
-// runOpener hands the obsidian:// URL to the desktop's opener. It is a variable
-// so a test can watch where a link goes without launching a browser.
-var runOpener = func(uri string) error {
-	return exec.Command("xdg-open", uri).Run()
 }

@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,22 +29,7 @@ func tempVault(t *testing.T, notes map[string]string) string {
 	t.Setenv("TIDEDECK_PLUGIN_VAULT", "")
 	t.Setenv("TIDEDECK_PLUGIN_QUERY", "")
 	t.Setenv("TIDEDECK_PLUGIN_MODE", "")
-	t.Setenv("TIDEDECK_PLUGIN_PREVIEW", "")
 	return vault
-}
-
-// renderInto runs the render verb and returns the parsed document.
-func renderInto(t *testing.T) dashDoc {
-	t.Helper()
-	var stdout, stderr bytes.Buffer
-	if code := run([]string{"render"}, &stdout, &stderr); code != 0 {
-		t.Fatalf("render exited %d: %s", code, stderr.String())
-	}
-	var doc dashDoc
-	if err := json.Unmarshal(stdout.Bytes(), &doc); err != nil {
-		t.Fatalf("render printed something that is not a document: %v", err)
-	}
-	return doc
 }
 
 type dashDoc struct {
@@ -59,14 +43,29 @@ type dashDoc struct {
 	Options map[string][]string `json:"options"`
 }
 
-func TestRunRenderPrintsADocument(t *testing.T) {
+func renderInto(t *testing.T) dashDoc {
+	t.Helper()
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"render"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("render exited %d: %s", code, stderr.String())
+	}
+	var doc dashDoc
+	if err := json.Unmarshal(stdout.Bytes(), &doc); err != nil {
+		t.Fatalf("render printed something that is not a document: %v", err)
+	}
+	return doc
+}
+
+// With no query the pane is just the search row, and the vault is offered to
+// the settings screen.
+func TestRunRenderIsCompactWithoutAQuery(t *testing.T) {
 	tempVault(t, map[string]string{"Welcome.md": "# Welcome\n", "Projects/Idea.md": "# Idea\n"})
 	doc := renderInto(t)
 	if doc.SchemaVersion != 1 {
 		t.Fatalf("schemaVersion = %d, want 1", doc.SchemaVersion)
 	}
-	if len(doc.Rows) == 0 {
-		t.Fatal("render drew no rows")
+	if len(doc.Rows) != 1 || doc.Rows[0].Label != "search" {
+		t.Fatalf("rows = %#v, want the one search row", doc.Rows)
 	}
 	if len(doc.Options["vault"]) == 0 {
 		t.Fatal("render offered no vaults for the settings screen")
@@ -88,43 +87,6 @@ func TestRunRenderFiltersByQuery(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("query did not surface TideFTP: %#v", doc.Rows)
-	}
-}
-
-func TestRunOpenHandsTheNoteToObsidian(t *testing.T) {
-	vault := tempVault(t, map[string]string{"Note.md": "x\n"})
-	var opened []string
-	defer swapOpener(func(uri string) error {
-		opened = append(opened, uri)
-		return nil
-	})()
-
-	var stdout, stderr bytes.Buffer
-	if code := run([]string{"open", "Note.md"}, &stdout, &stderr); code != 0 {
-		t.Fatalf("open exited %d: %s", code, stderr.String())
-	}
-	if len(opened) != 1 || !strings.HasPrefix(opened[0], "obsidian://open?path=") {
-		t.Fatalf("opener was given %v", opened)
-	}
-	if !strings.Contains(opened[0], url.QueryEscape(filepath.Join(vault, "Note.md"))) {
-		t.Fatalf("the URI does not name the note: %q", opened[0])
-	}
-}
-
-func TestRunOpenRefusesToLeaveTheVault(t *testing.T) {
-	tempVault(t, map[string]string{"Note.md": "x\n"})
-	opened := false
-	defer swapOpener(func(string) error {
-		opened = true
-		return nil
-	})()
-
-	var stdout, stderr bytes.Buffer
-	if code := run([]string{"open", "../secret.md"}, &stdout, &stderr); code != 1 {
-		t.Fatalf("opening outside the vault exited %d, want 1", code)
-	}
-	if opened {
-		t.Fatal("a path outside the vault reached the opener")
 	}
 }
 
@@ -166,7 +128,7 @@ func TestRunVaultsAndPath(t *testing.T) {
 
 func TestRunRefusesMisuse(t *testing.T) {
 	tempVault(t, map[string]string{"Note.md": "x\n"})
-	for _, args := range [][]string{nil, {"open"}, {"edit"}, {"frobnicate"}} {
+	for _, args := range [][]string{nil, {"edit"}, {"frobnicate"}} {
 		var stdout, stderr bytes.Buffer
 		if code := run(args, &stdout, &stderr); code == 0 {
 			t.Fatalf("%v exited 0", args)
@@ -177,14 +139,7 @@ func TestRunRefusesMisuse(t *testing.T) {
 	}
 }
 
-// The helpers below let a test watch where a note goes without a browser or a
-// terminal.
-func swapOpener(replacement func(string) error) func() {
-	previous := runOpener
-	runOpener = replacement
-	return func() { runOpener = previous }
-}
-
+// swapEditor lets a test watch what the edit verb does without a terminal.
 func swapEditor(replacement func(*Vault, string, []byte, string) error) func() {
 	previous := runEditor
 	runEditor = replacement

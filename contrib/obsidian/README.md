@@ -5,18 +5,15 @@ file on disk, so the panel reads them directly and never needs Obsidian running.
 
 ## What it does
 
-- **Fuzzy search.** Type into the pane and it filters the vault as you type,
-  matching note names and paths. The query is a real subsequence match, so
-  `prj` finds `Projects/` and `tftp` finds `TideFTP`.
-- **The best match is previewed** below the list, so a query loads a note as it
-  is typed.
-- **`enter`** opens the note under the cursor in Obsidian itself, through
-  `obsidian://open`. Obsidian is the app that owns the file, so it is the one
-  that opens it.
-- **`e`** edits the note's markdown in a full-screen [Ripple](#requirements)
-  editor: arrows and word motions, selection, undo/redo, clipboard copy/cut/paste.
-  `ctrl+s` writes the note and leaves, `esc` leaves without saving. In `vim` mode
-  `:w` and `:q` do the same.
+- **The pane is one search row.** Until you type, there is no list of notes - a
+  note app should not greet you with a wall of filenames. Type and the fuzzy
+  matches drop in below.
+- **Fuzzy search**: note names and paths match as a subsequence, so `prj` finds
+  `Projects/` and `tftp` finds `TideFTP`.
+- **`enter` loads the note under the cursor in the editor** - a full-screen
+  [Ripple](#requirements) surface: arrows and word motions, selection, undo/redo,
+  clipboard copy/cut/paste. `ctrl+s` writes the note and leaves, `esc` leaves
+  without saving; in `vim` mode `:w` and `:q` do the same.
 - **Notes are written atomically** - a temporary file renamed over the original -
   so a crash half way through leaves the note intact, and only a `.md` file
   inside the vault can be written at all.
@@ -35,17 +32,15 @@ works.
 |---|---|---|
 | `vault` | the open vault | Which vault to search. **A list**, read from Obsidian. |
 | `search` | — | What is typed in the pane. This is the input the pane takes. |
-| `preview lines` | 18 | How many lines of the best match to preview, 1 to 200. |
 | `editor mode` | plain | Ripple in `plain` (conventional) or `vim` mode. |
 
 ## Keys
 
 | Where | Key | Does |
 |---|---|---|
-| Pane | type | filter the vault |
+| Pane | type | filter the vault; the matches appear |
 | Pane | `↑`/`↓` | move over the matches |
-| Pane | `enter` | open the note in Obsidian |
-| Pane | `e` | edit the note in Ripple |
+| Pane | `enter` | load the note in the Ripple editor |
 | Editor | `ctrl+s` | save and leave (or `:w` in vim mode) |
 | Editor | `esc` | leave without saving (or `:q` in vim mode) |
 
@@ -53,8 +48,8 @@ The pane is entered with `space` first, the way every tidedeck list panel is.
 
 ## Requirements
 
-- **Obsidian** for the vault list and the open action. The pane still reads and
-  edits notes without it if you set `vault` to a path.
+- **Obsidian** for the vault list. The pane still reads and edits notes without
+  it if you set `vault` to a path.
 - [Ripple](https://github.com/allisonhere/ripple) is compiled into the panel, so
   there is nothing to install for editing.
 

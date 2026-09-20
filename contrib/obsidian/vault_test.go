@@ -194,13 +194,3 @@ func TestReadWriteNoteRoundTripsAndLeavesNoLitter(t *testing.T) {
 		t.Fatalf("after a save the vault holds %v, want one note", names)
 	}
 }
-
-func TestPreviewLinesExpandsTabsAndCaps(t *testing.T) {
-	lines := PreviewLines([]byte("a\tb\n\nc\nd\n"), 3)
-	if len(lines) != 3 {
-		t.Fatalf("lines = %v, want 3", lines)
-	}
-	if lines[0] != "a    b" {
-		t.Fatalf("tab was not expanded: %q", lines[0])
-	}
-}

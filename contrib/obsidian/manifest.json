@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "tidedeck.obsidian",
   "name": "Obsidian",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "tidedeck",
   "license": "MIT",
   "description": "Search and edit notes in your Obsidian vault.",
@@ -17,15 +17,10 @@
   },
   "panel": {
     "displayName": "Obsidian",
-    "description": "Fuzzy-find a note: enter opens it, e edits it.",
+    "description": "Type to find a note; enter loads it in the editor.",
     "glyph": "\ud83d\udc8e",
     "category": "Notes",
     "open": [
-      "./run.sh",
-      "open",
-      "{id}"
-    ],
-    "edit": [
       "./run.sh",
       "edit",
       "{id}"
@@ -34,7 +29,7 @@
     "inputChars": "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .-_/",
     "refreshSeconds": 30,
     "minWidth": 26,
-    "minHeight": 6,
+    "minHeight": 4,
     "priority": 45,
     "schema": [
       {
@@ -51,13 +46,6 @@
         "label": "search",
         "description": "What is typed in the pane; it filters the notes as you type.",
         "defaultValue": ""
-      },
-      {
-        "key": "preview",
-        "type": "number",
-        "label": "preview lines",
-        "description": "How many lines of the best match to preview, 1 to 200.",
-        "defaultValue": "18"
       },
       {
         "key": "mode",

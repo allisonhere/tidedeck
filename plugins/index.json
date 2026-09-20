@@ -157,7 +157,7 @@
       "id": "tidedeck.obsidian",
       "name": "Obsidian",
       "displayName": "Obsidian",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "author": "tidedeck",
       "license": "MIT",
       "description": "Search and edit notes in your Obsidian vault.",
@@ -170,7 +170,7 @@
       "install": "https://github.com/allisonhere/tidedeck#contrib/obsidian",
       "refreshSeconds": 30,
       "minWidth": 26,
-      "minHeight": 6,
+      "minHeight": 4,
       "priority": 45,
       "gauge": false,
       "spark": false,
@@ -186,12 +186,6 @@
           "type": "string",
           "label": "search",
           "description": "What is typed in the pane; it filters the notes as you type."
-        },
-        {
-          "key": "preview",
-          "type": "number",
-          "label": "preview lines",
-          "description": "How many lines of the best match to preview, 1 to 200."
         },
         {
           "key": "mode",

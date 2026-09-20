@@ -249,20 +249,6 @@ func WriteNote(vault *Vault, rel string, body []byte) error {
 	return nil
 }
 
-// PreviewLines returns at most max lines of a note, tabs expanded and trailing
-// whitespace trimmed, for the pane's preview of the best match.
-func PreviewLines(body []byte, maxLines int) []string {
-	if maxLines <= 0 {
-		return nil
-	}
-	raw := strings.Split(strings.ReplaceAll(string(body), "\r\n", "\n"), "\n")
-	lines := make([]string, 0, min(len(raw), maxLines))
-	for _, line := range raw[:min(len(raw), maxLines)] {
-		lines = append(lines, strings.TrimRight(strings.ReplaceAll(line, "\t", "    "), " \t"))
-	}
-	return lines
-}
-
 // FuzzyScore reports whether pattern is a case-insensitive subsequence of
 // target, and how good the match is. Consecutive runs and matches at a word
 // boundary score higher than a scatter of letters, so "tftp" picks
