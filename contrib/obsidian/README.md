@@ -46,14 +46,19 @@ works.
 
 | Where | Key | Does |
 |---|---|---|
-| Pane | type | search the vault; the matches appear |
-| Pane | `↑`/`↓` | move over the matches or the current note |
-| Pane | `enter` | load the note under the cursor (or make a new one) |
-| Pane | `e` | edit the note under the cursor in Ripple |
+| Pane, focused | type | search the vault; the matches appear |
+| Pane, focused | `enter` | load the best match (or make the new note) |
+| Pane, focused | `esc` | stop typing |
+| Pane, entered | `↑`/`↓` | move over the matches or the current note |
+| Pane, entered | `enter` | load the note under the cursor |
+| Pane, entered | `e` | edit the note under the cursor in Ripple |
 | Editor | `ctrl+s` | save and leave (or `:w` in vim mode) |
 | Editor | `esc` | leave without saving (or `:q` in vim mode) |
 
-The pane is entered with `space` first, the way every tidedeck list panel is.
+Focus the pane and type to search; `enter` loads the best match. To pick another,
+`esc` to stop typing, `space` to enter the pane, then `↑`/`↓` and `enter`. To
+edit, put the cursor on a note (`space` first) and press `e`. A search that
+starts with a reserved key — `e`, `s`, `space`, … — starts with `/`.
 
 ## Requirements
 

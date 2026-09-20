@@ -933,11 +933,13 @@ func (m model) focusedInput() (dash.Input, bool) {
 	return input, ok
 }
 
-// reservedShortcuts are the single-key commands the application and the
-// workspace bind. A focused input panel must not shadow them: if it did, a
-// text filter would eat "m arrange" and "s settings", and once it matched
-// nothing the panel would just look empty.
-const reservedShortcuts = "mwqtscdTS"
+// reservedShortcuts are the single-key commands the application, the workspace
+// and a pane's own enter/e actions bind. A focused input panel must not shadow
+// them: if it did, a text filter would eat "m arrange" and "s settings", and
+// "space" would type a space instead of entering the pane so its rows can be
+// walked. Inside a typing session the panel takes these runes too, which is
+// what lets a search contain a space or the letter e.
+const reservedShortcuts = " emwqtscdTS"
 
 // handlePanelInput routes a key to a focused panel that accepts typing. While
 // the panel is only focused it does not get the reserved shortcuts, so "m
@@ -967,6 +969,14 @@ func (m *model) handlePanelInput(msg tea.KeyMsg) (tea.Cmd, bool) {
 				return m.refreshFocusedCmd(), true
 			}
 			return nil, false
+		case tea.KeyEnter:
+			// Enter acts on the row the panel has selected - for a search box,
+			// the best match - without leaving the session, so a search can be
+			// typed and picked in one motion.
+			if cmd, handled := m.launchFocused(); handled {
+				return cmd, true
+			}
+			return nil, m.activateFocused()
 		case tea.KeyRunes:
 			// A session takes the runes the panel accepts, including the ones
 			// that are shortcuts - that is the point of the session. A rune the

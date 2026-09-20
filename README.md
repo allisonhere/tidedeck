@@ -1211,11 +1211,15 @@ market quotes and the news feeds the keystroke had not touched.)
 A plugin can also **take typing**:
 declaring `panel.input` names a setting that receives keystrokes while the panel
 is focused, and `panel.inputChars` lists the runes it accepts, so anything else
-still reaches the application. The single-key commands are reserved: `m`, `w`,
-`q`, `t`, `s`, `c`, `d`, `S`, `T` still run while the panel is merely focused.
+still reaches the application. The single-key commands and the pane's own keys
+are reserved: `space` (enter the pane), `e` (edit), and `m`, `w`, `q`, `t`, `s`,
+`c`, `d`, `S`, `T` still run while the panel is merely focused, so a search box
+cannot swallow them.
 Typing an accepted rune — or `/` when the first letter would be reserved —
 starts an edit session in which the panel takes the reserved runes too, and
-`Esc` ends it. What was typed is passed to the program as that setting's
+`Esc` ends it. **Enter inside a session acts on the row the panel has selected**
+— for a search box, the best match — so a query can be typed and picked without
+leaving the keyboard. What was typed is passed to the program as that setting's
 environment variable, and the program is re-run on each keystroke. When the row
 a search picked is acted on — its `open` or `edit` command exits — the input is
 cleared, so a search box collapses back to its input row instead of showing the

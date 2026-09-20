@@ -807,11 +807,13 @@ func (plainPanel) Meta() dash.Meta {
 }
 func (plainPanel) View(tideui.PanelContext) string { return "nothing to open" }
 
-// searchPanel takes typing and can be cleared, so the launch path can be tested
-// without a plugin, a subprocess or a terminal.
+// searchPanel takes typing, can be cleared, and has the open/edit actions a
+// searchable list uses, so the whole key path can be tested without a plugin.
 type searchPanel struct {
-	typed  string
-	clears int
+	typed    string
+	clears   int
+	launches int
+	edits    int
 }
 
 func (p *searchPanel) Meta() dash.Meta {
@@ -834,6 +836,61 @@ func (p *searchPanel) Clear() bool {
 	return true
 }
 func (p *searchPanel) Refresh(context.Context) error { return nil }
+func (p *searchPanel) Launch() ([]string, string, bool) {
+	p.launches++
+	return []string{"/bin/echo", "open"}, "opened", true
+}
+func (p *searchPanel) Edit() ([]string, string, bool) {
+	p.edits++
+	return []string{"/bin/echo", "edit"}, "editing", true
+}
+
+// focusSearch registers the search panel and focuses it.
+func focusSearch(t *testing.T) (model, *searchPanel) {
+	t.Helper()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := newModel()
+	m.width, m.height = 150, 44
+	panel := &searchPanel{}
+	m.deck.Register(panel)
+	m.deck.AttachPanel(m.ws, panel)
+	return showPanel(t, m, "search"), panel
+}
+
+// Space and e are the pane's own keys, so a search box must not swallow them:
+// space enters the pane, and e edits the row inside it.
+func TestSearchBoxLeavesSpaceAndEToThePane(t *testing.T) {
+	m, panel := focusSearch(t)
+
+	// Space while focused enters the pane rather than typing a space.
+	m = update(t, m, tea.KeyMsg{Type: tea.KeySpace})
+	if panel.typed != "" {
+		t.Fatalf("space was typed into the search: %q", panel.typed)
+	}
+	if m.ws.EnteredPane() != "search" {
+		t.Fatalf("space did not enter the pane (entered = %q)", m.ws.EnteredPane())
+	}
+	// e inside the pane edits rather than starting a new search.
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("e")})
+	if panel.edits != 1 || panel.typed != "" {
+		t.Fatalf("e typed=%q edits=%d, want the edit command", panel.typed, panel.edits)
+	}
+}
+
+// Enter while typing acts on the selected row - the best match - so a search is
+// typed and picked without leaving the keyboard.
+func TestEnterWhileSearchingActsOnTheTopResult(t *testing.T) {
+	m, panel := focusSearch(t)
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("ab")})
+	if panel.typed != "ab" {
+		t.Fatalf("typed = %q, want the search", panel.typed)
+	}
+	m = update(t, m, tea.KeyMsg{Type: tea.KeyEnter})
+	if panel.launches != 1 {
+		t.Fatal("enter during a search did not act on the row")
+	}
+}
 
 // Acting on a row the search picked empties the search box, so the pane
 // collapses back to its input row instead of showing the same matches again.
