@@ -91,7 +91,7 @@ func openableFixture(t *testing.T) Panel {
   {"type":"spacer"}]}
 JSON`, map[string]any{"panel": map[string]any{
 		"open": []string{"tidemail", "--open", "{id}"},
-		"edit": []string{"favourites", "edit", "{id}"},
+		"edit": []string{"favorites", "edit", "{id}"},
 	}})
 	panel := Exec(manifest)
 	if err := panel.(Fetcher).Refresh(context.Background()); err != nil {
@@ -487,8 +487,8 @@ func TestExecPanelEditsTheSelectedRow(t *testing.T) {
 	if !declared {
 		t.Fatal("the panel declared no edit action")
 	}
-	if len(argv) != 3 || argv[0] != "favourites" || argv[1] != "edit" || argv[2] != "7" {
-		t.Fatalf("argv = %v, want favourites edit 7", argv)
+	if len(argv) != 3 || argv[0] != "favorites" || argv[1] != "edit" || argv[2] != "7" {
+		t.Fatalf("argv = %v, want favorites edit 7", argv)
 	}
 	if !strings.Contains(status, "ana@example.com") {
 		t.Errorf("status = %q, want it to name the row", status)
@@ -530,7 +530,7 @@ func TestManifestChecksADeclaredEditCommand(t *testing.T) {
 		"version": "1.0.0", "author": "test", "description": "a test plugin",
 		"kinds":       []string{KindPanel},
 		"entryPoints": map[string]any{KindPanel: []string{"true"}},
-		"panel":       map[string]any{"edit": []string{"favourites", "edit"}},
+		"panel":       map[string]any{"edit": []string{"favorites", "edit"}},
 	}
 	data, err := json.Marshal(manifest)
 	if err != nil {

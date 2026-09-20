@@ -15,28 +15,28 @@ func stamp(day, hour int) time.Time {
 	return time.Date(2026, 9, day, hour, 0, 0, 0, time.UTC)
 }
 
-// A list of favourites becomes a row each, in the order the reader cares about:
+// A list of favorites becomes a row each, in the order the reader cares about:
 // the most recently added first. The last row is always the way to add another.
-func TestRenderPrintsOneRowPerFavourite(t *testing.T) {
-	doc := Render([]Favourite{
+func TestRenderPrintsOneRowPerFavorite(t *testing.T) {
+	doc := Render([]Favorite{
 		{Title: "Go", URL: "https://go.dev", Added: stamp(17, 4)},
 		{Title: "Hacker News", URL: "https://news.ycombinator.com", Tags: []string{"news"}, Added: stamp(18, 9)},
 	}, nil)
 
 	if len(doc.Rows) != 3 {
-		t.Fatalf("two favourites drew %d rows, want three with the add row", len(doc.Rows))
+		t.Fatalf("two favorites drew %d rows, want three with the add row", len(doc.Rows))
 	}
 	if doc.Rows[0].Label != "Hacker News" || doc.Rows[0].ID != "https://news.ycombinator.com" {
-		t.Fatalf("the newest favourite is not first: %#v", doc.Rows[0])
+		t.Fatalf("the newest favorite is not first: %#v", doc.Rows[0])
 	}
 	if doc.Rows[1].Label != "Go" {
-		t.Fatalf("the older favourite is out of order: %#v", doc.Rows[1])
+		t.Fatalf("the older favorite is out of order: %#v", doc.Rows[1])
 	}
 	if doc.Rows[0].Value != "news" {
 		t.Fatalf("the tags are not the row's body: %q", doc.Rows[0].Value)
 	}
 	if doc.Rows[1].Value != "go.dev" {
-		t.Fatalf("a favourite with no tags should show its host, got %q", doc.Rows[1].Value)
+		t.Fatalf("a favorite with no tags should show its host, got %q", doc.Rows[1].Value)
 	}
 	if last := doc.Rows[len(doc.Rows)-1]; last.ID != addRowID {
 		t.Fatalf("the last row is %#v, want the add row", last)
@@ -59,7 +59,7 @@ func TestRenderAlwaysOffersAdding(t *testing.T) {
 // A row that cannot be opened is a row without an id, and it says so in its tone.
 // The cursor skips it, so enter can never hand a javascript: URL to a browser-opener.
 func TestRenderSkipsNonWebURLs(t *testing.T) {
-	doc := Render([]Favourite{
+	doc := Render([]Favorite{
 		{Title: "A bookmarklet", URL: "javascript:alert(1)", Added: stamp(18, 9)},
 	}, nil)
 	row := doc.Rows[0]
@@ -77,7 +77,7 @@ func TestRenderSkipsNonWebURLs(t *testing.T) {
 // A list that cannot be read is explained rather than shown as empty: a blank
 // panel and a broken file look identical otherwise.
 func TestRenderExplainsAStoreItCannotRead(t *testing.T) {
-	problem := fmt.Errorf("reading /home/someone/.local/share/tidedeck/favourites.json: %w",
+	problem := fmt.Errorf("reading /home/someone/.local/share/tidedeck/favorites.json: %w",
 		errors.New("invalid character 'a' looking for beginning of object key string"))
 	doc := Render(nil, problem)
 	if len(doc.Rows) < 2 {
@@ -95,7 +95,7 @@ func TestRenderExplainsAStoreItCannotRead(t *testing.T) {
 		said = append(said, row.Body...)
 	}
 	body := strings.Join(said, " ")
-	for _, want := range []string{"favourites.json", "invalid character"} {
+	for _, want := range []string{"favorites.json", "invalid character"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("the notice does not mention %q: %q", want, body)
 		}
@@ -110,7 +110,7 @@ func TestRenderExplainsAStoreItCannotRead(t *testing.T) {
 // The document is what the dashboard parses, so its shape is asserted rather than
 // assumed: the schema version, and rows the panel knows how to draw.
 func TestRenderMarshalsToThePanelSchema(t *testing.T) {
-	data, err := json.Marshal(Render([]Favourite{{Title: "Go", URL: "https://go.dev"}}, nil))
+	data, err := json.Marshal(Render([]Favorite{{Title: "Go", URL: "https://go.dev"}}, nil))
 	if err != nil {
 		t.Fatalf("marshalling: %v", err)
 	}

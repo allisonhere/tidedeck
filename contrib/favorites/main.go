@@ -1,4 +1,4 @@
-// Command favourites is a panel that previews a list of links and the form that
+// Command favorites is a panel that previews a list of links and the form that
 // keeps it. The dashboard runs it two ways: "render" prints a panel document,
 // and "edit" opens the form with the terminal handed over, which is what the
 // pane's enter key does for a row.
@@ -20,14 +20,14 @@ import (
 )
 
 // usage is what the program says when it does not understand its arguments.
-const usage = `favourites - a list of links, with a form to keep it
+const usage = `favorites - a list of links, with a form to keep it
 
-  favourites render        print the panel document
-  favourites open <link>   open that link in the browser
-  favourites open add      add a new favourite
-  favourites edit <link>   edit the favourite with that link
-  favourites edit add      add a new favourite
-  favourites path          print the file the list lives in
+  favorites render        print the panel document
+  favorites open <link>   open that link in the browser
+  favorites open add      add a new favorite
+  favorites edit <link>   edit the favorite with that link
+  favorites edit add      add a new favorite
+  favorites path          print the file the list lives in
 `
 
 func main() {
@@ -55,7 +55,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		// forever, which looks like a panel that is merely quiet.
 		document, marshalErr := json.Marshal(Render(list, err))
 		if marshalErr != nil {
-			fmt.Fprintf(stderr, "favourites: %v\n", marshalErr)
+			fmt.Fprintf(stderr, "favorites: %v\n", marshalErr)
 			return 1
 		}
 		fmt.Fprintln(stdout, string(document))
@@ -63,22 +63,22 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 	case "open":
 		if len(args) < 2 {
-			fmt.Fprintln(stderr, "favourites: open needs a link, or 'add' for a new favourite")
+			fmt.Fprintln(stderr, "favorites: open needs a link, or 'add' for a new favorite")
 			return 2
 		}
 		if err := openRow(store, args[1]); err != nil {
-			fmt.Fprintf(stderr, "favourites: %v\n", err)
+			fmt.Fprintf(stderr, "favorites: %v\n", err)
 			return 1
 		}
 		return 0
 
 	case "edit":
 		if len(args) < 2 {
-			fmt.Fprintln(stderr, "favourites: edit needs a link, or 'add' for a new favourite")
+			fmt.Fprintln(stderr, "favorites: edit needs a link, or 'add' for a new favorite")
 			return 2
 		}
 		if err := edit(store, args[1]); err != nil {
-			fmt.Fprintf(stderr, "favourites: %v\n", err)
+			fmt.Fprintf(stderr, "favorites: %v\n", err)
 			return 1
 		}
 		return 0
@@ -92,7 +92,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 0
 
 	default:
-		fmt.Fprintf(stderr, "favourites: unknown command %q\n\n%s", args[0], usage)
+		fmt.Fprintf(stderr, "favorites: unknown command %q\n\n%s", args[0], usage)
 		return 2
 	}
 }

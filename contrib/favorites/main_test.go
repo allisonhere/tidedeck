@@ -24,8 +24,8 @@ func renderInto(t *testing.T, path string) (string, int) {
 // The panel parses what render prints, so its shape is asserted rather than
 // assumed: one JSON document, one line, the schema version the dashboard reads.
 func TestRunRenderPrintsADocument(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "favourites.json")
-	if err := (Store{Path: path}).Save([]Favourite{
+	path := filepath.Join(t.TempDir(), "favorites.json")
+	if err := (Store{Path: path}).Save([]Favorite{
 		{Title: "Go", URL: "https://go.dev", Tags: []string{"code"}},
 	}); err != nil {
 		t.Fatalf("seeding: %v", err)
@@ -52,7 +52,7 @@ func TestRunRenderPrintsADocument(t *testing.T) {
 		t.Fatalf("schemaVersion = %d, want 1", doc.SchemaVersion)
 	}
 	if len(doc.Rows) != 2 {
-		t.Fatalf("one favourite drew %d rows, want it and the add row", len(doc.Rows))
+		t.Fatalf("one favorite drew %d rows, want it and the add row", len(doc.Rows))
 	}
 	if doc.Rows[0].ID != "https://go.dev" {
 		t.Fatalf("the first row's id is %q, want the link", doc.Rows[0].ID)
@@ -65,7 +65,7 @@ func TestRunRenderPrintsADocument(t *testing.T) {
 // A list that cannot be read still renders, and says so: a panel that fails here
 // would keep showing its last good content and never explain itself.
 func TestRunRenderExplainsABrokenList(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "favourites.json")
+	path := filepath.Join(t.TempDir(), "favorites.json")
 	if err := os.WriteFile(path, []byte("{not a list"), 0o600); err != nil {
 		t.Fatalf("writing the broken file: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestRunRefusesWhatItCannotDo(t *testing.T) {
 			if code := run(c.args, &stdout, &stderr); code == 0 {
 				t.Fatalf("%v exited 0", c.args)
 			}
-			if !strings.Contains(stderr.String(), "favourites") {
+			if !strings.Contains(stderr.String(), "favorites") {
 				t.Fatalf("%v said nothing useful: %q", c.args, stderr.String())
 			}
 		})
@@ -130,9 +130,9 @@ func TestRunRefusesWhatItCannotDo(t *testing.T) {
 }
 
 // Editing something that is not in the list is an error rather than a new
-// favourite: a stale pane asking for a link that has gone should say so.
+// favorite: a stale pane asking for a link that has gone should say so.
 func TestRunEditRefusesAnUnknownLink(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "favourites.json")
+	path := filepath.Join(t.TempDir(), "favorites.json")
 	t.Setenv("TIDEDECK_PLUGIN_PATH", path)
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"edit", "https://gone.example"}, &stdout, &stderr); code != 1 {
@@ -149,7 +149,7 @@ func TestRunHelp(t *testing.T) {
 	if code := run([]string{"--help"}, &stdout, &stderr); code != 0 {
 		t.Fatalf("help exited %d", code)
 	}
-	if !strings.Contains(stdout.String(), "favourites render") {
+	if !strings.Contains(stdout.String(), "favorites render") {
 		t.Fatalf("help does not list the verbs: %q", stdout.String())
 	}
 }
@@ -170,7 +170,7 @@ func swapForm(replacement func(Store, string) error) func() {
 
 // A row's enter key hands a web link to the desktop's opener, as one argument.
 func TestRunOpenHandsALinkToTheOpener(t *testing.T) {
-	t.Setenv("TIDEDECK_PLUGIN_PATH", filepath.Join(t.TempDir(), "favourites.json"))
+	t.Setenv("TIDEDECK_PLUGIN_PATH", filepath.Join(t.TempDir(), "favorites.json"))
 	var opened []string
 	defer swapOpener(func(link string) error {
 		opened = append(opened, link)
@@ -189,7 +189,7 @@ func TestRunOpenHandsALinkToTheOpener(t *testing.T) {
 // The add row opens the form: one command serves every row, so the program
 // decides, and an empty list is not a dead end.
 func TestRunOpenOpensTheFormForTheAddRow(t *testing.T) {
-	t.Setenv("TIDEDECK_PLUGIN_PATH", filepath.Join(t.TempDir(), "favourites.json"))
+	t.Setenv("TIDEDECK_PLUGIN_PATH", filepath.Join(t.TempDir(), "favorites.json"))
 	var edited []string
 	defer swapForm(func(store Store, id string) error {
 		edited = append(edited, id)
@@ -216,7 +216,7 @@ func TestRunOpenOpensTheFormForTheAddRow(t *testing.T) {
 // A link no browser should be handed never reaches the opener, and the reader is
 // told which scheme was refused rather than that something went wrong.
 func TestRunOpenRefusesALinkABrowserShouldNotOpen(t *testing.T) {
-	t.Setenv("TIDEDECK_PLUGIN_PATH", filepath.Join(t.TempDir(), "favourites.json"))
+	t.Setenv("TIDEDECK_PLUGIN_PATH", filepath.Join(t.TempDir(), "favorites.json"))
 	opened := false
 	defer swapOpener(func(link string) error {
 		opened = true

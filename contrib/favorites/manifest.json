@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "id": "tidedeck.favourites",
-  "name": "Favourites",
-  "version": "1.2.0",
+  "id": "tidedeck.favorites",
+  "name": "Favorites",
+  "version": "2.0.0",
   "author": "tidedeck",
   "license": "MIT",
   "description": "A list of links you keep, with a form to add, change and remove them.",
@@ -16,10 +16,10 @@
     ]
   },
   "panel": {
-    "displayName": "Favourites",
-    "description": "Links you keep, opened with enter.",
+    "displayName": "Favorites",
+    "description": "Links you keep: enter opens, e edits or deletes.",
     "glyph": "\ud83d\udd16",
-    "category": "Favourites",
+    "category": "Favorites",
     "open": [
       "./run.sh",
       "open",
@@ -35,7 +35,7 @@
         "type": "string",
         "label": "list path",
         "description": "Where the list is kept. Blank uses the default location under your data directory.",
-        "placeholder": "~/.local/share/tidedeck/favourites.json",
+        "placeholder": "~/.local/share/tidedeck/favorites.json",
         "defaultValue": ""
       }
     ],

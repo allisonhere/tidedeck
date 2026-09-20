@@ -13,14 +13,14 @@ import (
 	"github.com/allisonhere/tideui/form"
 )
 
-// editor is the form that adds, changes and removes one favourite.
+// editor is the form that adds, changes and removes one favorite.
 //
 // It owns the store, and every decision - what a valid entry is, what counts as a
 // duplicate, what the title falls back to - is made here rather than in the
 // bubbletea model around it, so all of it can be tested without a terminal.
 type editor struct {
 	store   Store
-	entries []Favourite
+	entries []Favorite
 	index   int // the entry being changed, or -1 when this is a new one
 
 	title *form.Text
@@ -34,7 +34,7 @@ type editor struct {
 }
 
 // newEditor loads the list and puts the form on one entry. The id is a
-// favourite's link, or addRowID for a blank form.
+// favorite's link, or addRowID for a blank form.
 func newEditor(store Store, id string) (*editor, error) {
 	entries, err := store.Load()
 	if err != nil {
@@ -44,10 +44,10 @@ func newEditor(store Store, id string) (*editor, error) {
 	if id != "" && id != addRowID {
 		e.index = indexOfURL(entries, id)
 		if e.index < 0 {
-			return nil, fmt.Errorf("no favourite with the link %s", id)
+			return nil, fmt.Errorf("no favorite with the link %s", id)
 		}
 	}
-	var current Favourite
+	var current Favorite
 	if e.index >= 0 {
 		current = entries[e.index]
 	}
@@ -153,22 +153,22 @@ func (e *editor) delete() {
 // entryFromFields is the entry the fields describe, or why they do not describe
 // one. A duplicate is caught here rather than merged: silently ending up with two
 // rows for one link is worse than being told which entry already has it.
-func (e *editor) entryFromFields() (Favourite, string) {
+func (e *editor) entryFromFields() (Favorite, string) {
 	link := strings.TrimSpace(e.link.Value())
 	if link == "" {
-		return Favourite{}, "a favourite needs a link"
+		return Favorite{}, "a favorite needs a link"
 	}
 	if !openable(link) {
-		return Favourite{}, fmt.Sprintf("only http and https links open in a browser; %q does not", schemeOrNothing(link))
+		return Favorite{}, fmt.Sprintf("only http and https links open in a browser; %q does not", schemeOrNothing(link))
 	}
 	if holder, ok := e.holderOf(link); ok {
-		return Favourite{}, fmt.Sprintf("%q already saves that link", holder)
+		return Favorite{}, fmt.Sprintf("%q already saves that link", holder)
 	}
 
-	entry := Favourite{URL: link, Tags: splitTags(e.tags.Value()), Added: time.Now().UTC()}
+	entry := Favorite{URL: link, Tags: splitTags(e.tags.Value()), Added: time.Now().UTC()}
 	if e.index >= 0 {
 		// Editing keeps the original date: the list is ordered by when a
-		// favourite was added, and fixing a typo is not adding it again.
+		// favorite was added, and fixing a typo is not adding it again.
 		entry.Added = e.entries[e.index].Added
 	}
 	entry.Title = strings.TrimSpace(e.title.Value())
@@ -212,9 +212,9 @@ func (e *editor) View(r tideui.Renderer, width int) string {
 	}
 	ws := r.Styles.Workspace
 	bg := ws.Bg
-	heading := "New favourite"
+	heading := "New favorite"
 	if e.index >= 0 {
-		heading = "Edit favourite"
+		heading = "Edit favorite"
 	}
 	lines := []string{
 		lipgloss.NewStyle().Background(bg).Foreground(ws.BodyFg).Bold(true).Render(heading),
@@ -295,7 +295,7 @@ func splitTags(raw string) []string {
 
 // indexOfURL finds an entry by its link, case-insensitively, as a browser and a
 // person both treat a host.
-func indexOfURL(entries []Favourite, link string) int {
+func indexOfURL(entries []Favorite, link string) int {
 	for i, entry := range entries {
 		if strings.EqualFold(strings.TrimSpace(entry.URL), strings.TrimSpace(link)) {
 			return i

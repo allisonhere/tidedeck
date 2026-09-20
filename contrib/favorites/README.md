@@ -1,9 +1,9 @@
-# Favourites
+# Favorites
 
 A pane that previews the links you keep, and a form that keeps them.
 
 ```
-${XDG_DATA_HOME:-~/.local/share}/tidedeck/favourites.json
+${XDG_DATA_HOME:-~/.local/share}/tidedeck/favorites.json
 ```
 
 The list is one plain JSON file, and the form is a convenience rather than the
@@ -12,9 +12,11 @@ only way in: edit the file by hand and the pane shows what you wrote.
 ## What it does
 
 - **`enter`** on a row opens that link in your browser, through `xdg-open`.
-- **`e`** on a row opens the form for that entry. Enter acts on a row, `e` changes
-  it; the pane previews and the form is the only thing that writes.
-- The last row, `＋ add a favourite`, opens a blank form. It is there even when
+- **`e`** on a row opens the form for that entry: change the title, link or tags
+  and `ctrl+s` saves, or press `ctrl+d` to delete the entry. Enter acts on a row,
+  `e` changes or removes it; the pane previews and the form is the only thing that
+  writes.
+- The last row, `＋ add a favorite`, opens a blank form. It is there even when
   the list is empty, which is what stops an empty pane being a dead end: with no
   openable row, `enter` could only ever say "select one first".
 - The form has three fields - title, link, tags. `ctrl+s` saves, `ctrl+d`
@@ -25,7 +27,7 @@ only way in: edit the file by hand and the pane shows what you wrote.
   to a browser opener.
 - A blank title is filled in from the site, so saving does not require inventing
   one. A link another entry already uses is refused, naming that entry.
-- `favourites path` prints the file it is using, which is the first question when
+- `favorites path` prints the file it is using, which is the first question when
   a form saves somewhere unexpected.
 - The verbs are `render`, `open <link>` (a link to the browser, `add` to the form),
   `edit <link>` and `path`.
@@ -33,16 +35,19 @@ only way in: edit the file by hand and the pane shows what you wrote.
 ## Installing
 
 The panel is a Go program that imports TideDeck's own library packages, so it is
-compiled inside a checkout and ships with the app: nothing to do when you install
-TideDeck. It is deliberately **not** in the plugin catalogue - the shell plugins
-beside it install and run as they are, and this one cannot.
+compiled inside a checkout. It ships with the app and is in the repository's
+plugin catalogue (`plugins/index.json`), so the Plugins page can install it:
+
+```
+https://github.com/allisonhere/tidedeck#contrib/favorites
+```
 
 To build and install it by hand, from a checkout:
 
 ```
-./contrib/favourites/build.sh
-mkdir -p ~/.config/tidedeck/plugins/tidedeck.favourites
-cp -r contrib/favourites/. ~/.config/tidedeck/plugins/tidedeck.favourites/
+./contrib/favorites/build.sh
+mkdir -p ~/.config/tidedeck/plugins/tidedeck.favorites
+cp -r contrib/favorites/. ~/.config/tidedeck/plugins/tidedeck.favorites/
 ```
 
 `build.sh` explains itself if it is run anywhere without a `go.mod` above it, and
@@ -52,7 +57,7 @@ the pane does the same until the binary is there.
 
 | setting | what it does |
 | --- | --- |
-| `path` | Where the list is kept. Blank uses `$XDG_DATA_HOME/tidedeck/favourites.json`. A leading `~` is expanded, because a path typed into a settings field is written the way a shell writes one. |
+| `path` | Where the list is kept. Blank uses `$XDG_DATA_HOME/tidedeck/favorites.json`. A leading `~` is expanded, because a path typed into a settings field is written the way a shell writes one. |
 
 ## Notes
 
@@ -66,3 +71,5 @@ the pane does the same until the binary is there.
 - **The form draws in TideDeck's default theme.** A plugin program cannot ask the
   dashboard which theme it resolved, and duplicating a theme resolver per plugin
   is not worth a cosmetic mismatch.
+- **A list written under the old British name** (`favourites.json`) is moved to
+  `favorites.json` on the next run, so the entries are not orphaned by the rename.

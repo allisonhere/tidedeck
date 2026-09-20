@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds the favourites program.
+# Builds the favorites program.
 #
 # Run it from a TideDeck checkout: the panel imports the app's own library
 # packages, so it can only be compiled inside the module that holds them. An
@@ -18,4 +18,4 @@ fi
 
 command -v go >/dev/null 2>&1 || { echo "build.sh: go is not on PATH" >&2; exit 1; }
 cd "$ROOT"
-exec go build -o "$DIR/favourites" ./contrib/favourites
+exec go build -o "$DIR/favorites" ./contrib/favorites

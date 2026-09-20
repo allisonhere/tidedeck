@@ -22,9 +22,9 @@ func visibleWidth(line string) int { return ansi.StringWidth(line) }
 
 // newTestEditor puts a form on a store holding list. id is a link to edit, or
 // addRowID for a blank form.
-func newTestEditor(t *testing.T, list []Favourite, id string) (*editor, Store) {
+func newTestEditor(t *testing.T, list []Favorite, id string) (*editor, Store) {
 	t.Helper()
-	store := Store{Path: filepath.Join(t.TempDir(), "favourites.json")}
+	store := Store{Path: filepath.Join(t.TempDir(), "favorites.json")}
 	if err := store.Save(list); err != nil {
 		t.Fatalf("seeding the store: %v", err)
 	}
@@ -70,9 +70,9 @@ func TestFormStartsBlankForAdd(t *testing.T) {
 	}
 }
 
-// Opening a favourite fills the fields with it, tags and all.
+// Opening a favorite fills the fields with it, tags and all.
 func TestFormLoadsTheEntryItWasGiven(t *testing.T) {
-	e, _ := newTestEditor(t, []Favourite{{
+	e, _ := newTestEditor(t, []Favorite{{
 		Title: "Hacker News", URL: "https://news.ycombinator.com", Tags: []string{"news", "tech"},
 	}}, "https://news.ycombinator.com")
 	if e.title.Value() != "Hacker News" {
@@ -86,22 +86,22 @@ func TestFormLoadsTheEntryItWasGiven(t *testing.T) {
 	}
 }
 
-// An entry that is not there is an error, not a silent new favourite: the pane
+// An entry that is not there is an error, not a silent new favorite: the pane
 // asked for a link the file no longer holds, which is a stale panel, not a form.
 func TestFormRefusesAnUnknownEntry(t *testing.T) {
-	store := Store{Path: filepath.Join(t.TempDir(), "favourites.json")}
+	store := Store{Path: filepath.Join(t.TempDir(), "favorites.json")}
 	if _, err := newEditor(store, "https://gone.example"); err == nil {
-		t.Fatal("editing a favourite that does not exist was accepted")
+		t.Fatal("editing a favorite that does not exist was accepted")
 	}
 }
 
-// A link is the one thing a favourite cannot do without.
+// A link is the one thing a favorite cannot do without.
 func TestFormRefusesAnEmptyLink(t *testing.T) {
 	e, store := newTestEditor(t, nil, addRowID)
 	e.title.SetValue("Something")
 	press(e, "ctrl+s")
 	if e.done {
-		t.Fatal("a favourite with no link was saved")
+		t.Fatal("a favorite with no link was saved")
 	}
 	if !strings.Contains(e.problem, "link") {
 		t.Fatalf("the complaint does not mention the link: %q", e.problem)
@@ -148,7 +148,7 @@ func TestFormRefusesANonWebLink(t *testing.T) {
 
 // Two rows for one link is worse than being told which entry already has it.
 func TestFormRefusesADuplicate(t *testing.T) {
-	e, store := newTestEditor(t, []Favourite{{
+	e, store := newTestEditor(t, []Favorite{{
 		Title: "Go", URL: "https://go.dev", Tags: []string{"code"},
 	}}, addRowID)
 	e.title.SetValue("The Go programming language")
@@ -168,7 +168,7 @@ func TestFormRefusesADuplicate(t *testing.T) {
 // Editing an entry keeps its own link as its own: the duplicate check is about
 // other entries, not about the one being changed.
 func TestFormAllowsSavingAnEntryOverItself(t *testing.T) {
-	e, store := newTestEditor(t, []Favourite{{
+	e, store := newTestEditor(t, []Favorite{{
 		Title: "Go", URL: "https://go.dev", Tags: []string{"code"},
 	}}, "https://go.dev")
 	e.title.SetValue("The Go programming language")
@@ -227,15 +227,15 @@ func TestFormSavesWhatWasTypedWithKeys(t *testing.T) {
 		t.Fatalf("the tags are %#v", entry.Tags)
 	}
 	if entry.Added.IsZero() {
-		t.Fatal("a new favourite has no date, so the list cannot order it")
+		t.Fatal("a new favorite has no date, so the list cannot order it")
 	}
 }
 
-// Editing a favourite keeps the date it was added: the list is ordered by when it
+// Editing a favorite keeps the date it was added: the list is ordered by when it
 // was added, and fixing a typo is not adding it again.
 func TestFormKeepsTheAddedDateWhenEditing(t *testing.T) {
-	original := Favourite{Title: "Go", URL: "https://go.dev", Added: stamp(17, 4)}
-	e, store := newTestEditor(t, []Favourite{original}, "https://go.dev")
+	original := Favorite{Title: "Go", URL: "https://go.dev", Added: stamp(17, 4)}
+	e, store := newTestEditor(t, []Favorite{original}, "https://go.dev")
 	e.title.SetValue("The Go programming language")
 	press(e, "ctrl+s")
 	list, _ := store.Load()
@@ -246,7 +246,7 @@ func TestFormKeepsTheAddedDateWhenEditing(t *testing.T) {
 
 // Deleting removes the entry, and only the entry that was asked for.
 func TestFormDeletesOnRequest(t *testing.T) {
-	e, store := newTestEditor(t, []Favourite{
+	e, store := newTestEditor(t, []Favorite{
 		{Title: "Go", URL: "https://go.dev", Added: stamp(17, 4)},
 		{Title: "Hacker News", URL: "https://news.ycombinator.com", Added: stamp(18, 9)},
 	}, "https://go.dev")
@@ -263,11 +263,11 @@ func TestFormDeletesOnRequest(t *testing.T) {
 // A blank form has nothing to delete, so it does not offer to. Offering a key
 // that does nothing is how a form teaches people not to trust it.
 func TestFormOffersNoDeleteForANewEntry(t *testing.T) {
-	fresh, _ := newTestEditor(t, []Favourite{{Title: "Go", URL: "https://go.dev"}}, addRowID)
+	fresh, _ := newTestEditor(t, []Favorite{{Title: "Go", URL: "https://go.dev"}}, addRowID)
 	if strings.Contains(strings.Join(fresh.hints(), " "), "delete") {
 		t.Fatalf("a new entry offers delete: %v", fresh.hints())
 	}
-	existing, _ := newTestEditor(t, []Favourite{{Title: "Go", URL: "https://go.dev"}}, "https://go.dev")
+	existing, _ := newTestEditor(t, []Favorite{{Title: "Go", URL: "https://go.dev"}}, "https://go.dev")
 	if !strings.Contains(strings.Join(existing.hints(), " "), "delete") {
 		t.Fatalf("editing an entry does not offer delete: %v", existing.hints())
 	}
@@ -281,7 +281,7 @@ func TestFormOffersNoDeleteForANewEntry(t *testing.T) {
 
 // Escape leaves without saving, and without touching the file.
 func TestFormCancelsWithoutSaving(t *testing.T) {
-	e, store := newTestEditor(t, []Favourite{{Title: "Go", URL: "https://go.dev", Added: stamp(17, 4)}}, "https://go.dev")
+	e, store := newTestEditor(t, []Favorite{{Title: "Go", URL: "https://go.dev", Added: stamp(17, 4)}}, "https://go.dev")
 	press(e, "enter")
 	press(e, "Changed")
 	press(e, "esc") // ends the edit, keeping the form open
@@ -298,7 +298,7 @@ func TestFormCancelsWithoutSaving(t *testing.T) {
 // The form draws inside the width it is given, whichever width that is: a form
 // that overflows its pane corrupts the screen around it.
 func TestFormDrawsInsideItsWidth(t *testing.T) {
-	e, _ := newTestEditor(t, []Favourite{{Title: "Go", URL: "https://go.dev"}}, addRowID)
+	e, _ := newTestEditor(t, []Favorite{{Title: "Go", URL: "https://go.dev"}}, addRowID)
 	renderer := testRenderer()
 	for _, width := range []int{20, 30, 80, 200} {
 		drawn := e.View(renderer, width)
