@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "id": "tidedeck.pagepulse",
+  "name": "PagePulse",
+  "version": "1.0.0",
+  "author": "tidedeck",
+  "license": "MIT",
+  "description": "Who is on your PagePulse site now, and the page they are reading.",
+  "kinds": [
+    "panel"
+  ],
+  "entryPoints": {
+    "panel": [
+      "./run.sh",
+      "render"
+    ]
+  },
+  "panel": {
+    "displayName": "PagePulse",
+    "description": "Live visitors and the hot page, from your PagePulse install.",
+    "glyph": "\ud83d\udcc8",
+    "category": "Analytics",
+    "open": [
+      "./run.sh",
+      "open",
+      "{id}"
+    ],
+    "refreshSeconds": 60,
+    "minWidth": 24,
+    "minHeight": 5,
+    "priority": 45,
+    "schema": [
+      {
+        "key": "url",
+        "type": "string",
+        "label": "PagePulse URL",
+        "description": "Where your PagePulse install lives, for example https://stats.example.com.",
+        "placeholder": "https://stats.example.com",
+        "defaultValue": ""
+      },
+      {
+        "key": "key",
+        "type": "string",
+        "label": "API key",
+        "description": "A read key generated on PagePulse's Settings page. It is read-only.",
+        "defaultValue": ""
+      },
+      {
+        "key": "site",
+        "type": "string",
+        "label": "site",
+        "description": "Which site to show. The list is read from PagePulse.",
+        "placeholder": "the first site",
+        "defaultValue": ""
+      },
+      {
+        "key": "preset",
+        "type": "choice",
+        "label": "period",
+        "description": "The reporting period the totals cover.",
+        "options": [
+          "today",
+          "yesterday",
+          "7d",
+          "30d",
+          "month"
+        ],
+        "defaultValue": "7d"
+      }
+    ]
+  }
+}
