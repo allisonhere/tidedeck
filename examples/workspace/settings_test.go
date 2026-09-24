@@ -355,8 +355,8 @@ func TestSettingsChoiceArrowKeys(t *testing.T) {
 	form.Update(tea.KeyMsg{Type: tea.KeyEnter}) // open General
 	form.Update(tea.KeyMsg{Type: tea.KeyDown})  // gauge style
 	form.Update(tea.KeyMsg{Type: tea.KeyRight})
-	if got := form.value(*form.currentField()); got != "block" {
-		t.Fatalf("right arrow -> %q, want block", got)
+	if got := form.value(*form.currentField()); got != "smooth" {
+		t.Fatalf("right arrow -> %q, want smooth", got)
 	}
 	form.Update(tea.KeyMsg{Type: tea.KeyLeft})
 	if got := form.value(*form.currentField()); got != "segment" {
@@ -1099,20 +1099,21 @@ func TestSettingsNumberFieldValidatesAsTyped(t *testing.T) {
 	}
 }
 
-// The standard gauge list is short, so it steps in place instead of opening a
-// picker: a two-item picker is ceremony. A long list still opens one, which
-// the form package's TestChoiceOpensPickerOnlyWhenLong covers.
-func TestSettingsShortChoiceStepsInPlace(t *testing.T) {
+// The gauge list is long enough now that enter opens a picker, and the picker
+// draws each family as its glyphs, so the new shapes are seen, not just named.
+func TestSettingsGaugeChoiceOpensAPickerOfShapes(t *testing.T) {
 	form := gpuForm(t)
 	openCategory(t, form, "GPU")
 	form.Update(tea.KeyMsg{Type: tea.KeyDown}) // gauge style
-	before := form.value(*form.currentField())
 	form.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if form.editing {
-		t.Fatal("a two-item choice opened a picker")
+	if !form.editing {
+		t.Fatal("the gauge choice did not open a picker")
 	}
-	if form.value(*form.currentField()) == before {
-		t.Fatal("the short choice did not step")
+	frame := ansi.Strip(form.RenderWorkspace(tideui.NewRenderer(tideui.CatppuccinMocha, tideui.StyleOptions{}), 100, 40))
+	for _, want := range []string{"smooth", "line", "heat", "━"} {
+		if !strings.Contains(frame, want) {
+			t.Fatalf("gauge picker frame is missing %q:\n%s", want, frame)
+		}
 	}
 }
 

@@ -47,8 +47,7 @@ const (
 	RoundCorners PaneCorners = "round"
 )
 
-// GaugeStyle selects the shape used by progress bars and metric gauges. There
-// are two, both standard: a solid block bar and a segmented meter.
+// GaugeStyle selects the shape used by progress bars and metric gauges.
 type GaugeStyle string
 
 const (
@@ -57,10 +56,22 @@ const (
 	// GaugeSegment fills discrete segments: [■ ■ ■ ■ □ □ □ □] at full width,
 	// ▰▰▰▰▱▱▱▱ when compact, so the fill count is the value cell for cell.
 	GaugeSegment GaugeStyle = "segment"
+	// GaugeSmooth is a seamless pill with eighth-cell precision, █████▋███,
+	// the track drawn solid in a muted colour.
+	GaugeSmooth GaugeStyle = "smooth"
+	// GaugeLine is a thin rule with half-cell precision, ━━━━╸━━━━, whose
+	// fill brightens toward its head.
+	GaugeLine GaugeStyle = "line"
+	// GaugeHeat is the smooth pill coloured by position on the metric
+	// gradient: green at the start, red at the far end, so how hot a value
+	// runs is visible in the colour of its tip.
+	GaugeHeat GaugeStyle = "heat"
 )
 
 // GaugeStyles lists the available gauge styles in display order.
-func GaugeStyles() []GaugeStyle { return []GaugeStyle{GaugeBlock, GaugeSegment} }
+func GaugeStyles() []GaugeStyle {
+	return []GaugeStyle{GaugeBlock, GaugeSegment, GaugeSmooth, GaugeLine, GaugeHeat}
+}
 
 // legacyGaugeStyles maps the glyph sets that predate these two onto the shape
 // that reads most like them, so a config written before the change keeps
@@ -74,17 +85,23 @@ var legacyGaugeStyles = map[GaugeStyle]GaugeStyle{
 	"marker":  GaugeSegment,
 }
 
-// SparklineStyle selects the glyph ramp used by sparklines. There are two,
-// both standard.
+// SparklineStyle selects the glyph ramp used by sparklines.
 type SparklineStyle string
 
 const (
 	SparkBlocks SparklineStyle = "blocks" // ▁▂▃▄▅▆▇█ (default)
 	SparkDots   SparklineStyle = "dots"   // ·∘○◉●
+	// SparkBraille traces a connected line in braille, two samples per cell.
+	SparkBraille SparklineStyle = "braille" // ⠤⠒⠉⠒⠤⣀
+	// SparkTide is the braille line with the water under it stippled, two
+	// samples per cell, like a wave against a gauge board.
+	SparkTide SparklineStyle = "tide" // ⡠⡪⡫⢝⢕⢄
 )
 
 // SparklineStyles lists the available sparkline styles in display order.
-func SparklineStyles() []SparklineStyle { return []SparklineStyle{SparkBlocks, SparkDots} }
+func SparklineStyles() []SparklineStyle {
+	return []SparklineStyle{SparkBlocks, SparkDots, SparkBraille, SparkTide}
+}
 
 // IconStyle selects the glyph family used for widget icons.
 type IconStyle string

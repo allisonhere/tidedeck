@@ -627,7 +627,7 @@ Reusable, theme-aware components for building panels and dashboards:
 | `KeyHint` / `Renderer.RenderKeyHints` | compact key capsules with label-drop fallback |
 | `ListItem` / `Renderer.RenderListItem` | polished selectable rows with rail, icon, meta, counter |
 | `SectionDivider` | labelled rules for grouping content |
-| `MetricRow` / `ProgressBar` / `Sparkline` | aligned metrics, gauges, and trends; gauges pick from two standard shapes (`block`, `segment`), sparklines from two ramps (`blocks`, `dots`), and sparkline cells grade green→yellow→orange→red across the run's min–max |
+| `MetricRow` / `ProgressBar` / `Sparkline` | aligned metrics, gauges, and trends; gauges pick from five shapes (`block`, `segment`, `smooth` eighth-cell pill, `line` half-cell rule, `heat` gradient pill), sparklines from four (`blocks`, `dots`, and the two-samples-per-cell braille `braille` line and `tide` area), and sparkline cells grade green→yellow→orange→red across the run's min–max |
 | `FocusChrome` | shared "what does focused mean" decisions |
 | `StatusBar` regions / `Renderer.RenderStatusRegions` | three-region status strip with priority degradation |
 
@@ -833,9 +833,9 @@ stays readable instead of becoming one long scroll:
   with the layout.
 - **Live data** toggles between the deterministic demo feed and real providers;
   **gauge style** picks the shape used by every progress bar and metric gauge
-  (`block`, `segment`; the older `solid`, `bars`, `blocks`, `circles`,
+  (`block`, `segment`, `smooth`, `line`, `heat`; the older `solid`, `bars`, `blocks`, `circles`,
   `fisheye` and `marker` resolve to the nearest shape) and
-  **spark style** the ramp used by sparklines (`blocks`, `dots`), **icons** the
+  **spark style** the ramp used by sparklines (`blocks`, `dots`, `braille`, `tide`), **icons** the
   widget icon family (`emoji`, `plain`, `nerd`), which also decides how a key
   hint draws its keys (`↵`/`↩️`/`⏎` enter, arrows, and so on), and **clock font**
   the large-clock glyphs

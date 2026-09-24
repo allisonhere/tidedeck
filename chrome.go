@@ -692,6 +692,10 @@ func (r Renderer) renderGauge(bar ProgressBar, bg lipgloss.Color) string {
 	switch style {
 	case GaugeSegment:
 		return r.renderSegmentGauge(fraction, width, fill, track)
+	case GaugeSmooth, GaugeHeat:
+		return r.renderSmoothGauge(fraction, width, fill, track, bg, style == GaugeHeat)
+	case GaugeLine:
+		return r.renderLineGauge(fraction, width, fill, track, r.ToneColor(bar.Tone))
 	default:
 		return r.renderBlockGauge(fraction, width, fill, track)
 	}
@@ -800,18 +804,16 @@ func (r Renderer) GaugeSample(style GaugeStyle, width int) string {
 // in a picker. It is unstyled so the caller can colour it to match its surface.
 func (r Renderer) SparkSample(style SparklineStyle, width int) string {
 	width = max(1, width)
-	glyphs := sparkGlyphs(style)
-	if r.Styles.PlainUI {
-		glyphs = []rune(".:-=+*#@")
+	crest := func(n int) []float64 {
+		levels := make([]float64, n)
+		for i := range levels {
+			t := float64(i) / float64(max(1, n-1))
+			levels[i] = math.Sin(t * math.Pi) // a crest, so the ramp is visible
+		}
+		return levels
 	}
-	var b strings.Builder
-	for i := 0; i < width; i++ {
-		t := float64(i) / float64(max(1, width-1))
-		value := math.Sin(t * math.Pi) // a crest, so the ramp is visible
-		index := int(math.Round(value * float64(len(glyphs)-1)))
-		b.WriteRune(glyphs[clampIndex(index, len(glyphs))])
-	}
-	return b.String()
+	cells, _ := r.sparkCells(style, crest, width)
+	return strings.Join(cells, "")
 }
 
 // sparkGlyphs returns the low-to-high glyph ramp for a sparkline style.
@@ -829,29 +831,32 @@ func sparkGlyphs(style SparklineStyle) []rune {
 // run's minimum and maximum, so the shape and the colour agree.
 func (r Renderer) RenderSparkline(spark Sparkline, bg lipgloss.Color) string {
 	width := max(1, spark.Width)
-	glyphs := sparkGlyphs(r.Styles.Sparkline)
-	if r.Styles.PlainUI {
-		glyphs = []rune(".:-=+*#@")
-	}
-	values := resample(spark.Values, width)
-	low, high := valueRange(values)
 	ws := r.Styles.Workspace
 	// Glyph and colour must come from the same number. The glyph used to be
 	// picked from the absolute value while the colour was scaled to the run,
 	// so an idle GPU drew eight identical smallest marks and painted the
 	// highest one red: the reddest cell was also the smallest.
+	low, high := valueRange(spark.Values)
 	varying := high-low > sparkFlatRange
+	scaled := func(n int) []float64 {
+		values := resample(spark.Values, n)
+		for i, value := range values {
+			if varying {
+				values[i] = (value - low) / (high - low)
+			} else {
+				values[i] = clamp01(value) // flat run: size by the absolute value
+			}
+		}
+		return values
+	}
+	cells, levels := r.sparkCells(r.Styles.Sparkline, scaled, width)
 	var b strings.Builder
-	for _, value := range values {
-		level := clamp01(value)          // flat run: size by the absolute value
+	for i, glyph := range cells {
 		color := r.ToneColor(spark.Tone) // flat run: keep the caller's tone
 		if varying {
-			level = (value - low) / (high - low)
-			color = ws.MetricGradient(level)
+			color = ws.MetricGradient(levels[i])
 		}
-		index := int(math.Round(level * float64(len(glyphs)-1)))
-		b.WriteString(lipgloss.NewStyle().Background(bg).Foreground(color).
-			Render(string(glyphs[clampIndex(index, len(glyphs))])))
+		b.WriteString(lipgloss.NewStyle().Background(bg).Foreground(color).Render(glyph))
 	}
 	return b.String()
 }

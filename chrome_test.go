@@ -656,6 +656,9 @@ func TestWorkspaceRenderArrangeLiveMoveBounded(t *testing.T) {
 // highest of them red — the reddest cell was also the smallest.
 func TestSparklinePeakIsTheLargestGlyph(t *testing.T) {
 	for _, style := range SparklineStyles() {
+		if style == SparkBraille || style == SparkTide {
+			continue // no ramp; TestBrailleSparkPeakReachesTheTop covers them
+		}
 		r := NewRenderer(CatppuccinMocha, StyleOptions{Sparkline: style})
 		ramp := sparkGlyphs(style)
 		// A run that never leaves the bottom of the absolute scale, which is
@@ -718,9 +721,38 @@ func TestSparkRampsAreDistinctAndSingleWidth(t *testing.T) {
 			}
 		}
 	}
-	// The bullets ramp is gone: only the block and dot ramps remain.
-	if len(SparklineStyles()) != 2 {
-		t.Fatalf("SparklineStyles = %v, want the standard blocks and dots", SparklineStyles())
+	// The bullets ramp is gone.
+	for _, style := range SparklineStyles() {
+		if style == "bullets" {
+			t.Fatalf("SparklineStyles = %v still lists bullets", SparklineStyles())
+		}
+	}
+}
+
+// The braille styles have no ramp: height is which of a cell's four dot rows
+// is lit. The same idle-GPU run must still put its peak on the top row and its
+// trough on the floor, and the line must stay joined across a jump.
+func TestBrailleSparkPeakReachesTheTop(t *testing.T) {
+	const top, floor = 0x01 | 0x08, 0x40 | 0x80
+	for _, style := range []SparklineStyle{SparkBraille, SparkTide} {
+		r := NewRenderer(CatppuccinMocha, StyleOptions{Sparkline: style})
+		out := ansi.Strip(r.RenderSparkline(Sparkline{Values: []float64{0.06, 0.07, 0.06, 0.22}, Width: 4}, ""))
+		cells := []rune(out)
+		if len(cells) != 4 {
+			t.Fatalf("%s: rendered %d cells, want 4 (%q)", style, len(cells), out)
+		}
+		if bits := cells[3] - 0x2800; bits&top == 0 {
+			t.Fatalf("%s: peak %q has no dot on the top row (%q)", style, string(cells[3]), out)
+		}
+		if bits := cells[0] - 0x2800; bits&floor == 0 || bits&top != 0 {
+			t.Fatalf("%s: trough %q is not on the floor (%q)", style, string(cells[0]), out)
+		}
+	}
+	// A line from floor to ceiling fills the rows between, on the step.
+	r := NewRenderer(CatppuccinMocha, StyleOptions{Sparkline: SparkBraille})
+	step := []rune(ansi.Strip(r.RenderSparkline(Sparkline{Values: []float64{0, 0, 1, 1}, Width: 2}, "")))
+	if step[1] != '⡏' {
+		t.Fatalf("a floor-to-ceiling step drew %q, want a joined stroke ⡏", string(step))
 	}
 }
 
