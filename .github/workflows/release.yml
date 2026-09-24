@@ -1,0 +1,73 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build & Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Test
+        run: go test ./...
+
+      # One tarball per target, holding every binary the release ships, named
+      # <app>-<os>-<arch>.tar.gz. deploy.sh and the AUR package rely on these
+      # names, and on SHA256SUMS listing them.
+      - name: Build binaries
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          mkdir -p dist
+          targets=(
+            "linux  amd64 x86_64"
+            "linux  arm64 aarch64"
+            "darwin amd64 x86_64"
+            "darwin arm64 aarch64"
+          )
+          binaries=("tidedeck:./examples/workspace")
+          for target in "${targets[@]}"; do
+            read -r goos goarch label <<< "$target"
+            files=()
+            for entry in "${binaries[@]}"; do
+              name=${entry%%:*}
+              pkg=${entry#*:}
+              out="$name-$goos-$label"
+              CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch go build -trimpath \
+                -ldflags="-s -w -X main.version=$TAG" -o "dist/$out" "$pkg"
+              files+=("$out")
+            done
+            tar -czf "dist/tidedeck-$goos-$label.tar.gz" -C dist "${files[@]}"
+            for f in "${files[@]}"; do rm "dist/$f"; done
+            echo "Built dist/tidedeck-$goos-$label.tar.gz"
+          done
+
+      - name: Generate checksums
+        working-directory: dist
+        run: |
+          sha256sum *.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          name: "TideDeck ${{ github.ref_name }}"
+          generate_release_notes: true
+          files: |
+            dist/*.tar.gz
+            dist/SHA256SUMS

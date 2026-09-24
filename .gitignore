@@ -1,2 +1,5 @@
 pic*.png
 HANDOFF.md
+
+# Local release builds (deploy.sh)
+dist/
