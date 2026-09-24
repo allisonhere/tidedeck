@@ -98,7 +98,7 @@ const OpenIDPlaceholder = "{id}"
 // already use.
 type SchemaField struct {
 	Key          string   `json:"key"`
-	Type         string   `json:"type"` // string, boolean, choice
+	Type         string   `json:"type"` // string, boolean, choice, number, path, directory
 	Label        string   `json:"label"`
 	Description  string   `json:"description"`
 	Placeholder  string   `json:"placeholder"`
@@ -173,9 +173,9 @@ func (m Manifest) Validate() []string {
 			problems = append(problems, fmt.Sprintf("panel.schema[%d].key is required", i))
 		}
 		switch field.Type {
-		case "string", "boolean", "choice", "number", "":
+		case "string", "boolean", "choice", "number", "path", "directory", "":
 		default:
-			problems = append(problems, fmt.Sprintf("panel.schema[%d].type %q is not string, boolean, choice or number", i, field.Type))
+			problems = append(problems, fmt.Sprintf("panel.schema[%d].type %q is not string, boolean, choice, number, path or directory", i, field.Type))
 		}
 		if field.Type == "choice" && len(field.Options) == 0 {
 			problems = append(problems, fmt.Sprintf("panel.schema[%d] is a choice with no options", i))
@@ -309,6 +309,12 @@ func (m Manifest) Fields() []Field {
 			field.Kind, field.Options = FieldChoice, declared.Options
 		case "number":
 			field.Kind = FieldFloat
+		case "path":
+			// A text setting naming a file, which the settings screen can
+			// browse for; "directory" names a folder.
+			field.Path = PathFile
+		case "directory":
+			field.Path = PathDir
 		}
 		if declared.DefaultValue != nil {
 			field.Default = fmt.Sprintf("%v", declared.DefaultValue)

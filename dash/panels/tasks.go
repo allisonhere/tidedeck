@@ -4,6 +4,7 @@ import (
 	"context"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/allisonhere/tideui"
@@ -17,6 +18,9 @@ const todoKey = "todo"
 // tasks shows the open items in a todo.txt file.
 type tasks struct {
 	dash.State[[]tideui.Task]
+	// mu guards fetch, which Configure replaces on the UI goroutine while a
+	// refresh may be reading it in the background.
+	mu    sync.Mutex
 	fetch func(context.Context) ([]tideui.Task, error)
 }
 
@@ -34,13 +38,15 @@ func (t *tasks) Meta() dash.Meta {
 
 func (t *tasks) Schema() []dash.Field {
 	return []dash.Field{{
-		Key: todoKey, Label: "todo.txt", Kind: dash.FieldText,
+		Key: todoKey, Label: "todo.txt", Kind: dash.FieldText, Path: dash.PathFile,
 	}}
 }
 
 // Configure builds the source from the configured path. A leading ~ is expanded
 // the way a shell would.
 func (t *tasks) Configure(values dash.Values) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	path := expandHome(strings.TrimSpace(values.String(todoKey)))
 	if path == "" {
 		t.fetch = nil
@@ -51,10 +57,13 @@ func (t *tasks) Configure(values dash.Values) error {
 }
 
 func (t *tasks) Refresh(ctx context.Context) error {
-	if t.fetch == nil {
+	t.mu.Lock()
+	fetch := t.fetch
+	t.mu.Unlock()
+	if fetch == nil {
 		return nil
 	}
-	tasks, err := t.fetch(ctx)
+	tasks, err := fetch(ctx)
 	if err != nil {
 		return err
 	}

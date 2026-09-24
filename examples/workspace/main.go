@@ -614,8 +614,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickMsg:
 		m.state.now = time.Now()
 		m.syncOmarchyTheme()
-		// Panels fetch on their own intervals and hold their own data.
-		m.deck.Refresh(context.Background(), m.state.now)
+		// Panels fetch on their own intervals and hold their own data. The
+		// fetches run in the background: a plugin program or a slow network
+		// source used to hold the whole frame for up to the deck's timeout.
+		refreshes := refreshCmds(m.deck.Start(context.Background(), m.state.now))
 		// A panel may have just reported different choices for its own settings -
 		// the mailboxes of a newly chosen account - so let the open page follow.
 		m.settings.SyncOptions()
@@ -642,11 +644,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// A fade needs frames faster than the once-a-second dashboard beat, so
 		// the loop speeds up only while something is actually moving.
 		rate := time.Second
+		// A running settings action draws a spinner, which needs frames.
+		if m.settings.Working() {
+			m.settings.TickButtons()
+			animating = true
+		}
 		if animating {
 			rate = idleFadeFrame
 		}
-		return m, tea.Batch(tickCmd(rate), m.refreshResizedPanes())
+		return m, tea.Batch(append(refreshes, tickCmd(rate), m.refreshResizedPanes())...)
 	case lookupMsg:
+		m.settings.LookupDone()
 		if m.settings.Opened() {
 			m.settings.ApplyLookup(msg.place, msg.err)
 		}
@@ -676,8 +684,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// stale until its next interval.
 		m.deck.RefreshNow(msg.panel)
 		return m, m.refreshFocusedCmd()
-	case panelRefreshedMsg:
-		// The panel's State changed off the UI goroutine; re-render it.
+	case dash.Refreshed:
+		// A background fetch finished: record it, and let the frame, the
+		// badges and an open settings page follow what the panel now holds.
+		m.deck.Finish(msg)
+		m.settings.SyncOptions()
+		m.refreshBadges()
 		return m, nil
 	case tea.MouseMsg:
 		// The settings screen is a full takeover: the dashboard is not on
@@ -789,6 +801,8 @@ func launchCmd(panel string, argv []string) tea.Cmd {
 // operation, then rebuilds the settings pages so the Plugins list and the
 // plugin's own category are current.
 func (m *model) applyPluginOp(msg pluginOpMsg) {
+	// The operation is over whether or not settings is still open to hear it.
+	m.settings.PluginOpDone()
 	if msg.err != nil {
 		m.state.status = "plugin: " + msg.err.Error()
 		if m.settings.Opened() {
@@ -829,24 +843,28 @@ func (m *model) applyPluginOp(msg pluginOpMsg) {
 	applyPanelGlyphs(m.ws, m.deck, m.cfg)
 }
 
-type panelRefreshedMsg struct{}
-
 // refreshFocusedCmd re-runs the focused panel off the UI goroutine, so a plugin
 // that took input shows the new value without waiting out its interval. It is
 // nil for a panel that does not fetch - a built-in recomputes as it types.
 func (m model) refreshFocusedCmd() tea.Cmd {
-	panel, ok := m.deck.Lookup(m.ws.Focused())
-	if !ok {
+	return refreshCmd(m.deck.StartPanel(context.Background(), m.ws.Focused()))
+}
+
+// refreshCmd runs one refresh job in the background and reports it back.
+func refreshCmd(job func() dash.Refreshed) tea.Cmd {
+	if job == nil {
 		return nil
 	}
-	fetcher, ok := panel.(dash.Fetcher)
-	if !ok {
-		return nil
+	return func() tea.Msg { return job() }
+}
+
+// refreshCmds is refreshCmd for each of several jobs.
+func refreshCmds(jobs []func() dash.Refreshed) []tea.Cmd {
+	out := make([]tea.Cmd, 0, len(jobs))
+	for _, job := range jobs {
+		out = append(out, refreshCmd(job))
 	}
-	return func() tea.Msg {
-		_ = fetcher.Refresh(context.Background())
-		return panelRefreshedMsg{}
-	}
+	return out
 }
 
 // refreshResizedPanes returns a command that fetches every pane-sized panel whose
@@ -878,21 +896,12 @@ func (m *model) refreshResizedPanes() tea.Cmd {
 			due = append(due, id)
 		}
 	}
-	if len(due) == 0 {
-		return nil
+	var cmds []tea.Cmd
+	for _, id := range due {
+		// Jobs are taken here, on the UI goroutine; only their work runs off it.
+		cmds = append(cmds, refreshCmd(m.deck.StartPanel(context.Background(), id)))
 	}
-	return func() tea.Msg {
-		for _, id := range due {
-			panel, ok := m.deck.Lookup(id)
-			if !ok {
-				continue
-			}
-			if fetcher, ok := panel.(dash.Fetcher); ok {
-				_ = fetcher.Refresh(context.Background())
-			}
-		}
-		return panelRefreshedMsg{}
-	}
+	return tea.Batch(cmds...)
 }
 
 // focusedCopy returns the focused panel's copyable text, if it has any.
@@ -1504,7 +1513,14 @@ func (m model) statusHints() []tideui.KeyHint {
 	return []tideui.KeyHint{tideui.Hint("s", "settings"), tideui.Hint("S", "save layout")}
 }
 
+// version is stamped by a release build (-X main.version=v1.2.3).
+var version = "dev"
+
 func main() {
+	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-V") {
+		fmt.Println("TideDeck", version)
+		return
+	}
 	program := tea.NewProgram(newModel(), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := program.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)

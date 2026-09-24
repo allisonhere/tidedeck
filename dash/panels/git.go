@@ -45,7 +45,7 @@ func (g *git) Meta() dash.Meta {
 
 func (g *git) Schema() []dash.Field {
 	return []dash.Field{{
-		Key: reposKey, Label: "repositories", Kind: dash.FieldText,
+		Key: reposKey, Label: "repositories", Kind: dash.FieldText, Path: dash.PathDir, List: true,
 		Normalize: normalizeRepoList,
 		Summary:   g.repoSummary,
 	}}

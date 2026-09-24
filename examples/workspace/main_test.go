@@ -1103,7 +1103,7 @@ func TestResizedPanesRefetchOnlyWhatSizesItselfOnThePane(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("the first frame did not refresh a panel that sizes its fetches on its pane")
 	}
-	cmd()
+	finish(m, cmd())
 	if sized.count() != 1 {
 		t.Fatalf("the pane-sized panel fetched %d times on the first frame, want 1", sized.count())
 	}
@@ -1126,12 +1126,50 @@ func TestResizedPanesRefetchOnlyWhatSizesItselfOnThePane(t *testing.T) {
 	if cmd := m.refreshResizedPanes(); cmd == nil {
 		t.Fatal("a resized pane did not schedule a fetch")
 	} else {
-		cmd()
+		finish(m, cmd())
 	}
 	if sized.count() != 2 {
 		t.Fatalf("after a resize the pane-sized panel fetched %d times, want 2", sized.count())
 	}
 	if plain.count() != 0 {
 		t.Fatalf("a resize fetched a panel that does not size its fetches on its pane (%d)", plain.count())
+	}
+}
+
+// finish reports a background refresh back to the deck, as the update loop
+// does when the job's message arrives.
+func finish(m model, msg tea.Msg) {
+	if r, ok := msg.(dash.Refreshed); ok {
+		m.deck.Finish(r)
+	}
+}
+
+// slowPanel takes its time to fetch, as an unreachable host or a busy plugin
+// program does.
+type slowPanel struct{ paneFetcher }
+
+func (p *slowPanel) AlwaysLive() bool { return true }
+func (p *slowPanel) Refresh(ctx context.Context) error {
+	select {
+	case <-time.After(2 * time.Second):
+	case <-ctx.Done():
+	}
+	return p.paneFetcher.Refresh(ctx)
+}
+
+// A tick never waits on a fetch. It used to run every due refresh inline, so
+// one slow source froze the whole dashboard for up to the deck's timeout.
+func TestATickDoesNotWaitForASlowPanel(t *testing.T) {
+	m := newModel()
+	m.width, m.height = 120, 40
+	slow := &slowPanel{paneFetcher{id: "slowstub"}}
+	m.deck.Register(slow)
+	start := time.Now()
+	_, cmd := m.Update(tickMsg(time.Time{}))
+	if took := time.Since(start); took > 500*time.Millisecond {
+		t.Fatalf("a tick took %v waiting on a slow panel", took)
+	}
+	if cmd == nil || !m.deck.Refreshing("slowstub") || slow.count() != 0 {
+		t.Fatalf("the slow panel's fetch was not handed off: in flight %v, fetched %d", m.deck.Refreshing("slowstub"), slow.count())
 	}
 }

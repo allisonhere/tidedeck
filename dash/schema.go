@@ -18,6 +18,12 @@ const (
 // Key is the dotted path into the configuration document, and it names the
 // key that is already in the file - "aur_helper", "weather.latitude". Nothing
 // is renamed by this design, so a user's existing config keeps working.
+// The kinds of path a text setting can name.
+const (
+	PathFile = "file"
+	PathDir  = "dir"
+)
+
 type Field struct {
 	Key   string // "" for an action, which stores nothing
 	Label string
@@ -54,6 +60,13 @@ type Field struct {
 	Validate func(string) error
 	// Run performs a FieldAction and returns the message to show.
 	Run func() string
+
+	// Path says a text value names a file (PathFile) or a folder (PathDir),
+	// so the settings screen offers a picker for it. List says the value holds
+	// several, separated by commas, and a pick is added to them rather than
+	// replacing them.
+	Path string
+	List bool
 
 	// Unit, Min, Max and Step describe a FieldFloat. Step is how far an arrow
 	// key moves the value; zero leaves the field typed rather than stepped.

@@ -43,7 +43,7 @@ func (a *agenda) Meta() dash.Meta {
 
 func (a *agenda) Schema() []dash.Field {
 	return []dash.Field{{
-		Key: calendarsKey, Label: "sources (.ics or URL)", Kind: dash.FieldText,
+		Key: calendarsKey, Label: "sources (.ics or URL)", Kind: dash.FieldText, Path: dash.PathFile, List: true,
 	}}
 }
 

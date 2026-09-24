@@ -22,6 +22,19 @@ application.
 go get github.com/allisonhere/tideui
 ```
 
+The dashboard itself runs with `go run ./examples/workspace`; `tidedeck --version`
+prints a release build's version.
+
+### Releasing TideDeck
+
+```sh
+./deploy.sh --check     # what a release still needs, without a terminal UI
+./deploy.sh --dry-run   # rehearse a whole release; nothing is committed or pushed
+./deploy.sh             # the release console
+```
+
+The console bumps the version, runs the tests, lint and a build, commits, pushes the tag (which makes `.github/workflows/release.yml` build and publish the release), waits for the release files, and publishes `tidedeck-bin` to the AUR from their published checksums. It is the same console every Tide app uses; this app's details are in `deploy.conf`, and the AUR packaging is in `packaging/aur`.
+
 ## Features
 
 - **Five layout modes** — `StackedRight`, `ThreeColumn`, `SidebarOnly`, `Tabbed`, and `Floating`, each with tunable ratios.
@@ -954,12 +967,28 @@ deck.Refresh(ctx, time.Now())    // fetch whatever is due
 deck.Tick(time.Now())            // advance clock-driven panels
 ```
 
-`Refresh` is **pull-based**: it checks each panel's interval on the tick the
-application is already doing, rather than running a goroutine per panel. It
-runs each fetch synchronously under a bounded context (`dash.DefaultTimeout`,
-12 s), so call it from a Bubble Tea command rather than from `Update` — a slow
-source would otherwise stall the frame. A failed fetch is recorded against the
-panel (`deck.Err(id)`) and leaves the panel's last good value in place;
+Refreshing is **pull-based**: the deck checks each panel's interval on the tick
+the application is already doing, rather than running a goroutine per panel.
+`Refresh` runs whatever is due, one fetch after another, and returns when they
+are done - right for a test or a one-shot program, wrong for a UI, where one slow
+source would hold the frame for up to `dash.DefaultTimeout` (12 s). A UI splits
+it in two:
+
+```go
+case tickMsg:
+    for _, job := range deck.Start(ctx, time.Now()) {  // on the UI goroutine
+        cmds = append(cmds, func() tea.Msg { return job() }) // runs in the background
+    }
+case dash.Refreshed:
+    deck.Finish(msg)                                    // back on the UI goroutine
+```
+
+`Start` marks what it hands out as in flight, so a panel still fetching is not
+started again however many ticks pass; `StartPanel(ctx, id)` refreshes one
+panel now, and one asked for while in flight runs again as soon as it finishes.
+Panels keep their data behind locks (`dash.State`, or their own mutex), which is
+what makes drawing one while it fetches safe. A failed fetch is recorded against
+the panel (`deck.Err(id)`) and leaves the panel's last good value in place;
 `deck.RefreshNow(id)` makes a panel due again, which is what a panel's own
 refresh action should do.
 
@@ -1049,6 +1078,24 @@ func (u *updates) Schema() []dash.Field {
 | `FieldChoice` | one of `Options`, stepped with `←/→`, picked from a list at five or more |
 | `FieldFloat` | a bounded number, checked as it is typed |
 | `FieldAction` | a button that runs `Field.Run` |
+
+A text field that names a file or a folder says so with `Path: dash.PathFile` or
+`dash.PathDir`, and `List: true` when it holds several, comma-separated. Its row
+then offers **o** to browse: the folder the value points into, filtered as you
+type, with **Tab** completing, **Enter** opening a folder or choosing, and
+**Backspace** climbing out. Typing `~` or `/` first starts a path afresh. A
+folder setting lists folders only and offers *use this folder*; a list gains the
+pick rather than losing what it had. The todo.txt, notes, repositories and
+calendar settings are declared this way.
+
+**/** anywhere in settings searches every page at once - a row's label, its
+description and the page it is on - and **Enter** goes to the row picked, on its
+own page.
+
+Actions that start background work - a coordinate lookup, installing, updating
+or removing a plugin - are `form.Button`s: a running one shows a spinner on the
+row that started it and refuses to fire again, and every plugin operation shares
+one, since they all write the plugins directory.
 
 `Field.Key` is a dotted path into the configuration document, and it names the
 key that is *already* in `config.json` — moving a setting onto its panel does
@@ -1142,6 +1189,9 @@ rather than one problem per run.
 `gauge` and `spark` claim whether the document prints gauge or spark rows, so
 the plugin's settings page offers only the metric styles it uses and not the
 other. A plugin that only prints text leaves both off.
+
+A setting's `type` is `string`, `boolean`, `choice`, `number`, `path` (a file,
+which the settings screen can browse for) or `directory` (a folder).
 
 Declared settings reach the program as environment variables —
 `TIDEDECK_PLUGIN_<KEY>`, uppercased, non-alphanumerics replaced with `_` — and
@@ -1344,6 +1394,22 @@ plugin's own manifest by `go run ./cmd/plugincatalog`. It is what a site or a
 script reads to list and describe them without re-reading the manifests, and the
 `dash` package's `catalog_test.go` fails whenever the catalogue and the
 manifests drift.
+
+Check a plugin before installing it:
+
+```bash
+go run ./cmd/tideplug validate path/to/plugin
+```
+
+`tideplug` runs the plugin exactly as the dashboard would, with every setting at
+its default, and reports the manifest, whether the entry point and its `open`
+and `edit` programs are there and executable, how long the render took, and
+what the document holds: unknown row types, tones the dashboard does not know,
+image rows without an absolute `src`, rows with ids but nothing to open them
+(or the reverse), and options for settings the manifest never declared. It
+exits 1 when anything fails, so a script or CI can gate on it; warnings alone
+do not fail it. The checks live in `dash.CheckPlugin`, beside the loader and
+runner they share.
 
 #### Running them
 

@@ -2,6 +2,7 @@ package panels
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/allisonhere/tideui"
@@ -15,6 +16,9 @@ const notesKey = "notes"
 // notes shows a few Markdown or text files side by side.
 type notes struct {
 	dash.State[[]tideui.Note]
+	// mu guards fetch, which Configure replaces on the UI goroutine while a
+	// refresh may be reading it in the background.
+	mu    sync.Mutex
 	fetch func(context.Context) ([]tideui.Note, error)
 }
 
@@ -32,13 +36,15 @@ func (n *notes) Meta() dash.Meta {
 
 func (n *notes) Schema() []dash.Field {
 	return []dash.Field{{
-		Key: notesKey, Label: "paths", Kind: dash.FieldText,
+		Key: notesKey, Label: "paths", Kind: dash.FieldText, Path: dash.PathFile, List: true,
 	}}
 }
 
 // Configure builds the source from the configured paths, expanding a leading ~
 // the way a shell would.
 func (n *notes) Configure(values dash.Values) error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
 	paths := values.List(notesKey)
 	for i := range paths {
 		paths[i] = expandHome(paths[i])
@@ -52,10 +58,13 @@ func (n *notes) Configure(values dash.Values) error {
 }
 
 func (n *notes) Refresh(ctx context.Context) error {
-	if n.fetch == nil {
+	n.mu.Lock()
+	fetch := n.fetch
+	n.mu.Unlock()
+	if fetch == nil {
 		return nil
 	}
-	notes, err := n.fetch(ctx)
+	notes, err := fetch(ctx)
 	if err != nil {
 		return err
 	}

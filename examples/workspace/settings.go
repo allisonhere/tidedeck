@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/charmbracelet/bubbles/spinner"
 	"sort"
 	"strconv"
 	"strings"
@@ -41,11 +42,20 @@ type formField struct {
 	// key is the configuration key a panel-declared row came from. Rows the
 	// form writes by hand leave it empty. It is what lets a row be found again
 	// when the panel reports new options for it.
-	key          string
-	kind         fieldKind
-	flag         *bool
-	text         *string
-	action       func() settingsAction
+	key    string
+	kind   fieldKind
+	flag   *bool
+	text   *string
+	action func() settingsAction
+	// button is the work an action starts, for one whose work runs in the
+	// background: it refuses to fire again while that work is under way, and
+	// draws a spinner on the row that started it.
+	button *form.Button
+	// path is dash.PathFile or dash.PathDir for a setting that names one, which
+	// o browses for; list says a pick is added to the value, not put in its
+	// place.
+	path         string
+	list         bool
 	panel        string   // panel id, for fieldPanel
 	choice       *string  // current value, for fieldChoice
 	options      []string // selectable values, for fieldChoice
@@ -415,6 +425,15 @@ type settingsForm struct {
 
 	pendingLookup string
 	lookingUp     bool
+	// lookupButton and pluginButton hold the running state of the work those
+	// actions start; busyRow is the label of the row that started the running
+	// plugin operation, which is the one that draws the spinner.
+	lookupButton, pluginButton *form.Button
+	busyRow                    string
+	// picker is the path picker, while one is open over the rows.
+	picker *pathPicker
+	// search is the / search across every page, while it is open.
+	search *settingsSearch
 
 	// pendingPlugin is a plugin install, update or removal the model runs off
 	// the UI goroutine, the way pendingLookup is a geocoding request.
@@ -505,6 +524,49 @@ func (s settingsForm) ClockFont() string {
 
 func newSettingsForm() *settingsForm { return &settingsForm{} }
 
+// lookup is the button for a coordinate lookup, and plugins the one shared by
+// every plugin operation: installs, updates and removals all write the one
+// plugins directory, so only one may run at a time. Both live as long as the
+// form, so closing and reopening settings mid-install keeps the guard.
+func (s *settingsForm) lookup() *form.Button {
+	if s.lookupButton == nil {
+		s.lookupButton = form.NewButton("Look up coordinates", nil)
+	}
+	return s.lookupButton
+}
+
+func (s *settingsForm) plugins() *form.Button {
+	if s.pluginButton == nil {
+		s.pluginButton = form.NewButton("plugins", nil)
+	}
+	return s.pluginButton
+}
+
+// LookupDone and PluginOpDone end the work their buttons started. The model
+// calls them whether or not settings is open, since the work finishes either
+// way.
+func (s *settingsForm) LookupDone() {
+	s.lookingUp = false
+	s.lookup().Done()
+}
+
+func (s *settingsForm) PluginOpDone() {
+	s.plugins().Done()
+	s.busyRow = ""
+}
+
+// Working reports whether a button's work is under way, so the model can draw
+// its spinner at animation speed rather than once a second.
+func (s *settingsForm) Working() bool {
+	return s.lookup().Running() || s.plugins().Running()
+}
+
+// TickButtons advances the spinners of any running work.
+func (s *settingsForm) TickButtons() {
+	s.lookup().Tick(spinner.TickMsg{})
+	s.plugins().Tick(spinner.TickMsg{})
+}
+
 // SetWorkspace attaches the workspace whose panels the Panels category toggles.
 func (s *settingsForm) SetWorkspace(ws *tideui.Workspace) { s.ws = ws }
 
@@ -517,6 +579,8 @@ func (s *settingsForm) Open(cfg config) {
 	s.state = &state
 	s.loadPanelFields(cfg)
 	s.opened = true
+	s.picker = nil
+	s.search = nil
 	s.categories = s.buildCategories()
 	s.view = viewCategories
 	s.focus = settingsNav
@@ -559,7 +623,7 @@ func (s *settingsForm) buildCategories() []settingsCategory {
 			{label: "city or ZIP", kind: fieldText, text: &s.state.place,
 				description: "A place to look up. Searching fills in the coordinates below.",
 				placeholder: "search for a place"},
-			{label: "Look up coordinates", kind: fieldAction, action: s.lookupCoordinates},
+			{label: "Look up coordinates", kind: fieldAction, action: s.lookupCoordinates, button: s.lookup()},
 		}},
 		{name: "GPU", panelID: "gpu", fields: nil},
 		{name: "News", panelID: "news", fields: s.newsFields()},
@@ -803,6 +867,8 @@ func (s *settingsForm) panelCategories() []settingsCategory {
 				description: field.Description,
 				placeholder: field.Placeholder,
 				validate:    field.Validate,
+				path:        field.Path,
+				list:        field.List,
 			}
 			switch field.Kind {
 			case dash.FieldBool:
@@ -900,7 +966,7 @@ func (s *settingsForm) pluginFields() []formField {
 	fields := []formField{
 		{label: "plugin source", kind: fieldText, text: &s.state.pluginSource,
 			input: true, placeholder: "git URL[#dir] or local path"},
-		{label: "Install", kind: fieldAction, action: s.installPlugin},
+		{label: "Install", kind: fieldAction, action: s.installPlugin, button: s.plugins()},
 	}
 	for _, info := range dash.Installed(pluginsDir()) {
 		if info.Problem != nil {
@@ -915,11 +981,11 @@ func (s *settingsForm) pluginFields() []formField {
 		id := info.Manifest.ID
 		label := info.DisplayName() + " " + info.Manifest.Version
 		fields = append(fields,
-			formField{label: "update " + label, kind: fieldAction, action: func() settingsAction {
+			formField{label: "update " + label, kind: fieldAction, button: s.plugins(), action: func() settingsAction {
 				s.beginPluginOp("update", id)
 				return settingsNone
 			}},
-			formField{label: "remove " + label, kind: fieldAction, action: func() settingsAction {
+			formField{label: "remove " + label, kind: fieldAction, button: s.plugins(), action: func() settingsAction {
 				s.beginPluginOp("remove", id)
 				return settingsNone
 			}},
@@ -944,6 +1010,7 @@ func (s *settingsForm) installPlugin() settingsAction {
 // beginPluginOp queues a plugin operation and shows it as in progress.
 func (s *settingsForm) beginPluginOp(kind, value string) {
 	s.pendingPlugin = pluginOp{kind: kind, value: value}
+	s.plugins().Busy()
 	switch kind {
 	case "install":
 		s.working("installing " + value + "…")
@@ -970,6 +1037,7 @@ func (s *settingsForm) TakePluginOp() (pluginOp, bool) {
 // install field is cleared, so a second Enter does not try the same source
 // again.
 func (s *settingsForm) ApplyPluginOp(message string, err error) {
+	s.PluginOpDone()
 	if err != nil {
 		s.fail(err.Error())
 		return
@@ -1044,6 +1112,7 @@ func (s *settingsForm) lookupCoordinates() settingsAction {
 	}
 	s.pendingLookup = query
 	s.lookingUp = true
+	s.lookup().Busy()
 	s.working("looking up " + query + "…")
 	return settingsNone
 }
@@ -1057,7 +1126,7 @@ func (s *settingsForm) TakeLookup() string {
 
 // ApplyLookup records the result of a background lookup.
 func (s *settingsForm) ApplyLookup(place provider.Place, err error) {
-	s.lookingUp = false
+	s.LookupDone()
 	if err != nil {
 		s.fail(err.Error())
 		return
@@ -1109,8 +1178,20 @@ func (s *settingsForm) Update(msg tea.KeyMsg) settingsAction {
 		return settingsNone
 	}
 	key := msg.String()
+	if s.picker != nil {
+		s.updatePicker(key, msg.Runes)
+		return settingsNone
+	}
+	if s.search != nil {
+		s.updateSearch(key, msg.Runes)
+		return settingsNone
+	}
 	if s.editing {
 		return s.updateEditing(msg, key)
+	}
+	if key == "/" {
+		s.openSearch()
+		return settingsNone
 	}
 	if key == "ctrl+s" {
 		return s.save()
@@ -1182,6 +1263,8 @@ func (s *settingsForm) updateFields(key string) settingsAction {
 		s.view = viewCategories
 	case "enter", " ":
 		return s.activate()
+	case "o":
+		s.openPicker()
 	}
 	return settingsNone
 }
@@ -1248,8 +1331,18 @@ func (s *settingsForm) activate() settingsAction {
 	case fieldText, fieldNumber:
 		s.beginEdit(field)
 	case fieldAction:
+		if field.button != nil && field.button.Running() {
+			// Pressing again while the work runs would start it twice - two
+			// installs into one directory. The key is swallowed, and the
+			// spinner on the row already says why.
+			return settingsNone
+		}
 		if field.action != nil {
-			return field.action()
+			action := field.action()
+			if field.button != nil && field.button.Running() {
+				s.busyRow = field.label
+			}
+			return action
 		}
 	case fieldPanel:
 		if s.state.panelShown == nil {
@@ -1573,7 +1666,13 @@ func (s settingsForm) RenderWorkspace(r tideui.Renderer, width, height int) stri
 	left := strings.Join(s.renderCategories(r, max(1, leftWidth-4), navRows), "\n")
 
 	right := "choose a category from the navigation pane"
-	if s.category >= 0 && s.category < len(s.categories) {
+	if s.search != nil {
+		// The search spans every page, so it takes the pane rather than
+		// sitting under one page's header.
+		right = strings.Join(fitRows(max(1, height-6), func(limit int) []string {
+			return s.searchLines(r, max(1, rightWidth-4), limit)
+		}), "\n")
+	} else if s.category >= 0 && s.category < len(s.categories) {
 		category := s.categories[s.category]
 		rows := max(1, height-6)
 		headerWidth := max(1, rightWidth-4)
@@ -1685,6 +1784,12 @@ func paneTitle(r tideui.Renderer) lipgloss.Style {
 // the keys that actually edited anything.
 func (s settingsForm) hintBar() string {
 	parts := make([]string, 0, 4)
+	if s.picker != nil {
+		return "type to filter · tab complete · enter open or choose · backspace up · esc cancel"
+	}
+	if s.search != nil {
+		return "type to search · ↑↓ choose · enter go there · esc cancel"
+	}
 	if s.editor != nil && s.editing {
 		// Only the control's keys, because they are the only ones that work:
 		// esc means revert here, not "go back", and listing both would give
@@ -1717,11 +1822,14 @@ func (s settingsForm) hintBar() string {
 		default:
 			parts = append(parts, "enter edit")
 		}
+		if field.path != "" {
+			parts = append(parts, "o browse")
+		}
 	}
 	if s.dirty {
 		parts = append(parts, "ctrl+s save")
 	}
-	parts = append(parts, "tab focus", "esc back")
+	parts = append(parts, "/ search", "tab focus", "esc back")
 	return strings.Join(parts, " · ")
 }
 
@@ -1839,6 +1947,9 @@ func (s settingsForm) categoryLines(r tideui.Renderer, width, rows int) []string
 // renderFields draws the editor list within rows lines, shrinking the window
 // until the "more" markers it adds fit alongside the rows.
 func (s settingsForm) renderFields(r tideui.Renderer, width, rows int) []string {
+	if s.picker != nil {
+		return fitRows(rows, func(limit int) []string { return s.pickerLines(r, width, limit) })
+	}
 	return fitRows(rows, func(limit int) []string {
 		return s.fieldLines(r, width, limit)
 	})
@@ -1885,6 +1996,10 @@ func (s settingsForm) fieldLines(r tideui.Renderer, width, rows int) []string {
 			row.Prefix = "  "
 			row.Text = "[ " + field.label + " ]"
 			row.Accent = true
+			if b := field.button; b != nil && b.Running() && (b != s.plugins() || s.busyRow == field.label) {
+				row.Text = b.View(r, width) + " " + field.label + "…"
+				row.Accent = false
+			}
 		case fieldText, fieldNumber:
 			row.Prefix = "    "
 			// Cap the cell so a long value cannot squeeze the label away; the

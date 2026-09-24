@@ -4,6 +4,7 @@ import (
 	"context"
 	"math"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/allisonhere/tideui"
@@ -23,6 +24,9 @@ const defaultSymbols = "AMD,NVDA,SPY,GOOG"
 // workspace palette entirely.
 type markets struct {
 	dash.State[[]tideui.MarketQuote]
+	// mu guards fetch, which Configure replaces on the UI goroutine while a
+	// refresh may be reading it in the background.
+	mu    sync.Mutex
 	fetch func(context.Context) ([]tideui.MarketQuote, error)
 }
 
@@ -53,6 +57,8 @@ func (m *markets) Schema() []dash.Field {
 // install. An explicit empty value is treated the same as unset: there is no
 // way to ask for no quotes and have anything to show.
 func (m *markets) Configure(values dash.Values) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	symbols := values.List(symbolsKey)
 	if len(symbols) == 0 {
 		symbols = strings.Split(defaultSymbols, ",")
@@ -62,10 +68,13 @@ func (m *markets) Configure(values dash.Values) error {
 }
 
 func (m *markets) Refresh(ctx context.Context) error {
-	if m.fetch == nil {
+	m.mu.Lock()
+	fetch := m.fetch
+	m.mu.Unlock()
+	if fetch == nil {
 		return nil
 	}
-	quotes, err := m.fetch(ctx)
+	quotes, err := fetch(ctx)
 	if err != nil {
 		return err
 	}

@@ -22,14 +22,22 @@ const (
 //
 // Refreshing is pull-based rather than one goroutine per panel. The caller
 // ticks the deck, the deck skips any panel whose interval has not elapsed,
-// and a panel that does fetch does so in the background. That means no
-// goroutine lifecycle to manage, nothing to join on shutdown, and no way to
-// leak a ticker when settings are reapplied.
+// and hands back one job for each panel that is due, which the caller runs in
+// the background and reports back through Finish. That means no goroutine
+// lifecycle to manage, nothing to join on shutdown, and no way to leak a
+// ticker when settings are reapplied.
 type Deck struct {
-	order   []Panel
-	index   map[string]Panel
-	last    map[string]time.Time
-	errs    map[string]error
+	order []Panel
+	index map[string]Panel
+	last  map[string]time.Time
+	errs  map[string]error
+	// inflight holds the panels whose background refresh has been started
+	// and not yet finished, so a slow source is never asked twice at once.
+	inflight map[string]bool
+	// again holds panels asked to refresh while already refreshing: the
+	// running fetch was started for an older state (a pane that has since been
+	// resized, say), so the panel is due again as soon as it finishes.
+	again   map[string]bool
 	mode    Mode
 	status  func(string)
 	timeout time.Duration
@@ -42,10 +50,12 @@ const DefaultTimeout = 12 * time.Second
 // New returns an empty deck in demo mode.
 func New() *Deck {
 	return &Deck{
-		index:   map[string]Panel{},
-		last:    map[string]time.Time{},
-		errs:    map[string]error{},
-		timeout: DefaultTimeout,
+		index:    map[string]Panel{},
+		last:     map[string]time.Time{},
+		errs:     map[string]error{},
+		inflight: map[string]bool{},
+		again:    map[string]bool{},
+		timeout:  DefaultTimeout,
 	}
 }
 
@@ -188,10 +198,30 @@ func (d *Deck) actions(id string, actor Actor) []tideui.PanelAction {
 // whose interval has not elapsed is skipped, and in demo mode nothing fetches
 // at all.
 //
-// The fetches themselves are synchronous, so a caller with a UI should drive
-// this from a command rather than from its update loop: a panel is bounded by
-// the deck's timeout, but a slow source would still hold up the frame.
+// It runs every fetch in turn and returns when they are done, which suits a
+// test or a one-shot program. An interactive caller uses Start and Finish
+// instead, so a slow source never holds up the frame.
 func (d *Deck) Refresh(ctx context.Context, now time.Time) {
+	for _, job := range d.Start(ctx, now) {
+		d.Finish(job())
+	}
+}
+
+// Refreshed reports one panel's refresh finishing.
+type Refreshed struct {
+	ID  string
+	Err error
+}
+
+// Start picks the panels due for a refresh and returns one job each, for the
+// caller to run off its UI goroutine; each job's result goes back through
+// Finish, on the UI goroutine. Panels keep their data behind their own locks,
+// so a job may run while the panel is drawn.
+//
+// A panel whose previous job has not finished is not started again: a source
+// that is slow to answer is waited for, not asked a second and third time.
+func (d *Deck) Start(ctx context.Context, now time.Time) []func() Refreshed {
+	var jobs []func() Refreshed
 	for _, panel := range d.order {
 		fetcher, ok := panel.(Fetcher)
 		if !ok {
@@ -206,6 +236,9 @@ func (d *Deck) Refresh(ctx context.Context, now time.Time) {
 			}
 		}
 		meta := panel.Meta()
+		if d.inflight[meta.ID] {
+			continue
+		}
 		if interval := meta.Interval; interval > 0 {
 			if last, seen := d.last[meta.ID]; seen && now.Sub(last) < interval {
 				continue
@@ -214,17 +247,58 @@ func (d *Deck) Refresh(ctx context.Context, now time.Time) {
 			continue // no interval: fetch once
 		}
 		d.last[meta.ID] = now
-		d.errs[meta.ID] = d.refreshOne(ctx, fetcher)
+		jobs = append(jobs, d.job(ctx, meta.ID, fetcher))
+	}
+	return jobs
+}
+
+// StartPanel returns a job refreshing one panel now, whatever its interval -
+// after a program it opened has changed its data, or its pane changed shape.
+// It returns nil for a panel that does not fetch, and for one already
+// refreshing, which is then due again the moment that refresh finishes.
+func (d *Deck) StartPanel(ctx context.Context, id string) func() Refreshed {
+	panel, ok := d.index[id]
+	if !ok {
+		return nil
+	}
+	if d.inflight[id] {
+		d.again[id] = true
+		return nil
+	}
+	fetcher, ok := panel.(Fetcher)
+	if !ok {
+		return nil
+	}
+	return d.job(ctx, id, fetcher)
+}
+
+// job marks a panel in flight and returns the work, capturing everything it
+// needs so it touches nothing of the deck's while it runs.
+func (d *Deck) job(ctx context.Context, id string, fetcher Fetcher) func() Refreshed {
+	d.inflight[id] = true
+	timeout := d.timeout
+	return func() Refreshed {
+		runCtx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		return Refreshed{ID: id, Err: fetcher.Refresh(runCtx)}
 	}
 }
 
-// refreshOne bounds a single refresh so one unreachable source cannot stall
-// the others.
-func (d *Deck) refreshOne(ctx context.Context, fetcher Fetcher) error {
-	runCtx, cancel := context.WithTimeout(ctx, d.timeout)
-	defer cancel()
-	return fetcher.Refresh(runCtx)
+// Finish records a job's result. It belongs on the UI goroutine, like every
+// other use of the deck.
+func (d *Deck) Finish(r Refreshed) {
+	delete(d.inflight, r.ID)
+	if d.again[r.ID] {
+		delete(d.again, r.ID)
+		d.RefreshNow(r.ID)
+	}
+	if _, ok := d.index[r.ID]; ok {
+		d.errs[r.ID] = r.Err
+	}
 }
+
+// Refreshing reports whether a panel's refresh is under way.
+func (d *Deck) Refreshing(id string) bool { return d.inflight[id] }
 
 // RefreshNow forces a panel to refresh on the next Refresh, which is what a
 // panel's own refresh action should do.

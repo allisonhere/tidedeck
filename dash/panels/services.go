@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/allisonhere/tideui"
@@ -21,6 +22,9 @@ const (
 // services shows the state of systemd units or Docker containers.
 type services struct {
 	dash.State[[]tideui.ServiceStatus]
+	// mu guards fetch, which Configure replaces on the UI goroutine while a
+	// refresh may be reading it in the background.
+	mu    sync.Mutex
 	fetch func(context.Context) ([]tideui.ServiceStatus, error)
 }
 
@@ -51,6 +55,8 @@ func (s *services) Schema() []dash.Field {
 // Docker socket. A bare "1" means the default socket, which is how the docker
 // key was already used.
 func (s *services) Configure(values dash.Values) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	units := values.List(systemdKey)
 	socket := strings.TrimSpace(values.String(dockerKey))
 	switch {
@@ -68,10 +74,13 @@ func (s *services) Configure(values dash.Values) error {
 }
 
 func (s *services) Refresh(ctx context.Context) error {
-	if s.fetch == nil {
+	s.mu.Lock()
+	fetch := s.fetch
+	s.mu.Unlock()
+	if fetch == nil {
 		return nil
 	}
-	statuses, err := s.fetch(ctx)
+	statuses, err := fetch(ctx)
 	if err != nil {
 		return err
 	}

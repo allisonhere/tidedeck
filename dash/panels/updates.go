@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/allisonhere/tideui"
@@ -24,6 +25,9 @@ const (
 // filesystem snapshot and can reboot, so it is never run from a dashboard.
 type updates struct {
 	dash.State[tideui.UpdateStatus]
+	// mu guards fetch, which Configure replaces on the UI goroutine while a
+	// refresh may be reading it in the background.
+	mu     sync.Mutex
 	helper string
 	fetch  func(context.Context) (tideui.UpdateStatus, error)
 }
@@ -59,6 +63,8 @@ func (u *updates) Schema() []dash.Field {
 // Configure rebuilds the fetcher only when the helper actually changed, so
 // reapplying settings does not discard a good reading for no reason.
 func (u *updates) Configure(values dash.Values) error {
+	u.mu.Lock()
+	defer u.mu.Unlock()
 	helper := strings.TrimSpace(values.String(aurHelperKey))
 	if helper == "" {
 		helper = defaultAURHelper
@@ -71,7 +77,10 @@ func (u *updates) Configure(values dash.Values) error {
 }
 
 func (u *updates) Refresh(ctx context.Context) error {
-	status, err := u.fetch(ctx)
+	u.mu.Lock()
+	fetch := u.fetch
+	u.mu.Unlock()
+	status, err := fetch(ctx)
 	if err != nil {
 		return err
 	}
